@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 sudo apt update
 sudo apt install build-essential automake mpich wget openmpi-* -y
 sudo git clone https://github.com/ThinkParQ/ior.git /home/ubuntu/ior

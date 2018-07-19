@@ -1,3 +1,6 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 # Download ILSVRC2012_img_train.tar ILSVRC2012_img_val.tar from imagenet website
 
 $TRAIN_DIR = train_data

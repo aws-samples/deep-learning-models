@@ -1,3 +1,6 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
 # PreRequisities
 # Install mxnet >=1.3b and gluoncv on each machine
 
