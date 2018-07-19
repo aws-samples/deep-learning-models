@@ -1,0 +1,349 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Deep Learning HPC Preflight
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Network Configuration"
+        Parameters:
+          - VPCName
+          - PublicSubnet1Param
+          - AZPublic1
+          - PrivateSubnet1Param
+          - AZPrivate1
+          - PrivateSubnet2Param
+      -
+        Label:
+          default: "DeepLearning Framework EC2 Worker and Parameter Layer"
+        Parameters:
+          - KeyName
+          - DeepLearningAMI
+          - GrafanaAccess
+          - DLWInstanceType
+          - DLWCount
+          - DLSInstanceType
+          - DLSCount
+      -
+        Label:
+          default: "BeeGFS Storage EC2 Layer"
+        Parameters:
+          - S3Bucket
+          - TemplateURLS3
+          - BeeMInstanceType
+          - BeeSInstanceType
+          - VolSize
+          - VolType
+          - RAMMountPointEC2
+          - ParallelMountEC2
+          - InitialStorageNodes
+
+Parameters:
+  S3Bucket:
+    Description: BeeGFS Install Source
+    Type: String
+
+
+  VPCName:
+    Description: Select the VPC to deploy resources in
+    Type: 'AWS::EC2::VPC::Id'
+    ConstraintDescription: Must be the name of an existing VPC Id
+
+  PublicSubnet1Param:
+    Description: Select the Public Subnet
+    Type: 'AWS::EC2::Subnet::Id'
+    ConstraintDescription: Must be the id of an existing Public Subnet
+
+  AZPublic1:
+    Description: Select the AZ of the Public Subnet
+    Type: 'AWS::EC2::AvailabilityZone::Name'
+    ConstraintDescription: Must be the AZ of the Public Subnet
+
+  AZPrivate1:
+    Description: Select the AZ of the Private Subnet
+    Type: 'AWS::EC2::AvailabilityZone::Name'
+    ConstraintDescription: Must be the AZ of the Private Subnet
+
+  PrivateSubnet2Param:
+    Description: Select the Private Subnet
+    Type: 'AWS::EC2::Subnet::Id'
+    ConstraintDescription: Must be the id of an existing Private Subnet
+
+  PrivateSubnet1Param:
+    Description: Select the Private Subnet
+    Type: 'AWS::EC2::Subnet::Id'
+    ConstraintDescription: Must be the id of an existing Private Subnet
+
+  KeyName:
+    Description: The EC2 Key Pair to allow SSH access to the instance
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+  GrafanaAccess:
+    Description: CIDR Block for Grafana Access in X.X.X.X/X format
+    Type: String
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
+    Default: 0.0.0.0/0
+
+  DLWInstanceType:
+    Description: Instance type to be used for the worker nodes.
+    Type: String
+    Default: p3.16xlarge
+    AllowedValues:
+      - p3.2xlarge
+      - p3.8xlarge
+      - p3.16xlarge
+
+  DLWCount:
+    Description: Number of deep learning execution GPU nodes.
+    Type: Number
+    Default: 2
+
+  DLSCount:
+    Description: Number of deep learning parameter server nodes.
+    Type: Number
+    Default: 0
+
+  DLSInstanceType:
+    Description: Instance type to be used for the MXNet parameter server(s)
+    Type: String
+    Default: m4.16xlarge
+    AllowedValues:
+      - m4.4xlarge
+      - m4.10xlarge
+      - m4.16xlarge
+      - r4.4xlarge
+      - r4.8xlarge
+      - r4.16xlarge
+
+  DeepLearningAMI:
+    Description:
+      DeepLearning AMI used for Worker/Server Node. Must contain the BeeGFS storage client driver
+      Contact @amrraga for details.
+    Default: ami-
+    Type: String
+
+  VolSize:
+    Description: Size (GB) for each storage target (RAM storage target) on the storage node.
+    Default: 150
+    Type: Number
+
+
+  RAMMountPointEC2:
+    Description: Provide mount point which will be created on each storage node
+    Type: String
+    Default: /mnt/ram
+
+  ParallelMountEC2:
+    Description: Provide mount point for the parallel BeeGFS clients
+    Type: String
+    Default: /mnt/parallel
+
+Mappings:
+  RegionMap:
+     us-east-1:
+        AMI:                                      ami-cd0f5cb6
+     us-west-1:
+        AMI:                                      ami-c8c4efa8
+     us-west-2:
+        AMI:                                      ami-6e1a0117
+     sa-east-1:
+        AMI:                                      ami-c1dbadad
+     ap-southeast-2:
+        AMI:                                      ami-d8b3aabb
+     ap-southeast-1:
+        AMI:                                      ami-5ed8433d
+     ap-northeast-1:
+        AMI:                                      ami-84e316e2
+     eu-west-1:
+        AMI:                                      ami-b96a9bc0
+     eu-central-1:
+        AMI:                                      ami-1118b67e
+
+Resources:
+  BastionEC2WaitCondition:
+    Type: AWS::CloudFormation::WaitCondition
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+        Count: 1
+
+  BastionEC2SG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Grafana Access to Instance
+      VpcId: !Ref VPCName
+      SecurityGroupIngress:
+        IpProtocol: tcp
+        FromPort: '3000'
+        ToPort: '3000'
+        CidrIp: !Ref GrafanaAccess
+
+  InstanceSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH Access to Instance
+      VpcId: !Ref VPCName
+      SecurityGroupIngress:
+        IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+
+  DLClusterSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DL cluster node ruleset
+      VpcId: !Ref VPCName
+
+  DLSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+        GroupId: !Ref DLClusterSG
+        IpProtocol: -1
+        FromPort: 1
+        ToPort: 65535
+        SourceSecurityGroupId: !Ref DLClusterSG
+
+  DLRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub DLRole_${AWS::StackName}
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                - 'ec2.amazonaws.com'
+              Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+      - PolicyName: DLS3-EC2
+        PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 'ec2:*'
+                Resource: '*'
+
+  DLInstanceProfile:
+    DependsOn: DLRole
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref DLRole
+
+  BastionSecondENI:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      Tags:
+      - Key: Name
+        Value: bastion-secondary-ip
+      Description: Bastion SecondaryIP
+      SourceDestCheck: 'false'
+      GroupSet: [ !Ref InstanceSG, !Ref DLClusterSG ]
+      SubnetId: !Ref PrivateSubnet1Param
+
+  BastionEC2:
+    DependsOn: BastionSecondENI
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: !Ref AZPublic1
+      IamInstanceProfile: !Ref DLInstanceProfile
+      ImageId: !Ref DeepLearningAMI
+      InstanceType: r4.large
+      KeyName: !Ref KeyName
+      SubnetId: !Ref PublicSubnet1Param
+      SecurityGroupIds: [ !Ref BastionEC2SG, !Ref InstanceSG, !Ref DLClusterSG ]
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: deeplearning-bas
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          sudo mkdir -p ${ParallelMountEC2}
+          sudo apt update
+          sudo apt install python-pip adduser libfontconfig wget curl -y
+          curl -sL https://packagecloud.io/gpg.key | sudo apt-key add -
+          echo deb "https://packagecloud.io/grafana/stable/debian/ stretch main" | sudo tee /etc/apt/sources.list.d/grafana.list
+          sudo apt-get update && sudo apt-get install grafana -y
+          sudo systemctl enable grafana-server
+          sudo systemctl start grafana-server
+          curl -sL https://repos.influxdata.com/influxdb.key | sudo apt-key add -
+          source /etc/lsb-release
+          echo "deb https://repos.influxdata.com/ubuntu xenial stable" | sudo tee /etc/apt/sources.list.d/influxdb.list
+          sudo apt-get update && sudo apt-get install influxdb -y
+          sudo systemctl enable influxdb
+          sudo systemctl start influxdb
+          sleep 3
+          sudo influx -execute 'CREATE DATABASE telegraf'
+          sudo influx -execute 'CREATE DATABASE beegfs_mon'
+          sudo curl --insecure 'http://admin:admin@127.0.0.1:3000/api/datasources' -X POST -H 'Content-Type: application/json;charset=UTF-8' --data-binary '{"name":"telegraf","type":"influxdb","url":"http://localhost:8086","access":"proxy","isDefault":true,"database":"telegraf","user":"admin","password":"admin"}'
+          sudo curl --insecure 'http://admin:admin@127.0.0.1:3000/api/datasources' -X POST -H 'Content-Type: application/json;charset=UTF-8' --data-binary '{"name":"beegfs_mon_influxdb","type":"influxdb","url":"http://localhost:8086","access":"proxy","isDefault":false,"database":"beegfs_mon","user":"admin","password":"admin"}'
+          sudo pip install awscli
+          sudo chmod +x /usr/local/bin/aws*
+          sudo pip2 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+          sudo chmod +x /usr/local/bin/cfn-*
+          sudo aws s3 cp s3://${S3Bucket}/monitor/telegraf.json /tmp/telegraf.json
+          sudo aws s3 cp s3://${S3Bucket}/monitor/beegfs.json /tmp/beegfs.json
+          sudo aws s3 cp s3://${S3Bucket}/monitor/beegfs-client.json /tmp/beegfs-client.json
+          sudo curl -i -u admin:admin -H "Content-Type: application/json" -X POST http://localhost:3000/api/dashboards/db -d @/tmp/telegraf.json
+          sudo aws s3 cp s3://${S3Bucket}/keys/id_rsa /home/ubuntu/.ssh/
+          sudo aws s3 cp s3://${S3Bucket}/keys/id_rsa.pub /home/ubuntu/.ssh/
+          sudo chown ubuntu:ubuntu /home/ubuntu/.ssh/id_rsa && sudo chmod 600 /home/ubuntu/.ssh/id_rsa
+          sudo chown ubuntu:ubuntu /home/ubuntu/.ssh/id_rsa.pub && sudo chmod 644 /home/ubuntu/.ssh/id_rsa.pub
+          aws s3 cp s3://${S3Bucket}/beegfs-mgmtd.sh /home/ubuntu/
+          chmod +x /home/ubuntu/beegfs-mgmtd.sh
+          sudo /home/ubuntu/beegfs-mgmtd.sh ${ParallelMountEC2}
+          /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource BastionEC2WaitCondition --region ${AWS::Region}
+
+  EC2Stack:
+    DependsOn: BastionEC2
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        DeepLearningAMI: !Ref DeepLearningAMI
+        PublicSubnet1Param: !Ref PublicSubnet1Param
+        AZPublic1: !Ref AZPublic1
+        PrivateSubnet1Param: !Ref PrivateSubnet1Param
+        PrivateSubnet2Param: !Ref PrivateSubnet2Param
+        AZPrivate1: !Ref AZPrivate1
+        DLSCount: !Ref DLSCount
+        DLWCount: !Ref DLWCount
+        KeyName: !Ref KeyName
+        VPCName: !Ref VPCName
+        S3Bucket: !Sub s3://${S3Bucket}
+        DLWInstanceType: !Ref DLWInstanceType
+        DLSInstanceType: !Ref DLSInstanceType
+        DLInstanceProfile: !Ref DLInstanceProfile
+        InstanceSG: !Ref InstanceSG
+        DLClusterSG: !Ref DLClusterSG
+        BastionIP: !Sub ${BastionEC2.PrivateDnsName}
+        VolSizeStorageUnit: !Ref VolSize
+        RAMMountPoint: !Ref RAMMountPointEC2
+        ParallelMount: !Ref ParallelMountEC2
+      TemplateURL: !Sub "https://s3.amazonaws.com/${S3Bucket}/deeplearning-worker_server.yml"
+      TimeoutInMinutes: 20
+
+Outputs:
+  VPC:
+    Description: VPC
+    Value: !Ref VPCName
+
+  BastionEC2Node:
+    Description: IP of Bastion Host
+    Value: !Sub ${BastionEC2.PublicIp}
+
+  GrafanaEndpoint:
+    Description: Grafana Endpoint
+    Value: !Sub ${BastionEC2.PublicIp}:3000

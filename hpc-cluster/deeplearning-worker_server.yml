@@ -1,0 +1,350 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Deploy the Deep Learning HPC Stack
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Network Configuration"
+        Parameters:
+          - VPCName
+          - PublicSubnet1Param
+          - AZPublic1
+          - PrivateSubnet1Param
+          - AZPrivate1
+          - PrivateSubnet2Param
+      -
+        Label:
+          default: "MXNet Cluster"
+        Parameters:
+          - S3Bucket
+          - DeepLearningAMI
+          - DLWInstanceType
+          - DLWCount
+          - DLSInstanceType
+          - DLSCount
+          - KeyName
+          - ParallelMount
+
+Parameters:
+  VPCName:
+    Description: Select the VPC to deploy resources in
+    Type: 'AWS::EC2::VPC::Id'
+    ConstraintDescription: Must be the name of an existing VPC Id
+
+  PublicSubnet1Param:
+    Description: Select the Public Subnet
+    Type: 'AWS::EC2::Subnet::Id'
+    ConstraintDescription: Must be the id of an existing Public Subnet
+
+  AZPublic1:
+    Description: Select the AZ of the Public Subnet
+    Type: 'AWS::EC2::AvailabilityZone::Name'
+    ConstraintDescription: Must be the AZ of the Public Subnet
+
+  AZPrivate1:
+    Description: Select the AZ of the Private Subnet
+    Type: 'AWS::EC2::AvailabilityZone::Name'
+    ConstraintDescription: Must be the AZ of the Private Subnet
+
+  PrivateSubnet1Param:
+    Description: Select the Private Subnet
+    Type: 'AWS::EC2::Subnet::Id'
+    ConstraintDescription: Must be the id of an existing Private Subnet
+
+  PrivateSubnet2Param:
+    Description: Select the Private Subnet
+    Type: 'AWS::EC2::Subnet::Id'
+    ConstraintDescription: Must be the id of an existing Private Subnet
+
+  KeyName:
+    Description: The EC2 Key Pair to allow SSH access to the instance
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+
+  DLWInstanceType:
+    Description: Instance type to be used for the worker nodes.
+    Type: String
+    Default: p3.2xlarge
+    AllowedValues:
+      - p3.2xlarge
+      - p3.8xlarge
+      - p3.16xlarge
+
+  DLWCount:
+    Description: Number of deep learning execution GPU nodes.
+    Type: Number
+    Default: 2
+
+  DLSCount:
+    Description: Number of deep learning parameter server nodes.
+    Type: Number
+    Default: 2
+
+  DLSInstanceType:
+    Description: Instance type to be used for the MXNet parameter server(s)
+    Type: String
+    Default: m4.16xlarge
+    AllowedValues:
+      - m4.4xlarge
+      - m4.10xlarge
+      - m4.16xlarge
+      - r4.4xlarge
+      - r4.8xlarge
+      - r4.16xlarge
+
+  DeepLearningAMI:
+    Description:
+      DeepLearning AMI used for Worker/Server Node. Must contain the BeeGFS storage client driver
+      Contact @amrraga for details.
+    Default: ami-
+    Type: String
+
+  ParallelMount:
+    Description: Provide mount point for the parallel BeeGFS clients
+    Type: String
+    Default: /mnt/parallel
+
+  S3Bucket:
+    Description: Bucket with the ssh keys
+    Type: String
+
+  GrafanaAccess:
+    Description: CIDR Block for Grafana Access in X.X.X.X/X format
+    Type: String
+    AllowedPattern: '((\d{1,3})\.){3}\d{1,3}/\d{1,2}'
+    Default: 0.0.0.0/0
+
+  DLInstanceProfile:
+    Description: Instance Profile to attach to Instance
+    Type: String
+
+  InstanceSG:
+    Description: Security Group for instances
+    Type: String
+
+  DLClusterSG:
+    Description: Master SG for Instances
+    Type: String
+
+  BastionIP:
+    Description: IP of Bastion Host
+    Type: String
+
+  VolSizeStorageUnit:
+    Description: Size (GB) for each EBS volume per storage node. Keep in mind that 4 EBS volumes will be created for each storage node. Allowed 10 to 16384 GB
+    Default: 20
+    Type: Number
+
+  RAMMountPoint:
+    Description: Provide mount point which will be created on each storage node
+    Type: String
+    Default: /mnt/ram
+
+Mappings:
+  RegionMap:
+     us-east-1:
+        AMI:                                      ami-cd0f5cb6
+     us-west-1:
+        AMI:                                      ami-c8c4efa8
+     us-west-2:
+        AMI:                                      ami-6e1a0117
+     sa-east-1:
+        AMI:                                      ami-c1dbadad
+     ap-southeast-2:
+        AMI:                                      ami-d8b3aabb
+     ap-southeast-1:
+        AMI:                                      ami-5ed8433d
+     ap-northeast-1:
+        AMI:                                      ami-84e316e2
+     eu-west-1:
+        AMI:                                      ami-b96a9bc0
+     eu-central-1:
+        AMI:                                      ami-1118b67e
+
+Resources:
+  DLWEC2WaitCondition:
+    Type: AWS::CloudFormation::WaitCondition
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT30M
+        Count: 1
+
+  PlacementGroup:
+    Type: AWS::EC2::PlacementGroup
+    Properties:
+      Strategy: cluster
+
+  DLWLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      IamInstanceProfile: !Ref DLInstanceProfile
+      ImageId: !Ref DeepLearningAMI
+      InstanceType: !Ref DLWInstanceType
+      KeyName: !Ref KeyName
+      SecurityGroups: [ !Ref InstanceSG, !Ref DLClusterSG ]
+      EbsOptimized: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          sudo apt update
+          sudo mkdir -p ${ParallelMount}
+          sudo apt install curl wget python-pip -y
+          sudo pip install awscli
+          sudo chmod +x /usr/local/bin/aws*
+          sudo pip2 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz
+          sudo chmod +x /usr/local/bin/cfn-*
+          curl -sL https://repos.influxdata.com/influxdb.key | sudo apt-key add -
+          source /etc/lsb-release
+          echo "deb https://repos.influxdata.com/ubuntu xenial stable" | sudo tee /etc/apt/sources.list.d/influxdb.list
+          sudo apt update && sudo apt-get install telegraf -y
+          sudo aws s3 cp ${S3Bucket}/monitor/telegraf.conf /tmp
+          sudo sed -i 's|@INFLUXHOST@|${BastionIP}|g' /tmp/telegraf.conf
+          sudo cp /tmp/telegraf.conf /etc/telegraf/
+          instance_type=$(curl -sS http://169.254.169.254/latest/meta-data/instance-type)
+          if [[ $instance_type = *"p"* ]] || [[ $instance_type = *"g"* ]]; then
+            sudo apt install golang -y
+            sudo mkdir -p /tmp/go
+            sudo aws s3 cp ${S3Bucket}/monitor/nvidia_smi.go /tmp/go/nvidia_smi.go
+            cd /tmp/go && sudo go build -o nvidia_smi
+            sudo mkdir -p /etc/telegraf/plugins && sudo cp /tmp/go/nvidia_smi /etc/telegraf/plugins
+            echo "[[inputs.exec]]" | sudo tee -a /etc/telegraf/telegraf.conf
+            echo "  command = '/etc/telegraf/plugins/nvidia_smi'" | sudo tee -a /etc/telegraf/telegraf.conf
+            echo "  data_format = 'influx'" | sudo tee -a /etc/telegraf/telegraf.conf
+          else
+            continue
+          fi
+          sudo systemctl enable telegraf
+          sudo systemctl restart telegraf
+          sudo aws s3 cp ${S3Bucket}/keys/id_rsa /home/ubuntu/.ssh/
+          sudo aws s3 cp ${S3Bucket}/keys/id_rsa.pub /home/ubuntu/.ssh/
+          sudo chown ubuntu:ubuntu /home/ubuntu/.ssh/id_rsa && sudo chmod 600 /home/ubuntu/.ssh/id_rsa
+          sudo chown ubuntu:ubuntu /home/ubuntu/.ssh/id_rsa.pub && sudo chmod 644 /home/ubuntu/.ssh/id_rsa.pub
+          sudo cat /home/ubuntu/.ssh/id_rsa.pub | tee -a /home/ubuntu/.ssh/authorized_keys
+          if [ ! -d "/etc/beegfs" ]; then
+            echo "deb [arch=amd64] http://www.beegfs.io/release/beegfs_7 deb9 non-free" | sudo tee -a /etc/apt/sources.list.d/beegfs.list
+            wget -q https://www.beegfs.io/release/latest-stable/gpg/DEB-GPG-KEY-beegfs -O- | sudo apt-key add -
+            sudo apt update
+            sudo apt install beegfs-helperd beegfs-client beegfs-utils -y
+            sudo echo "connMaxInternodeNum=256" >> /etc/beegfs/beegfs-client.conf
+            sudo echo "tuneRemoteFSync=false" >> /etc/beegfs/beegfs-client.conf
+          fi
+          INSTANCE_ID=$(curl -sS http://169.254.169.254/latest/meta-data/instance-id)
+          export AWS_DEFAULT_REGION=$(curl -sS http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk '{print $3}' | sed 's/"//g' | sed 's/,//g')
+          ENI_ID=$(aws ec2 create-network-interface --subnet ${PrivateSubnet2Param} --description 'Secondary ENI' --groups '${InstanceSG}' '${DLClusterSG}' --query 'NetworkInterface.NetworkInterfaceId' --output text)
+          ATTACHMENT_ID=$(aws ec2 attach-network-interface --network-interface-id $ENI_ID --instance-id $INSTANCE_ID --device-index 1 --output text)
+          aws ec2 modify-network-interface-attribute --network-interface-id $ENI_ID --attachment AttachmentId=$ATTACHMENT_ID,DeleteOnTermination=true --output text
+          sleep 10
+          aws s3 cp ${S3Bucket}/ramfs.sh /home/ubuntu/
+          chmod +x /home/ubuntu/ramfs.sh
+          sudo /home/ubuntu/ramfs.sh ${RAMMountPoint} ${VolSizeStorageUnit}
+          aws s3 cp ${S3Bucket}/beegfs-meta-storage.sh /home/ubuntu/
+          chmod +x /home/ubuntu/beegfs-meta-storage.sh
+          sudo /home/ubuntu/beegfs-meta-storage.sh ${BastionIP} ${RAMMountPoint}
+          sudo /opt/beegfs/sbin/beegfs-setup-client -m ${BastionIP}
+          sudo sed -i 's|/mnt/beegfs|${ParallelMount}|g' /etc/beegfs/beegfs-mounts.conf
+          sleep 30
+          sudo echo "sysMountSanityCheckMS=0" >> /etc/beegfs/beegfs-client.conf
+          sudo systemctl restart beegfs-helperd
+          sudo systemctl restart beegfs-client
+          /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource DLWEC2WaitCondition --region ${AWS::Region}
+
+
+  DLSLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      IamInstanceProfile: !Ref DLInstanceProfile
+      ImageId: !Ref DeepLearningAMI
+      InstanceType: !Ref DLSInstanceType
+      KeyName: !Ref KeyName
+      SecurityGroups: [ !Ref InstanceSG, !Ref DLClusterSG ]
+      EbsOptimized: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          sudo apt update
+          sudo apt install curl wget python-pip -y
+          sudo pip install awscli
+          sudo chmod +x /usr/local/bin/aws*
+          curl -sL https://repos.influxdata.com/influxdb.key | sudo apt-key add -
+          source /etc/lsb-release
+          echo "deb https://repos.influxdata.com/ubuntu xenial stable" | sudo tee /etc/apt/sources.list.d/influxdb.list
+          sudo apt update
+          sudo apt install telegraf -y
+          sudo aws s3 cp ${S3Bucket}/monitor/telegraf.conf /tmp
+          sudo sed -i 's|@INFLUXHOST@|${BastionIP}|g' /tmp/telegraf.conf
+          sudo cp /tmp/telegraf.conf /etc/telegraf/
+          if [[ $instance_type = *"p"* ]] || [[ $instance_type = *"g"* ]]; then
+            sudo apt install golang -y
+            sudo mkdir -p /tmp/go
+            sudo aws s3 cp ${S3Bucket}/monitor/nvidia_smi.go /tmp/go/nvidia_smi.go
+            cd /tmp/go && go build -o nvidia_smi
+            sudo mkdir -p /etc/telegraf/plugins && sudo cp /tmp/go/nvidia_smi /etc/telegraf/plugins
+            echo "[[inputs.exec]]" | sudo tee -a /etc/telegraf/telegraf.conf
+            echo "  command = '/etc/telegraf/plugins/nvidia_smi'" | sudo tee -a /etc/telegraf/telegraf.conf
+            echo "  data_format = 'influx'" | sudo tee -a /etc/telegraf/telegraf.conf
+          else
+            continue
+          fi
+          sudo systemctl enable telegraf
+          sudo systemctl restart telegraf
+          sudo aws s3 cp ${S3Bucket}/keys/id_rsa /home/ubuntu/.ssh/
+          sudo aws s3 cp ${S3Bucket}/keys/id_rsa.pub /home/ubuntu/.ssh/
+          sudo chown ubuntu:ubuntu /home/ubuntu/.ssh/id_rsa && sudo chmod 600 /home/ubuntu/.ssh/id_rsa
+          sudo chown ubuntu:ubuntu /home/ubuntu/.ssh/id_rsa.pub && sudo chmod 644 /home/ubuntu/.ssh/id_rsa.pub
+          sudo cat /home/ubuntu/.ssh/id_rsa.pub | tee -a /home/ubuntu/.ssh/authorized_keys
+
+
+
+  DLWorkerASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AvailabilityZones: [!Ref AZPrivate1]
+      DesiredCapacity: !Ref DLWCount
+      LaunchConfigurationName: !Ref DLWLaunchConfig
+      MaxSize: !Ref DLWCount
+      MinSize: 0
+      PlacementGroup: !Ref PlacementGroup
+      VPCZoneIdentifier: [!Ref PrivateSubnet1Param]
+      Tags:
+        - Key: Name
+          Value: deeplearning-gpu-processor
+          PropagateAtLaunch: true
+
+  DLServerASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AvailabilityZones: [!Ref AZPrivate1]
+      DesiredCapacity: !Ref DLSCount
+      LaunchConfigurationName: !Ref DLSLaunchConfig
+      MaxSize: !Ref DLSCount
+      MinSize: 0
+      PlacementGroup: !Ref PlacementGroup
+      VPCZoneIdentifier: [!Ref PrivateSubnet1Param]
+      Tags:
+        - Key: Name
+          Value: deeplearning-parameter
+          PropagateAtLaunch: true
+
+Outputs:
+  VPC:
+    Description: VPC
+    Value: !Ref VPCName
+  PublicSubnet1:
+    Description: Public Subnet
+    Value: !Ref PublicSubnet1Param
+  PrivateSubnet1:
+    Description: Private Subnet
+    Value: !Ref PrivateSubnet1Param
+  InstanceSG:
+    Description: SecurityGroup
+    Value: !Ref InstanceSG
+
+  AZ1:
+    Description: Availability Zone 1 - Public Subnet
+    Value: !Ref AZPublic1
+  AZ2:
+    Description: Availability Zone 2 - Private Subnet
+    Value: !Ref AZPrivate1
+
