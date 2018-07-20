@@ -391,7 +391,7 @@ class LogSessionRunHook(tf.train.SessionRunHook):
             dt = self.elapsed_secs / self.count
             img_per_sec = self.global_batch_size / dt
             epoch = global_step * self.global_batch_size / self.num_records
-            rank0log(self.logger, '%6i %5.1f %7.1f %6.3f %6.3f %7.5f' %
+            self.logger.info('%6i %5.1f %7.1f %6.3f %6.3f %7.5f' %
                   (global_step, epoch, img_per_sec, loss, total_loss, lr))
             self.elapsed_secs = 0.
             self.count = 0
