@@ -26,6 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import print_function
+
 try:
     from builtins import range
 except ImportError:
@@ -46,8 +47,10 @@ import logging
 import re
 from glob import glob
 from operator import itemgetter
+
 # suppress TF info and warning messages
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 
 def rank0log(logger, *args, **kwargs):
     if hvd.rank() == 0:
@@ -56,32 +59,33 @@ def rank0log(logger, *args, **kwargs):
         else:
             print(*args, **kwargs)
 
+
 class LayerBuilder(object):
     def __init__(self, activation=None, data_format='channels_last',
                  training=False, use_batch_norm=False, batch_norm_config=None,
                  conv_initializer=None, adv_bn_init=False):
-        self.activation        = activation
-        self.data_format       = data_format
-        self.training          = training
-        self.use_batch_norm    = use_batch_norm
+        self.activation = activation
+        self.data_format = data_format
+        self.training = training
+        self.use_batch_norm = use_batch_norm
         self.batch_norm_config = batch_norm_config
-        self.conv_initializer  = conv_initializer
-        self.adv_bn_init       = adv_bn_init
+        self.conv_initializer = conv_initializer
+        self.adv_bn_init = adv_bn_init
         if self.batch_norm_config is None:
             self.batch_norm_config = {
-                'decay':   0.9,
+                'decay': 0.9,
                 'epsilon': 1e-4,
-                'scale':   True,
+                'scale': True,
                 'zero_debias_moving_mean': False,
             }
 
     def _conv2d(self, inputs, activation, *args, **kwargs):
         x = tf.layers.conv2d(
-                inputs, data_format=self.data_format,
-                use_bias=not self.use_batch_norm,
-                kernel_initializer=self.conv_initializer,
-                activation=None if self.use_batch_norm else activation,
-                *args, **kwargs)
+            inputs, data_format=self.data_format,
+            use_bias=not self.use_batch_norm,
+            kernel_initializer=self.conv_initializer,
+            activation=None if self.use_batch_norm else activation,
+            *args, **kwargs)
         if self.use_batch_norm:
             x = self.batch_norm(x)
             x = activation(x) if activation is not None else x
@@ -89,14 +93,14 @@ class LayerBuilder(object):
 
     def conv2d_linear_last_bn(self, inputs, *args, **kwargs):
         x = tf.layers.conv2d(
-                inputs, data_format=self.data_format,
-                use_bias=False,
-                kernel_initializer=self.conv_initializer,
-                activation=None, *args, **kwargs)
-        param_initializers={
-            'moving_mean':     tf.zeros_initializer(),
+            inputs, data_format=self.data_format,
+            use_bias=False,
+            kernel_initializer=self.conv_initializer,
+            activation=None, *args, **kwargs)
+        param_initializers = {
+            'moving_mean': tf.zeros_initializer(),
             'moving_variance': tf.ones_initializer(),
-            'beta':            tf.zeros_initializer(),
+            'beta': tf.zeros_initializer(),
         }
         if self.adv_bn_init:
             param_initializers['gamma'] = tf.zeros_initializer()
@@ -114,10 +118,14 @@ class LayerBuilder(object):
     def pad2d(self, inputs, begin, end=None):
         if end is None:
             end = begin
-        try: _ = begin[1]
-        except TypeError: begin = [begin, begin]
-        try: _ = end[1]
-        except TypeError: end = [end, end]
+        try:
+            _ = begin[1]
+        except TypeError:
+            begin = [begin, begin]
+        try:
+            _ = end[1]
+        except TypeError:
+            end = [end, end]
         if self.data_format == 'channels_last':
             padding = [[0, 0], [begin[0], end[0]], [begin[1], end[1]], [0, 0]]
         else:
@@ -175,7 +183,7 @@ class LayerBuilder(object):
     def residual2d(self, inputs, network, units=None, scale=1.0, activate=False):
         outputs = network(inputs)
         c_axis = -1 if self.data_format == 'channels_last' else 1
-        h_axis =  1 if self.data_format == 'channels_last' else 2
+        h_axis = 1 if self.data_format == 'channels_last' else 2
         w_axis = h_axis + 1
         ishape, oshape = [y.get_shape().as_list() for y in [inputs, outputs]]
         ichans, ochans = ishape[c_axis], oshape[c_axis]
@@ -189,10 +197,11 @@ class LayerBuilder(object):
                 x = self.activate(x)
         return x
 
+
 def resnet_bottleneck_v1(builder, inputs, depth, depth_bottleneck, stride,
                          basic=False):
     num_inputs = inputs.get_shape().as_list()[1]
-    x  = inputs
+    x = inputs
     with tf.name_scope('resnet_v1'):
         if depth == num_inputs:
             if stride == 1:
@@ -203,30 +212,32 @@ def resnet_bottleneck_v1(builder, inputs, depth, depth_bottleneck, stride,
             shortcut = builder.conv2d_linear(x, depth, 1, stride, 'SAME')
         if basic:
             x = builder.pad2d(x, 1)
-            x = builder.conv2d(       x, depth_bottleneck, 3, stride, 'VALID')
-            x = builder.conv2d_linear(x, depth,            3, 1,      'SAME')
+            x = builder.conv2d(x, depth_bottleneck, 3, stride, 'VALID')
+            x = builder.conv2d_linear(x, depth, 3, 1, 'SAME')
         else:
-            x = builder.conv2d(       x, depth_bottleneck, 1, 1, 'SAME')
-            x = builder.conv2d(       x, depth_bottleneck, 3, stride,      'SAME')
+            x = builder.conv2d(x, depth_bottleneck, 1, 1, 'SAME')
+            x = builder.conv2d(x, depth_bottleneck, 3, stride, 'SAME')
             # x = builder.conv2d_linear(x, depth,            1, 1,      'SAME')
             x = builder.conv2d_linear_last_bn(x, depth, 1, 1, 'SAME')
         x = tf.nn.relu(x + shortcut)
         return x
 
+
 def inference_resnet_v1_impl(builder, inputs, layer_counts, basic=False):
     x = inputs
     x = builder.pad2d(x, 3)
-    x = builder.conv2d(       x, 64, 7, 2, 'VALID')
-    x = builder.max_pooling2d(x,     3, 2, 'SAME')
+    x = builder.conv2d(x, 64, 7, 2, 'VALID')
+    x = builder.max_pooling2d(x, 3, 2, 'SAME')
     for i in range(layer_counts[0]):
-        x = resnet_bottleneck_v1(builder, x,  256,  64, 1, basic)
+        x = resnet_bottleneck_v1(builder, x, 256, 64, 1, basic)
     for i in range(layer_counts[1]):
-        x = resnet_bottleneck_v1(builder, x,  512, 128, 2 if i==0 else 1, basic)
+        x = resnet_bottleneck_v1(builder, x, 512, 128, 2 if i == 0 else 1, basic)
     for i in range(layer_counts[2]):
-        x = resnet_bottleneck_v1(builder, x, 1024, 256, 2 if i==0 else 1, basic)
+        x = resnet_bottleneck_v1(builder, x, 1024, 256, 2 if i == 0 else 1, basic)
     for i in range(layer_counts[3]):
-        x = resnet_bottleneck_v1(builder, x, 2048, 512, 2 if i==0 else 1, basic)
+        x = resnet_bottleneck_v1(builder, x, 2048, 512, 2 if i == 0 else 1, basic)
     return builder.spatial_average2d(x)
+
 
 def inference_resnet_v1(inputs, nlayer, data_format='channels_last',
                         training=False, conv_initializer=None, adv_bn_init=False):
@@ -235,26 +246,35 @@ def inference_resnet_v1(inputs, nlayer, data_format='channels_last',
     """
     builder = LayerBuilder(tf.nn.relu, data_format, training, use_batch_norm=True,
                            conv_initializer=conv_initializer, adv_bn_init=adv_bn_init)
-    if   nlayer ==  18: return inference_resnet_v1_impl(builder, inputs, [2,2, 2,2], basic=True)
-    elif nlayer ==  34: return inference_resnet_v1_impl(builder, inputs, [3,4, 6,3], basic=True)
-    elif nlayer ==  50: return inference_resnet_v1_impl(builder, inputs, [3,4, 6,3])
-    elif nlayer == 101: return inference_resnet_v1_impl(builder, inputs, [3,4,23,3])
-    elif nlayer == 152: return inference_resnet_v1_impl(builder, inputs, [3,8,36,3])
-    else: raise ValueError("Invalid nlayer (%i); must be one of: 18,34,50,101,152" %
-                           nlayer)
-    
+    if nlayer == 18:
+        return inference_resnet_v1_impl(builder, inputs, [2, 2, 2, 2], basic=True)
+    elif nlayer == 34:
+        return inference_resnet_v1_impl(builder, inputs, [3, 4, 6, 3], basic=True)
+    elif nlayer == 50:
+        return inference_resnet_v1_impl(builder, inputs, [3, 4, 6, 3])
+    elif nlayer == 101:
+        return inference_resnet_v1_impl(builder, inputs, [3, 4, 23, 3])
+    elif nlayer == 152:
+        return inference_resnet_v1_impl(builder, inputs, [3, 8, 36, 3])
+    else:
+        raise ValueError("Invalid nlayer (%i); must be one of: 18,34,50,101,152" %
+                         nlayer)
+
+
 def get_model_func(model_name):
-    if   model_name.startswith('resnet'):
+    if model_name.startswith('resnet'):
         nlayer = int(model_name[len('resnet'):])
         return lambda images, *args, **kwargs: \
             inference_resnet_v1(images, nlayer, *args, **kwargs)
-    else: raise ValueError("Invalid model type: %s" % model_name)
+    else:
+        raise ValueError("Invalid model type: %s" % model_name)
+
 
 def deserialize_image_record(record):
     feature_map = {
-        'image/encoded':          tf.FixedLenFeature([ ], tf.string, ''),
-        'image/class/label':      tf.FixedLenFeature([1], tf.int64,  -1),
-        'image/class/text':       tf.FixedLenFeature([ ], tf.string, ''),
+        'image/encoded': tf.FixedLenFeature([], tf.string, ''),
+        'image/class/label': tf.FixedLenFeature([1], tf.int64, -1),
+        'image/class/text': tf.FixedLenFeature([], tf.string, ''),
         'image/object/bbox/xmin': tf.VarLenFeature(dtype=tf.float32),
         'image/object/bbox/ymin': tf.VarLenFeature(dtype=tf.float32),
         'image/object/bbox/xmax': tf.VarLenFeature(dtype=tf.float32),
@@ -263,17 +283,19 @@ def deserialize_image_record(record):
     with tf.name_scope('deserialize_image_record'):
         obj = tf.parse_single_example(record, feature_map)
         imgdata = obj['image/encoded']
-        label   = tf.cast(obj['image/class/label'], tf.int32)
-        bbox    = tf.stack([obj['image/object/bbox/%s'%x].values
-                            for x in ['ymin', 'xmin', 'ymax', 'xmax']])
-        bbox = tf.transpose(tf.expand_dims(bbox, 0), [0,2,1])
-        text    = obj['image/class/text']
+        label = tf.cast(obj['image/class/label'], tf.int32)
+        bbox = tf.stack([obj['image/object/bbox/%s' % x].values
+                         for x in ['ymin', 'xmin', 'ymax', 'xmax']])
+        bbox = tf.transpose(tf.expand_dims(bbox, 0), [0, 2, 1])
+        text = obj['image/class/text']
         return imgdata, label, bbox, text
+
 
 def decode_jpeg(imgdata, channels=3):
     return tf.image.decode_jpeg(imgdata, channels=channels,
                                 fancy_upscaling=False,
                                 dct_method='INTEGER_FAST')
+
 
 def crop_and_resize_image(image, original_bbox, height, width, distort=False):
     with tf.name_scope('crop_and_resize'):
@@ -281,41 +303,46 @@ def crop_and_resize_image(image, original_bbox, height, width, distort=False):
         eval_crop_ratio = 0.8
         if distort:
             initial_shape = [int(round(height / eval_crop_ratio)),
-                             int(round(width  / eval_crop_ratio)),
+                             int(round(width / eval_crop_ratio)),
                              3]
             bbox_begin, bbox_size, bbox = \
                 tf.image.sample_distorted_bounding_box(
                     initial_shape,
-                    bounding_boxes=tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32, shape=[1,1,4]),# tf.zeros(shape=[1,0,4]), # No bounding boxes
+                    bounding_boxes=tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32, shape=[1, 1, 4]),
+                    # tf.zeros(shape=[1,0,4]), # No bounding boxes
                     min_object_covered=0.1,
                     aspect_ratio_range=[3. / 4., 4. / 3.],
                     area_range=[0.08, 1.0],
                     max_attempts=100,
-                    seed=11 * hvd.rank(), # Need to set for deterministic results
+                    seed=11 * hvd.rank(),  # Need to set for deterministic results
                     use_image_if_no_bounding_boxes=True)
-            bbox = bbox[0,0] # Remove batch, box_idx dims
+            bbox = bbox[0, 0]  # Remove batch, box_idx dims
         else:
             # Central crop
             ratio_y = ratio_x = eval_crop_ratio
             bbox = tf.constant([0.5 * (1 - ratio_y), 0.5 * (1 - ratio_x),
                                 0.5 * (1 + ratio_y), 0.5 * (1 + ratio_x)])
         image = tf.image.crop_and_resize(
-            image[None,:,:,:], bbox[None,:], [0], [height, width])[0]
+            image[None, :, :, :], bbox[None, :], [0], [height, width])[0]
         image = tf.clip_by_value(image, 0., 255.)
         image = tf.cast(image, tf.uint8)
         return image
 
+
 def parse_and_preprocess_image_record(record, counter, height, width,
                                       distort=False, nsummary=10):
     imgdata, label, bbox, text = deserialize_image_record(record)
-    label -= 1 # Change to 0-based (don't use background class)
+    label -= 1  # Change to 0-based (don't use background class)
     with tf.name_scope('preprocess_train'):
-        try:    image = decode_jpeg(imgdata, channels=3)
-        except: image = tf.image.decode_png(imgdata, channels=3)
+        try:
+            image = decode_jpeg(imgdata, channels=3)
+        except:
+            image = tf.image.decode_png(imgdata, channels=3)
         image = crop_and_resize_image(image, bbox, height, width, distort)
         if distort:
             image = tf.image.random_flip_left_right(image)
         return image, label
+
 
 def make_dataset(filenames, take_count, batch_size, height, width,
                  training=False, num_threads=10, nsummary=10, shard=False):
@@ -323,7 +350,7 @@ def make_dataset(filenames, take_count, batch_size, height, width,
     num_readers = 1
     if hvd.size() > len(filenames):
         assert (hvd.size() % len(filenames)) == 0
-        filenames = filenames * (hvd.size() / len(filenames)) 
+        filenames = filenames * (hvd.size() / len(filenames))
     ds = tf.data.Dataset.from_tensor_slices(filenames)
 
     if shard:
@@ -331,8 +358,8 @@ def make_dataset(filenames, take_count, batch_size, height, width,
         ds = ds.shard(hvd.size(), hvd.rank())
 
     if not training:
-        ds = ds.take(take_count) # make sure all ranks have the same amount
-            
+        ds = ds.take(take_count)  # make sure all ranks have the same amount
+
     if training:
         ds = ds.repeat()
         ds = ds.shuffle(shuffle_buffer_size, seed=5 * (1 + hvd.rank()))
@@ -350,22 +377,25 @@ def make_dataset(filenames, take_count, batch_size, height, width,
     ds = ds.batch(batch_size)
     return ds
 
+
 def stage(tensors):
     """Stages the given tensors in a StagingArea for asynchronous put/get.
     """
     stage_area = data_flow_ops.StagingArea(
-        dtypes=[tensor.dtype       for tensor in tensors],
+        dtypes=[tensor.dtype for tensor in tensors],
         shapes=[tensor.get_shape() for tensor in tensors])
-    put_op      = stage_area.put(tensors)
+    put_op = stage_area.put(tensors)
     get_tensors = stage_area.get()
     tf.add_to_collection('STAGING_AREA_PUTS', put_op)
     return put_op, get_tensors
+
 
 class PrefillStagingAreasHook(tf.train.SessionRunHook):
     def after_create_session(self, session, coord):
         enqueue_ops = tf.get_collection('STAGING_AREA_PUTS')
         for i in range(len(enqueue_ops)):
-            session.run(enqueue_ops[:i+1])
+            session.run(enqueue_ops[:i + 1])
+
 
 class LogSessionRunHook(tf.train.SessionRunHook):
     def __init__(self, global_batch_size, num_records, display_every=10, logger=None):
@@ -378,11 +408,13 @@ class LogSessionRunHook(tf.train.SessionRunHook):
         rank0log(self.logger, '  Step Epoch Speed   Loss  FinLoss	Accuracy LR')
         self.elapsed_secs = 0.
         self.count = 0
+
     def before_run(self, run_context):
         self.t0 = time.time()
         return tf.train.SessionRunArgs(
             fetches=[tf.train.get_global_step(),
                      'loss:0', 'total_loss:0', 'learning_rate:0'])
+
     def after_run(self, run_context, run_values):
         self.elapsed_secs += time.time() - self.t0
         self.count += 1
@@ -392,14 +424,14 @@ class LogSessionRunHook(tf.train.SessionRunHook):
             img_per_sec = self.global_batch_size / dt
             epoch = global_step * self.global_batch_size / self.num_records
             self.logger.info('%6i %5.1f %7.1f %6.3f %6.3f %7.5f' %
-                  (global_step, epoch, img_per_sec, loss, total_loss, lr))
+                             (global_step, epoch, img_per_sec, loss, total_loss, lr))
             self.elapsed_secs = 0.
             self.count = 0
+
 
 def _fp32_trainvar_getter(getter, name, shape=None, dtype=None,
                           trainable=True, regularizer=None,
                           *args, **kwargs):
-    
     storage_dtype = tf.float32 if trainable else dtype
     variable = getter(name, shape, dtype=storage_dtype,
                       trainable=trainable,
@@ -416,12 +448,14 @@ def _fp32_trainvar_getter(getter, name, shape=None, dtype=None,
         variable = cast_variable
     return variable
 
+
 def fp32_trainable_vars(name='fp32_vars', *args, **kwargs):
     """A varible scope with custom variable getter to convert fp16 trainable
     variables with fp32 storage followed by fp16 cast.
     """
     return tf.variable_scope(
         name, custom_getter=_fp32_trainvar_getter, *args, **kwargs)
+
 
 class MixedPrecisionOptimizer(tf.train.Optimizer):
     """An optimizer that updates trainable variables in fp32."""
@@ -432,17 +466,17 @@ class MixedPrecisionOptimizer(tf.train.Optimizer):
                  use_locking=False):
         super(MixedPrecisionOptimizer, self).__init__(
             name=name, use_locking=use_locking)
-        self._optimizer=optimizer
+        self._optimizer = optimizer
         self._scale = float(scale) if scale is not None else 1.0
 
     def compute_gradients(self, loss, var_list=None, *args, **kwargs):
         if var_list is None:
             var_list = (
-                tf.trainable_variables() +
-                tf.get_collection(tf.GraphKeys.TRAINABLE_RESOURCE_VARIABLES))
+                    tf.trainable_variables() +
+                    tf.get_collection(tf.GraphKeys.TRAINABLE_RESOURCE_VARIABLES))
 
         replaced_list = var_list
-        
+
         if self._scale != 1.0:
             loss = tf.scalar_mul(self._scale, loss)
 
@@ -453,31 +487,34 @@ class MixedPrecisionOptimizer(tf.train.Optimizer):
             if var is not orig_var:
                 grad = tf.cast(grad, orig_var.dtype)
             if self._scale != 1.0:
-                grad = tf.scalar_mul(1./self._scale, grad)
+                grad = tf.scalar_mul(1. / self._scale, grad)
             final_gradvar.append((grad, orig_var))
-            
+
         return final_gradvar
 
     def apply_gradients(self, *args, **kwargs):
         return self._optimizer.apply_gradients(*args, **kwargs)
 
+
 def get_with_default(obj, key, default_value):
     return obj[key] if key in obj and obj[key] is not None else default_value
+
 
 def get_lr(lr, steps, lr_steps, warmup_it, decay_steps, global_step, lr_decay_mode):
     if lr_decay_mode == 'steps':
         learning_rate = tf.train.piecewise_constant(global_step,
                                                     steps, lr_steps)
     elif lr_decay_mode == 'poly':
-        learning_rate = tf.train.polynomial_decay(lr, 
-                                        global_step - warmup_it,
-                                        decay_steps=decay_steps - warmup_it,
-                                        end_learning_rate=0.00001,
-                                        power=2,
-                                        cycle=False)
+        learning_rate = tf.train.polynomial_decay(lr,
+                                                  global_step - warmup_it,
+                                                  decay_steps=decay_steps - warmup_it,
+                                                  end_learning_rate=0.00001,
+                                                  power=2,
+                                                  cycle=False)
     else:
         raise ValueError('Invalid type of lr_decay_mode')
     return learning_rate
+
 
 def warmup_decay(warmup_lr, global_step, warmup_steps, warmup_end_lr):
     from tensorflow.python.ops import math_ops
@@ -486,29 +523,29 @@ def warmup_decay(warmup_lr, global_step, warmup_steps, warmup_end_lr):
     res = math_ops.add(warmup_lr, math_ops.multiply(diff, p))
     return res
 
+
 def cnn_model_function(features, labels, mode, params):
-    labels = tf.reshape(labels, (-1,)) # Squash unnecessary unary dim
-    lr         = params['lr']
-    lr_steps      = params['lr_steps']
-    steps         = params['steps']
+    labels = tf.reshape(labels, (-1,))  # Squash unnecessary unary dim
+    lr = params['lr']
+    lr_steps = params['lr_steps']
+    steps = params['steps']
     lr_decay_mode = params['lr_decay_mode']
-    decay_steps   = params['decay_steps']
-    model_name    = params['model']
-    num_classes   = params['n_classes']
-    model_dtype   = get_with_default(params, 'dtype', tf.float32)
-    model_format  = get_with_default(params, 'format', 'channels_first')
-    deterministic = get_with_default(params, 'deterministic', False)
-    device        = get_with_default(params, 'device', '/gpu:0')
+    decay_steps = params['decay_steps']
+    model_name = params['model']
+    num_classes = params['n_classes']
+    model_dtype = get_with_default(params, 'dtype', tf.float32)
+    model_format = get_with_default(params, 'format', 'channels_first')
+    device = get_with_default(params, 'device', '/gpu:0')
     model_func = get_model_func(model_name)
-    inputs = features # TODO: Should be using feature columns?
+    inputs = features  # TODO: Should be using feature columns?
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
-    momentum     = params ['mom']
-    weight_decay = params ['wdecay']
-    warmup_lr    = params['warmup_lr']
-    warmup_it    = params['warmup_it']
-    loss_scale   = params['loss_scale']
-    adv_bn_init  = params['adv_bn_init']
-    conv_init    = params['conv_init']
+    momentum = params['mom']
+    weight_decay = params['wdecay']
+    warmup_lr = params['warmup_lr']
+    warmup_it = params['warmup_it']
+    loss_scale = params['loss_scale']
+    adv_bn_init = params['adv_bn_init']
+    conv_init = params['conv_init']
 
     if mode == tf.estimator.ModeKeys.TRAIN:
         with tf.device('/cpu:0'):
@@ -519,18 +556,18 @@ def cnn_model_function(features, labels, mode, params):
             gpucopy_op, (inputs, labels) = stage([inputs, labels])
         inputs = tf.cast(inputs, model_dtype)
         imagenet_mean = np.array([121, 115, 100], dtype=np.float32)
-        imagenet_std  = np.array([ 70,  68,  71], dtype=np.float32)
+        imagenet_std = np.array([70, 68, 71], dtype=np.float32)
         inputs = tf.subtract(inputs, imagenet_mean)
         inputs = tf.multiply(inputs, 1. / imagenet_std)
         if model_format == 'channels_first':
-            inputs = tf.transpose(inputs, [0,3,1,2])
+            inputs = tf.transpose(inputs, [0, 3, 1, 2])
         with fp32_trainable_vars(
                 regularizer=tf.contrib.layers.l2_regularizer(weight_decay)):
             top_layer = model_func(
                 inputs, data_format=model_format, training=is_training,
                 conv_initializer=conv_init, adv_bn_init=adv_bn_init)
             logits = tf.layers.dense(top_layer, num_classes,
-                kernel_initializer=tf.random_normal_initializer(stddev=0.01))
+                                     kernel_initializer=tf.random_normal_initializer(stddev=0.01))
         predicted_classes = tf.argmax(logits, axis=1, output_type=tf.int32)
         logits = tf.cast(logits, tf.float32)
         if mode == tf.estimator.ModeKeys.PREDICT:
@@ -543,10 +580,10 @@ def cnn_model_function(features, labels, mode, params):
             return tf.estimator.EstimatorSpec(mode, predictions=predictions)
         loss = tf.losses.sparse_softmax_cross_entropy(
             logits=logits, labels=labels)
-        loss = tf.identity(loss, name='loss') # For access by logger (TODO: Better way to access it?)
-        
+        loss = tf.identity(loss, name='loss')  # For access by logger (TODO: Better way to access it?)
+
         if mode == tf.estimator.ModeKeys.EVAL:
-            with tf.device(None): # Allow fallback to CPU if no GPU support for these ops
+            with tf.device(None):  # Allow fallback to CPU if no GPU support for these ops
                 accuracy = tf.metrics.accuracy(
                     labels=labels, predictions=predicted_classes)
                 top5acc = tf.metrics.mean(
@@ -556,21 +593,21 @@ def cnn_model_function(features, labels, mode, params):
                 metrics = {'val-top1acc': newaccuracy, 'val-top5acc': newtop5acc}
             return tf.estimator.EstimatorSpec(
                 mode, loss=loss, eval_metric_ops=metrics)
-        
-        assert(mode == tf.estimator.ModeKeys.TRAIN)
+
+        assert (mode == tf.estimator.ModeKeys.TRAIN)
         reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         total_loss = tf.add_n([loss] + reg_losses, name='total_loss')
-        
+
         batch_size = tf.shape(inputs)[0]
 
         global_step = tf.train.get_global_step()
-        
-        with tf.device('/cpu:0'): # Allow fallback to CPU if no GPU support for these ops        
+
+        with tf.device('/cpu:0'):  # Allow fallback to CPU if no GPU support for these ops
             learning_rate = tf.cond(global_step < warmup_it,
                                     lambda: warmup_decay(warmup_lr, global_step, warmup_it,
                                                          lr),
                                     lambda: get_lr(lr, steps, lr_steps, warmup_it, decay_steps, global_step,
-                                                    lr_decay_mode))
+                                                   lr_decay_mode))
             learning_rate = tf.identity(learning_rate, 'learning_rate')
             tf.summary.scalar('learning_rate', learning_rate)
 
@@ -580,15 +617,15 @@ def cnn_model_function(features, labels, mode, params):
         opt = MixedPrecisionOptimizer(opt, scale=loss_scale)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS) or []
         with tf.control_dependencies(update_ops):
-            gate_gradients = (tf.train.Optimizer.GATE_OP if deterministic else
-                              tf.train.Optimizer.GATE_NONE)
+            gate_gradients = (tf.train.Optimizer.GATE_NONE)
             train_op = opt.minimize(
                 total_loss, global_step=tf.train.get_global_step(),
                 gate_gradients=gate_gradients)
-        train_op = tf.group(preload_op, gpucopy_op, train_op)#, update_ops)
+        train_op = tf.group(preload_op, gpucopy_op, train_op)  # , update_ops)
 
         return tf.estimator.EstimatorSpec(mode, loss=total_loss, train_op=train_op)
-        
+
+
 def get_num_records(filenames):
     def count_records(tf_record_filename):
         count = 0
@@ -597,8 +634,9 @@ def get_num_records(filenames):
         return count
 
     nfile = len(filenames)
-    return (count_records(filenames[0])*(nfile-1) +
+    return (count_records(filenames[0]) * (nfile - 1) +
             count_records(filenames[-1]))
+
 
 def add_bool_argument(cmdline, shortname, longname=None, default=False, help=None):
     if longname is None:
@@ -608,11 +646,12 @@ def add_bool_argument(cmdline, shortname, longname=None, default=False, help=Non
     name = longname[2:]
     feature_parser = cmdline.add_mutually_exclusive_group(required=False)
     if shortname is not None:
-        feature_parser.add_argument(shortname, '--'+name, dest=name, action='store_true', help=help, default=default)
+        feature_parser.add_argument(shortname, '--' + name, dest=name, action='store_true', help=help, default=default)
     else:
-        feature_parser.add_argument(           '--'+name, dest=name, action='store_true', help=help, default=default)
-    feature_parser.add_argument('--no'+name, dest=name, action='store_false')
+        feature_parser.add_argument('--' + name, dest=name, action='store_true', help=help, default=default)
+    feature_parser.add_argument('--no' + name, dest=name, action='store_false')
     return cmdline
+
 
 def add_cli_args():
     cmdline = argparse.ArgumentParser(
@@ -665,12 +704,12 @@ def add_cli_args():
     cmdline.add_argument('--lr_decay_steps', default='30,60,80', type=str,
                          help="""epoch numbers at which lr is decayed by lr_decay_factor. 
                          Used when lr_decay_mode is steps""")
-    cmdline.add_argument('--lr_decay_mode', default='poly', 
+    cmdline.add_argument('--lr_decay_mode', default='poly',
                          help="""Takes either `steps` (decay by a factor at specified steps) 
                          or `poly`(polynomial_decay with degree 2)""")
     cmdline.add_argument('--loss_scale', default=1024., type=float,
                          help="""loss scale""")
-    cmdline.add_argument('--num_gpus', default=1, type=int, 
+    cmdline.add_argument('--num_gpus', default=1, type=int,
                          help="""Specify total number of GPUS used to train a checkpointed model during eval.
                                 Used only to calculate epoch number to print during evaluation""")
     cmdline.add_argument('--save_checkpoints_steps', type=int, default=0)
@@ -681,6 +720,7 @@ def add_cli_args():
                       help="""init conv with MSRA initializer""")
     return cmdline
 
+
 def sort_and_load_ckpts(log_dir):
     ckpts = []
     for f in os.listdir(log_dir):
@@ -688,16 +728,17 @@ def sort_and_load_ckpts(log_dir):
         if m is None:
             continue
         fullpath = os.path.join(log_dir, f)
-        ckpts.append({ 'step': int(m.group(1)),
-                       'path': os.path.splitext(fullpath)[0],
-                       'mtime': os.stat(fullpath).st_mtime,
-                       })
+        ckpts.append({'step': int(m.group(1)),
+                      'path': os.path.splitext(fullpath)[0],
+                      'mtime': os.stat(fullpath).st_mtime,
+                      })
     ckpts.sort(key=itemgetter('step'))
     return ckpts
 
+
 def main():
     gpu_thread_count = 2
-    os.environ['TF_GPU_THREAD_MODE']  = 'gpu_private'
+    os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
     os.environ['TF_GPU_THREAD_COUNT'] = str(gpu_thread_count)
     os.environ['TF_USE_CUDNN_BATCHNORM_SPATIAL_PERSISTENT'] = '1'
     os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
@@ -715,10 +756,10 @@ def main():
         raise ValueError("Invalid command line arg(s)")
 
     FLAGS.data_dir = None if FLAGS.data_dir == "" else FLAGS.data_dir
-    FLAGS.log_dir  = None if FLAGS.log_dir  == "" else FLAGS.log_dir + FLAGS.log_dir_suffix
+    FLAGS.log_dir = None if FLAGS.log_dir == "" else FLAGS.log_dir #+ FLAGS.log_dir_suffix
     filename_pattern = os.path.join(FLAGS.data_dir, '%s-*')
     train_filenames = sorted(tf.gfile.Glob(filename_pattern % 'train'))
-    eval_filenames  = sorted(tf.gfile.Glob(filename_pattern % 'validation'))
+    eval_filenames = sorted(tf.gfile.Glob(filename_pattern % 'validation'))
     num_training_samples = get_num_records(train_filenames)
     training_samples_per_rank = num_training_samples // hvd.size()
     height, width = 224, 224
@@ -739,7 +780,7 @@ def main():
         steps = [int(x) * nstep_per_epoch for x in FLAGS.lr_decay_steps.split(',')]
         lr_steps = [FLAGS.lr]
         for i in range(len(FLAGS.lr_decay_steps.split(','))):
-            lr_steps.append(FLAGS.lr * pow(FLAGS.lr_decay_factor, i+1))
+            lr_steps.append(FLAGS.lr * pow(FLAGS.lr_decay_factor, i + 1))
     else:
         steps = []
         lr_steps = []
@@ -752,10 +793,10 @@ def main():
         FLAGS.save_summary_steps = nstep_per_epoch
 
     warmup_it = nstep_per_epoch * FLAGS.warmup_epochs
-    
+
     if not FLAGS.log_name:
-        FLAGS.log_name = FLAGS.log_dir_suffix
-    
+        FLAGS.log_name = "aws_tf_resnet"
+
     if FLAGS.eval:
         FLAGS.log_name = 'eval' + FLAGS.log_name
 
@@ -771,7 +812,7 @@ def main():
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
     # add formatter to the handlers
-    #formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     formatter = logging.Formatter('%(message)s')
     fh.setFormatter(formatter)
     ch.setFormatter(formatter)
@@ -782,9 +823,9 @@ def main():
     rank0log(logger, 'PY' + str(sys.version) + 'TF' + str(tf.__version__))
     config = tf.ConfigProto()
     config.gpu_options.visible_device_list = str(hvd.local_rank())
-    config.gpu_options.force_gpu_compatible = True # Force pinned memory
-    config.intra_op_parallelism_threads = 1 # Avoid pool of Eigen threads
-    config.inter_op_parallelism_threads = 5 
+    config.gpu_options.force_gpu_compatible = True  # Force pinned memory
+    config.intra_op_parallelism_threads = 1  # Avoid pool of Eigen threads
+    config.inter_op_parallelism_threads = 5
     rank0log(logger, "Horovod size: ", hvd.size())
 
     if FLAGS.local_ckpt:
@@ -795,24 +836,23 @@ def main():
         model_fn=cnn_model_function,
         model_dir=FLAGS.log_dir,
         params={
-            'model':         FLAGS.model,
-            'decay_steps':   decay_steps,
-            'n_classes':     1000,
-            'dtype':         tf.float16 if FLAGS.fp16 else tf.float32,
-            'format':        'channels_first',
-            'deterministic': FLAGS.deterministic,
-            'device':        '/gpu:0',
-            'lr':            FLAGS.lr,
-            'mom':           FLAGS.mom,
-            'wdecay':        FLAGS.wdecay,
-            'steps':         steps,
-            'lr_steps':      lr_steps,
+            'model': FLAGS.model,
+            'decay_steps': decay_steps,
+            'n_classes': 1000,
+            'dtype': tf.float16 if FLAGS.fp16 else tf.float32,
+            'format': 'channels_first',
+            'device': '/gpu:0',
+            'lr': FLAGS.lr,
+            'mom': FLAGS.mom,
+            'wdecay': FLAGS.wdecay,
+            'steps': steps,
+            'lr_steps': lr_steps,
             'lr_decay_mode': FLAGS.lr_decay_mode,
-            'warmup_it':     warmup_it,
-            'warmup_lr':     FLAGS.warmup_lr,
-            'loss_scale':    FLAGS.loss_scale,
-            'adv_bn_init':   FLAGS.adv_bn_init,
-            'conv_init':     tf.variance_scaling_initializer() if FLAGS.adv_conv_init else None,
+            'warmup_it': warmup_it,
+            'warmup_lr': FLAGS.warmup_lr,
+            'loss_scale': FLAGS.loss_scale,
+            'adv_bn_init': FLAGS.adv_bn_init,
+            'conv_init': tf.variance_scaling_initializer() if FLAGS.adv_conv_init else None,
         },
         config=tf.estimator.RunConfig(
             # tf_random_seed=31 * (1 + hvd.rank()),
@@ -822,26 +862,25 @@ def main():
             keep_checkpoint_max=None))
 
     if not FLAGS.eval:
-        num_preproc_threads = 5 if not FLAGS.deterministic else 1 
+        num_preproc_threads = 5
         rank0log(logger, "Preproc threads", num_preproc_threads)
         training_hooks = [hvd.BroadcastGlobalVariablesHook(0),
                           PrefillStagingAreasHook()]
         if hvd.rank() == 0:
             training_hooks.append(
                 LogSessionRunHook(global_batch_size,
-                                   num_training_samples,
-                                   FLAGS.display_every, logger))
+                                  num_training_samples,
+                                  FLAGS.display_every, logger))
         try:
             start_time = time.time()
-            if not FLAGS.train_and_eval:
-                classifier.train(
-                    input_fn=lambda: make_dataset(
-                        train_filenames,
-                        training_samples_per_rank,
-                        FLAGS.batch_size, height, width, training=True,
-                        num_threads=num_preproc_threads, shard=True),
-                    max_steps=nstep,
-                    hooks=training_hooks)
+            classifier.train(
+                input_fn=lambda: make_dataset(
+                    train_filenames,
+                    training_samples_per_rank,
+                    FLAGS.batch_size, height, width, training=True,
+                    num_threads=num_preproc_threads, shard=True),
+                max_steps=nstep,
+                hooks=training_hooks)
             rank0log(logger, "Finished in ", time.time() - start_time)
         except KeyboardInterrupt:
             print("Keyboard interrupt")
@@ -863,7 +902,7 @@ def main():
             for i, c in enumerate(ckpts):
                 if i < len(ckpts) - 1:
                     if (not FLAGS.eval_interval) or \
-                          (i % FLAGS.eval_interval != 0):
+                            (i % FLAGS.eval_interval != 0):
                         continue
                 eval_result = classifier.evaluate(
                     input_fn=lambda: make_dataset(
@@ -871,7 +910,7 @@ def main():
                         get_num_records(eval_filenames), FLAGS.batch_size,
                         height, width, training=False, shard=True),
                     checkpoint_path=c['path'])
-                c['epoch'] = (c['step'] * FLAGS.num_gpus)/ (nstep_per_epoch * hvd.size())
+                c['epoch'] = (c['step'] * FLAGS.num_gpus) / (nstep_per_epoch * hvd.size())
                 c['top1'] = eval_result['val-top1acc']
                 c['top5'] = eval_result['val-top5acc']
                 c['loss'] = eval_result['loss']
@@ -881,16 +920,17 @@ def main():
                 tf.Session(config=config).run(barrier)
                 if 'top1' not in c:
                     continue
-                rank0log(logger,'{:5d}  {:5.1f}  {:5.3f}  {:6.2f}  {:6.2f}  {:10.3f}'
-                      .format(c['step'],
-                              c['epoch'],
-                              c['top1'] * 100,
-                              c['top5'] * 100,
-                              c['loss'],
-                             c['mtime']))
+                rank0log(logger, '{:5d}  {:5.1f}  {:5.3f}  {:6.2f}  {:6.2f}  {:10.3f}'
+                         .format(c['step'],
+                                 c['epoch'],
+                                 c['top1'] * 100,
+                                 c['top5'] * 100,
+                                 c['loss'],
+                                 c['mtime']))
             rank0log(logger, "Finished evaluation")
         except KeyboardInterrupt:
             logger.error("Keyboard interrupt")
+
+
 if __name__ == '__main__':
     main()
-
