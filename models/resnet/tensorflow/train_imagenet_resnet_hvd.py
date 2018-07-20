@@ -807,7 +807,7 @@ def main():
             'wdecay':        FLAGS.wdecay,
             'steps':         steps,
             'lr_steps':      lr_steps,
-            'lr_decay_mode': FLAGS.lr_decay_mode
+            'lr_decay_mode': FLAGS.lr_decay_mode,
             'warmup_it':     warmup_it,
             'warmup_lr':     FLAGS.warmup_lr,
             'loss_scale':    FLAGS.loss_scale,
