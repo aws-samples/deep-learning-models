@@ -22,5 +22,5 @@ wget http://data.mxnet.io/models/imagenet/resnet/val.lst
 wget https://raw.githubusercontent.com/apache/incubator-mxnet/master/tools/im2rec.py
 
 # Execute, modify path to imagenet directory
-python im2rec.py train ./$TRAIN_DIR --recursive --pass-through --num-thread 30 --pack-label
-python im2rec.py val ./$VAL_DIR --recursive --pass-through --num-thread 16 --pack-label --no-shuffle
+python im2rec.py train ./$TRAIN_DIR --recursive --resize 480 --num-thread 30 --pack-label
+python im2rec.py val ./$VAL_DIR --recursive --resize 480 --num-thread 16 --pack-label --no-shuffle

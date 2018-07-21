@@ -804,7 +804,11 @@ def main():
     logger.setLevel(logging.INFO)  # INFO, ERROR
     # file handler which logs debug messages
     if not os.path.isdir(FLAGS.log_dir):
-        os.makedirs(FLAGS.log_dir)
+        try:
+            os.makedirs(FLAGS.log_dir)
+        except FileExistsError:
+            # if log_dir is common for multiple ranks like on nfs
+            pass
 
     fh = logging.FileHandler(os.path.join(FLAGS.log_dir, FLAGS.log_name))
     fh.setLevel(logging.DEBUG)
