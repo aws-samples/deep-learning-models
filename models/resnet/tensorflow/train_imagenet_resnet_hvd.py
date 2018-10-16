@@ -47,6 +47,7 @@ import logging
 import re
 from glob import glob
 from operator import itemgetter
+from tensorflow.python.util import nest
 
 # suppress TF info and warning messages
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -343,37 +344,43 @@ def parse_and_preprocess_image_record(record, counter, height, width,
             image = tf.image.random_flip_left_right(image)
         return image, label
 
-
 def make_dataset(filenames, take_count, batch_size, height, width,
-                 training=False, num_threads=10, nsummary=10, shard=False):
-    shuffle_buffer_size = 10000
-    num_readers = 1
-    if hvd.size() > len(filenames):
-        assert (hvd.size() % len(filenames)) == 0
-        filenames = filenames * (hvd.size() / len(filenames))
-    ds = tf.data.Dataset.from_tensor_slices(filenames)
+                 training=False, num_threads=10, nsummary=10, shard=False, synthetic=False):
+    if synthetic and training:
+        input_shape = [height, width, 3]
+        input_element = nest.map_structure(lambda s: tf.constant(0.5, tf.float32, s), tf.TensorShape(input_shape))
+        label_element = nest.map_structure(lambda s: tf.constant(1, tf.int32, s), tf.TensorShape([1]))
+        element = (input_element, label_element)
+        ds = tf.data.Dataset.from_tensors(element).repeat()
+    else:
+        shuffle_buffer_size = 10000
+        num_readers = 1
+        if hvd.size() > len(filenames):
+            assert (hvd.size() % len(filenames)) == 0
+            filenames = filenames * (hvd.size() / len(filenames))
 
-    if shard:
-        # split the dataset into parts for each GPU
-        ds = ds.shard(hvd.size(), hvd.rank())
+        ds = tf.data.Dataset.from_tensor_slices(filenames)
+        if shard:
+            # split the dataset into parts for each GPU
+            ds = ds.shard(hvd.size(), hvd.rank())
 
-    if not training:
-        ds = ds.take(take_count)  # make sure all ranks have the same amount
+        if not training:
+            ds = ds.take(take_count)  # make sure all ranks have the same amount
 
-    if training:
-        ds = ds.repeat()
-        ds = ds.shuffle(shuffle_buffer_size, seed=5 * (1 + hvd.rank()))
+        if training:
+            ds = ds.repeat()
+            ds = ds.shuffle(shuffle_buffer_size, seed=5 * (1 + hvd.rank()))
 
-    ds = ds.interleave(
-        tf.data.TFRecordDataset, cycle_length=num_readers, block_length=1)
-    counter = tf.data.Dataset.range(sys.maxsize)
-    ds = tf.data.Dataset.zip((ds, counter))
-    preproc_func = lambda record, counter_: parse_and_preprocess_image_record(
-        record, counter_, height, width,
-        distort=training, nsummary=nsummary if training else 0)
-    ds = ds.map(preproc_func, num_parallel_calls=num_threads)
-    if training:
-        ds = ds.shuffle(shuffle_buffer_size, seed=7 * (1 + hvd.rank()))
+        ds = ds.interleave(
+            tf.data.TFRecordDataset, cycle_length=num_readers, block_length=1)
+        counter = tf.data.Dataset.range(sys.maxsize)
+        ds = tf.data.Dataset.zip((ds, counter))
+        preproc_func = lambda record, counter_: parse_and_preprocess_image_record(
+            record, counter_, height, width,
+            distort=training, nsummary=nsummary if training else 0)
+        ds = ds.map(preproc_func, num_parallel_calls=num_threads)
+        if training:
+            ds = ds.shuffle(shuffle_buffer_size, seed=7 * (1 + hvd.rank()))
     ds = ds.batch(batch_size)
     return ds
 
@@ -659,10 +666,11 @@ def add_cli_args():
     # Basic options
     cmdline.add_argument('-m', '--model', required=True,
                          help="""Name of model to run: resnet[18,34,50,101,152]""")
-    cmdline.add_argument('--data_dir', required=True,
+    cmdline.add_argument('--data_dir',
                          help="""Path to dataset in TFRecord format
                          (aka Example protobufs). Files should be
                          named 'train-*' and 'validation-*'.""")
+    add_bool_argument(cmdline, '--synthetic', help="""Whether to use synthetic data for training""")
     cmdline.add_argument('-b', '--batch_size', default=256, type=int,
                          help="""Size of each minibatch per GPU""")
     cmdline.add_argument('--num_batches', default=50, type=int,
@@ -803,12 +811,8 @@ def main():
     logger = logging.getLogger(FLAGS.log_name)
     logger.setLevel(logging.INFO)  # INFO, ERROR
     # file handler which logs debug messages
-    if not os.path.isdir(FLAGS.log_dir):
-        try:
-            os.makedirs(FLAGS.log_dir)
-        except FileExistsError:
-            # if log_dir is common for multiple ranks like on nfs
-            pass
+    if not hvd.local_rank() and not os.path.isdir(FLAGS.log_dir):
+        os.makedirs(FLAGS.log_dir)
 
     fh = logging.FileHandler(os.path.join(FLAGS.log_dir, FLAGS.log_name))
     fh.setLevel(logging.DEBUG)
@@ -856,7 +860,7 @@ def main():
             'warmup_lr': FLAGS.warmup_lr,
             'loss_scale': FLAGS.loss_scale,
             'adv_bn_init': FLAGS.adv_bn_init,
-            'conv_init': tf.variance_scaling_initializer() if FLAGS.adv_conv_init else None,
+            'conv_init': tf.variance_scaling_initializer() if FLAGS.adv_conv_init else None
         },
         config=tf.estimator.RunConfig(
             # tf_random_seed=31 * (1 + hvd.rank()),
@@ -882,7 +886,7 @@ def main():
                     train_filenames,
                     training_samples_per_rank,
                     FLAGS.batch_size, height, width, training=True,
-                    num_threads=num_preproc_threads, shard=True),
+                    num_threads=num_preproc_threads, shard=True, synthetic=FLAGS.synthetic),
                 max_steps=nstep,
                 hooks=training_hooks)
             rank0log(logger, "Finished in ", time.time() - start_time)
@@ -912,7 +916,7 @@ def main():
                     input_fn=lambda: make_dataset(
                         eval_filenames,
                         get_num_records(eval_filenames), FLAGS.batch_size,
-                        height, width, training=False, shard=True),
+                        height, width, training=False, shard=True, synthetic=FLAGS.synthetic),
                     checkpoint_path=c['path'])
                 c['epoch'] = (c['step'] * FLAGS.num_gpus) / (nstep_per_epoch * hvd.size())
                 c['top1'] = eval_result['val-top1acc']
