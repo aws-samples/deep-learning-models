@@ -49,9 +49,8 @@ from glob import glob
 from operator import itemgetter
 from tensorflow.python.util import nest
 
-# suppress TF info and warning messages
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
+# uncomment to suppress TF info and warning messages
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 def rank0log(logger, *args, **kwargs):
     if hvd.rank() == 0:
@@ -412,7 +411,7 @@ class LogSessionRunHook(tf.train.SessionRunHook):
         self.logger = logger
 
     def after_create_session(self, session, coord):
-        rank0log(self.logger, '  Step Epoch Speed   Loss  FinLoss	Accuracy LR')
+        rank0log(self.logger, '  Step Epoch Speed   Loss  FinLoss   LR')
         self.elapsed_secs = 0.
         self.count = 0
 
@@ -673,16 +672,16 @@ def add_cli_args():
     add_bool_argument(cmdline, '--synthetic', help="""Whether to use synthetic data for training""")
     cmdline.add_argument('-b', '--batch_size', default=256, type=int,
                          help="""Size of each minibatch per GPU""")
-    cmdline.add_argument('--num_batches', default=50, type=int,
+    cmdline.add_argument('--num_batches', type=int,
                          help="""Number of batches to run.
                          Ignored during eval or if num epochs given""")
-    cmdline.add_argument('--num_epochs', default=90, type=int,
+    cmdline.add_argument('--num_epochs', type=int,
                          help="""Number of epochs to run.
                          Overrides --num_batches. Ignored during eval.""")
-    cmdline.add_argument('--log_dir', default="",
+    cmdline.add_argument('--log_dir', default="imagenet_resnet",
                          help="""Directory in which to write training
                          summaries and checkpoints.""")
-    cmdline.add_argument('--log_name', type=str, default='imagenet_resnet_hvd_.log')
+    cmdline.add_argument('--log_name', type=str, default='hvd_train.log')
     add_bool_argument(cmdline, '--local_ckpt',
                       help="""Performs local checkpoints (i.e. one per node)""")
     cmdline.add_argument('--display_every', default=50, type=int,
@@ -720,7 +719,7 @@ def add_cli_args():
     cmdline.add_argument('--num_gpus', default=1, type=int,
                          help="""Specify total number of GPUS used to train a checkpointed model during eval.
                                 Used only to calculate epoch number to print during evaluation""")
-    cmdline.add_argument('--save_checkpoints_steps', type=int, default=0)
+    cmdline.add_argument('--save_checkpoints_steps', type=int, default=1000)
     cmdline.add_argument('--save_summary_steps', type=int, default=0)
     add_bool_argument(cmdline, '--adv_bn_init',
                       help="""init gamme of the last BN of each ResMod at 0.""")
@@ -764,26 +763,58 @@ def main():
         raise ValueError("Invalid command line arg(s)")
 
     FLAGS.data_dir = None if FLAGS.data_dir == "" else FLAGS.data_dir
-    FLAGS.log_dir = None if FLAGS.log_dir == "" else FLAGS.log_dir #+ FLAGS.log_dir_suffix
-    filename_pattern = os.path.join(FLAGS.data_dir, '%s-*')
-    train_filenames = sorted(tf.gfile.Glob(filename_pattern % 'train'))
-    eval_filenames = sorted(tf.gfile.Glob(filename_pattern % 'validation'))
-    num_training_samples = get_num_records(train_filenames)
-    training_samples_per_rank = num_training_samples // hvd.size()
+    FLAGS.log_dir = None if FLAGS.log_dir == "" else FLAGS.log_dir
+
+    if FLAGS.eval:
+        FLAGS.log_name = 'eval' + FLAGS.log_name
+    if FLAGS.local_ckpt:
+        do_checkpoint = hvd.local_rank() == 0
+    else:
+        do_checkpoint = hvd.rank() == 0
+    if do_checkpoint and not os.path.isdir(FLAGS.log_dir):
+        os.makedirs(FLAGS.log_dir)
+
+    logger = logging.getLogger(FLAGS.log_name)
+    logger.setLevel(logging.INFO)  # INFO, ERROR
+    # file handler which logs debug messages
+    # console handler
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    # add formatter to the handlers
+    # formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter('%(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    if not hvd.local_rank():
+        fh = logging.FileHandler(os.path.join(FLAGS.log_dir, FLAGS.log_name))
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(formatter)
+        # add handlers to logger
+        logger.addHandler(fh)
+
     height, width = 224, 224
     global_batch_size = FLAGS.batch_size * hvd.size()
 
-    if FLAGS.num_epochs is not None:
-        if FLAGS.data_dir is None:
-            raise ValueError("num_epochs requires --data_dir to be specified")
-        nstep = num_training_samples * FLAGS.num_epochs // global_batch_size
-        decay_steps = nstep
+    if FLAGS.data_dir:
+        filename_pattern = os.path.join(FLAGS.data_dir, '%s-*')
+        train_filenames = sorted(tf.gfile.Glob(filename_pattern % 'train'))
+        eval_filenames = sorted(tf.gfile.Glob(filename_pattern % 'validation'))
+        num_training_samples = get_num_records(train_filenames)
     else:
+        train_filenames = eval_filenames = []
+        num_training_samples = 1281167
+    training_samples_per_rank = num_training_samples // hvd.size()
+
+    if FLAGS.num_epochs:
+        nstep = num_training_samples * FLAGS.num_epochs // global_batch_size
+    elif FLAGS.num_batches:
         nstep = FLAGS.num_batches
         FLAGS.num_epochs = max(nstep * global_batch_size // num_training_samples, 1)
-        decay_steps = 90 * num_training_samples // global_batch_size
-
+    else:
+        raise ValueError("Either num_epochs or num_batches has to be passed")
     nstep_per_epoch = num_training_samples // global_batch_size
+    decay_steps = nstep
+
     if FLAGS.lr_decay_mode == 'steps':
         steps = [int(x) * nstep_per_epoch for x in FLAGS.lr_decay_steps.split(',')]
         lr_steps = [FLAGS.lr]
@@ -802,31 +833,6 @@ def main():
 
     warmup_it = nstep_per_epoch * FLAGS.warmup_epochs
 
-    if not FLAGS.log_name:
-        FLAGS.log_name = "aws_tf_resnet"
-
-    if FLAGS.eval:
-        FLAGS.log_name = 'eval' + FLAGS.log_name
-
-    logger = logging.getLogger(FLAGS.log_name)
-    logger.setLevel(logging.INFO)  # INFO, ERROR
-    # file handler which logs debug messages
-    if not hvd.local_rank() and not os.path.isdir(FLAGS.log_dir):
-        os.makedirs(FLAGS.log_dir)
-
-    fh = logging.FileHandler(os.path.join(FLAGS.log_dir, FLAGS.log_name))
-    fh.setLevel(logging.DEBUG)
-    # console handler
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    # add formatter to the handlers
-    # formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    formatter = logging.Formatter('%(message)s')
-    fh.setFormatter(formatter)
-    ch.setFormatter(formatter)
-    # add handlers to logger
-    logger.addHandler(fh)
-    logger.addHandler(ch)
 
     rank0log(logger, 'PY' + str(sys.version) + 'TF' + str(tf.__version__))
     config = tf.ConfigProto()
@@ -836,10 +842,6 @@ def main():
     config.inter_op_parallelism_threads = 5
     rank0log(logger, "Horovod size: ", hvd.size())
 
-    if FLAGS.local_ckpt:
-        do_checkpoint = hvd.local_rank() == 0
-    else:
-        do_checkpoint = hvd.rank() == 0
     classifier = tf.estimator.Estimator(
         model_fn=cnn_model_function,
         model_dir=FLAGS.log_dir,
@@ -893,7 +895,7 @@ def main():
         except KeyboardInterrupt:
             print("Keyboard interrupt")
 
-    if True:
+    if not FLAGS.synthetic:
         rank0log(logger, "Evaluating")
         rank0log(logger, "Validation dataset size: {}".format(get_num_records(eval_filenames)))
         barrier = hvd.allreduce(tf.constant(0, dtype=tf.float32))
