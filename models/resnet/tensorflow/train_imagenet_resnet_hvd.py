@@ -51,8 +51,8 @@ from glob import glob
 from operator import itemgetter
 from tensorflow.python.util import nest
 
-# uncomment to suppress TF info and warning messages
-# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+# uncomment to suppress TF info messages
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 def rank0log(logger, *args, **kwargs):
     if hvd.rank() == 0:
@@ -355,7 +355,8 @@ def parse_and_preprocess_image_record(record, counter, height, width,
 
 def make_dataset(filenames, take_count, batch_size, height, width,
                  brightness, contrast, saturation, hue,
-                 training=False, num_threads=10, nsummary=10, shard=False, synthetic=False):
+                 training=False, num_threads=10, nsummary=10, shard=False, synthetic=False,
+                 increased_aug=False):
     if synthetic and training:
         input_shape = [height, width, 3]
         input_element = nest.map_structure(lambda s: tf.constant(0.5, tf.float32, s), tf.TensorShape(input_shape))
@@ -622,6 +623,7 @@ def cnn_model_function(features, labels, mode, params):
     lr = params['lr']
     lr_steps = params['lr_steps']
     steps = params['steps']
+    use_larc = params['use_larc']
     leta = params['leta']
     lr_decay_mode = params['lr_decay_mode']
     decay_steps = params['decay_steps']
@@ -646,11 +648,6 @@ def cnn_model_function(features, labels, mode, params):
     warmup_lr = params['warmup_lr']
     warmup_it = params['warmup_it']
     loss_scale = params['loss_scale']
-    
-    brightness = params['brightness']
-    contrast = params['contrast']
-    saturation = params['saturation']
-    hue = params['hue']
 
     adv_bn_init = params['adv_bn_init']
     conv_init = params['conv_init']
@@ -724,7 +721,7 @@ def cnn_model_function(features, labels, mode, params):
         opt = tf.train.MomentumOptimizer(
             learning_rate, momentum, use_nesterov=True)
         opt = hvd.DistributedOptimizer(opt)
-        if leta > 0:
+        if use_larc:
             opt = LarcOptimizer(opt, learning_rate, leta, clip=True)
         opt = MixedPrecisionOptimizer(opt, scale=loss_scale)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS) or []
@@ -795,7 +792,10 @@ def add_cli_args():
                          running information.""")
     add_bool_argument(cmdline, '--eval',
                       help="""Evaluate the top-1 and top-5 accuracy of
-                      the latest checkpointed model""")
+                      the latest checkpointed model. If you want to evaluate using multiple GPUs ensure that 
+                      all processes have access to all checkpoints. Either if checkpoints 
+                      were saved using --local_ckpt or they were saved to a shared directory which all processes
+                      can access.""")
     cmdline.add_argument('--eval_interval', type=int,
                          help="""Evaluate accuracy per eval_interval number of epochs""")
     add_bool_argument(cmdline, '--fp16', default=True,
@@ -853,7 +853,7 @@ def add_cli_args():
     cmdline.add_argument('--lc_beta', default=0.00001, type=float,
                          help="""Liner Cosine Beta""")
 
-    add_bool_argument(cmdline, '--increase_augmentations', default=False, 
+    add_bool_argument(cmdline, '--increased_aug', default=False, 
                          help="""Increase augmentations helpful when training with large number of GPUs such as 128 or 256""")
     cmdline.add_argument('--contrast', default=0.6, type=float,
                          help="""contrast factor""")
@@ -991,6 +991,7 @@ def main():
             'lr': FLAGS.lr,
             'mom': FLAGS.mom,
             'wdecay': FLAGS.wdecay,
+            'use_larc': FLAGS.use_larc,
             'leta': FLAGS.leta,
             'steps': steps,
             'lr_steps': lr_steps,
@@ -1005,10 +1006,6 @@ def main():
             'lc_alpha': FLAGS.lc_alpha,
             'lc_beta': FLAGS.lc_beta,
             'loss_scale': FLAGS.loss_scale,
-            'brightness': FLAGS.brightness,
-            'contrast': FLAGS.contrast,
-            'saturation': FLAGS.saturation,
-            'hue': FLAGS.hue,
             'adv_bn_init': FLAGS.adv_bn_init,
             'conv_init': tf.variance_scaling_initializer() if FLAGS.adv_conv_init else None
         },
@@ -1038,21 +1035,18 @@ def main():
                     FLAGS.batch_size, height, width, 
                     FLAGS.brightness, FLAGS.contrast, FLAGS.saturation, FLAGS.hue, 
                     training=True, num_threads=num_preproc_threads, 
-                    shard=True, synthetic=FLAGS.synthetic),
+                    shard=True, synthetic=FLAGS.synthetic, increased_aug=FLAGS.increased_aug),
                 max_steps=nstep,
                 hooks=training_hooks)
             rank0log(logger, "Finished in ", time.time() - start_time)
         except KeyboardInterrupt:
             print("Keyboard interrupt")
-
-    if not FLAGS.synthetic:
+    elif FLAGS.eval and not FLAGS.synthetic:
         rank0log(logger, "Evaluating")
         rank0log(logger, "Validation dataset size: {}".format(get_num_records(eval_filenames)))
         barrier = hvd.allreduce(tf.constant(0, dtype=tf.float32))
         tf.Session(config=config).run(barrier)
         time.sleep(5)  # a little extra margin...
-        if not FLAGS.eval:
-            FLAGS.num_gpus = hvd.size()
         if FLAGS.num_gpus == 1:
             rank0log(logger, """If you are evaluating checkpoints of a multi-GPU run on a single GPU,
              ensure you set --num_gpus to the number of GPUs it was trained on.
@@ -1070,29 +1064,29 @@ def main():
                         get_num_records(eval_filenames), FLAGS.batch_size,
                         height, width, 
                         FLAGS.brightness, FLAGS.contrast, FLAGS.saturation, FLAGS.hue,
-                        training=False, shard=True),
+                        training=False, shard=True, increased_aug=False),
                     checkpoint_path=c['path'])
                 c['epoch'] = c['step'] / nstep_per_epoch
                 c['top1'] = eval_result['val-top1acc']
                 c['top5'] = eval_result['val-top5acc']
                 c['loss'] = eval_result['loss']
-            rank0log(logger, ' step  epoch  top1    top5     loss   time(h)')
+            rank0log(logger, ' step  epoch  top1    top5     loss   checkpoint_time(UTC)')
             barrier = hvd.allreduce(tf.constant(0, dtype=tf.float32))
             for i, c in enumerate(ckpts):
                 tf.Session(config=config).run(barrier)
                 if 'top1' not in c:
                     continue
-                rank0log(logger, '{:5d}  {:5.1f}  {:5.3f}  {:6.2f}  {:6.2f}  {:10.3f}'
+                rank0log(logger,'{:5d}  {:5.1f}  {:5.3f}  {:6.2f}  {:6.2f}  {time}'
                          .format(c['step'],
                                  c['epoch'],
                                  c['top1'] * 100,
                                  c['top5'] * 100,
                                  c['loss'],
-                                 c['mtime']))
+                                 time=time.strftime('%Y-%m-%d %H:%M:%S', 
+                                    time.localtime(c['mtime']))))
             rank0log(logger, "Finished evaluation")
         except KeyboardInterrupt:
             logger.error("Keyboard interrupt")
-
 
 if __name__ == '__main__':
     main()
