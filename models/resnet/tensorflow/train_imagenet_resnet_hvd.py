@@ -49,8 +49,8 @@ from glob import glob
 from operator import itemgetter
 from tensorflow.python.util import nest
 
-# uncomment to suppress TF info and warning messages
-# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+# uncomment to suppress TF info messages
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 def rank0log(logger, *args, **kwargs):
     if hvd.rank() == 0:
@@ -689,7 +689,10 @@ def add_cli_args():
                          running information.""")
     add_bool_argument(cmdline, '--eval',
                       help="""Evaluate the top-1 and top-5 accuracy of
-                      the latest checkpointed model""")
+                      the latest checkpointed model. If you want to evaluate using multiple GPUs ensure that 
+                      all processes have access to all checkpoints. Either if checkpoints 
+                      were saved using --local_ckpt or they were saved to a shared directory which all processes
+                      can access.""")
     cmdline.add_argument('--eval_interval', type=int,
                          help="""Evaluate accuracy per eval_interval number of epochs""")
     add_bool_argument(cmdline, '--fp16',
@@ -894,15 +897,12 @@ def main():
             rank0log(logger, "Finished in ", time.time() - start_time)
         except KeyboardInterrupt:
             print("Keyboard interrupt")
-
-    if not FLAGS.synthetic:
+    elif FLAGS.eval and not FLAGS.synthetic:
         rank0log(logger, "Evaluating")
         rank0log(logger, "Validation dataset size: {}".format(get_num_records(eval_filenames)))
         barrier = hvd.allreduce(tf.constant(0, dtype=tf.float32))
         tf.Session(config=config).run(barrier)
         time.sleep(5)  # a little extra margin...
-        if not FLAGS.eval:
-            FLAGS.num_gpus = hvd.size()
         if FLAGS.num_gpus == 1:
             rank0log(logger, """If you are evaluating checkpoints of a multi-GPU run on a single GPU,
              ensure you set --num_gpus to the number of GPUs it was trained on.
@@ -924,23 +924,23 @@ def main():
                 c['top1'] = eval_result['val-top1acc']
                 c['top5'] = eval_result['val-top5acc']
                 c['loss'] = eval_result['loss']
-            rank0log(logger, ' step  epoch  top1    top5     loss   time(h)')
+            rank0log(logger, ' step  epoch  top1    top5     loss   checkpoint_time(UTC)')
             barrier = hvd.allreduce(tf.constant(0, dtype=tf.float32))
             for i, c in enumerate(ckpts):
                 tf.Session(config=config).run(barrier)
                 if 'top1' not in c:
                     continue
-                rank0log(logger, '{:5d}  {:5.1f}  {:5.3f}  {:6.2f}  {:6.2f}  {:10.3f}'
+                rank0log(logger,'{:5d}  {:5.1f}  {:5.3f}  {:6.2f}  {:6.2f}  {time}'
                          .format(c['step'],
                                  c['epoch'],
                                  c['top1'] * 100,
                                  c['top5'] * 100,
                                  c['loss'],
-                                 c['mtime']))
+                                 time=time.strftime('%Y-%m-%d %H:%M:%S', 
+                                    time.localtime(c['mtime']))))
             rank0log(logger, "Finished evaluation")
         except KeyboardInterrupt:
             logger.error("Keyboard interrupt")
-
 
 if __name__ == '__main__':
     main()
