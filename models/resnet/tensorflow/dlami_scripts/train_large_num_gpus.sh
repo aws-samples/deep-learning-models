@@ -9,12 +9,12 @@
 # If you have version 12 or older, you need to remove line 15 below.
 source activate tensorflow_p36
 cd ..
-/home/ubuntu/anaconda3/envs/tensorflow_p36/bin/mpirun -np 8 -mca plm_rsh_no_tree_spawn 1 \
+/home/ubuntu/anaconda3/envs/tensorflow_p36/bin/mpirun -np 256 -hostfile hosts -mca plm_rsh_no_tree_spawn 1 \
 	-bind-to socket -map-by slot \
 	-x HOROVOD_HIERARCHICAL_ALLREDUCE=1 -x HOROVOD_FUSION_THRESHOLD=16777216 \
 	-x NCCL_MIN_NRINGS=4 -x LD_LIBRARY_PATH -x PATH -mca pml ob1 -mca btl ^openib \
 	-x NCCL_SOCKET_IFNAME=ens3 -mca btl_tcp_if_exclude lo,docker0 \
 	python -W ignore train_imagenet_resnet_hvd.py \
-	--model resnet50 --fp16 --adv_bn_init \
-	--display_every 100 --lr 6.4 --loss_scale 1024. --lr_decay_mode poly \
-	--synthetic --log_dir resnet50_log --num_batches 1000
+	--num_epochs 90 --warmup_epochs 5 --loss_scale 256. \
+	--data_dir ~/data/tf-imagenet/ --increase_augmentations \
+	--lr 3.7 --mom 0.977 --wdecay 0.0005 --lr_decay_mode linear_cosine --use_larc
