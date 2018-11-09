@@ -15,6 +15,8 @@ cd ..
 	-x NCCL_MIN_NRINGS=4 -x LD_LIBRARY_PATH -x PATH -mca pml ob1 -mca btl ^openib \
 	-x NCCL_SOCKET_IFNAME=ens3 -mca btl_tcp_if_exclude lo,docker0 \
 	python -W ignore train_imagenet_resnet_hvd.py \
-	--num_epochs 90 --warmup_epochs 5 --loss_scale 256. \
-	--data_dir ~/data/tf-imagenet/ --increase_augmentations \
-	--lr 3.7 --mom 0.977 --wdecay 0.0005 --lr_decay_mode linear_cosine --use_larc
+	--data_dir ~/data/tf-imagenet/ --num_epochs 90 --increase_augmentations \
+	--mom 0.977 --wdecay 0.0005 --loss_scale 256. --use_larc \
+	--lr_decay_mode linear_cosine --lr 3.7 --warmup_epochs 5 
+
+# This script is for training with large number of GPUs (large batch sizes). You can for instance just replace the number of gpus to 128 with the same script
