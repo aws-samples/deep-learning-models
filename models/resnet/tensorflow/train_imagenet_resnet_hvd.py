@@ -52,7 +52,7 @@ from operator import itemgetter
 from tensorflow.python.util import nest
 
 # uncomment to suppress TF info messages
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '0'
 
 def rank0log(logger, *args, **kwargs):
     if hvd.rank() == 0:
@@ -300,7 +300,7 @@ def decode_jpeg(imgdata, channels=3):
 
 
 def crop_and_resize_image(image, original_bbox, height, width, 
-                          contrast, saturation, hue, distort=False, nsummary=10):
+                          distort=False, nsummary=10):
     with tf.name_scope('crop_and_resize'):
         # Evaluation is done on a center-crop of this ratio
         eval_crop_ratio = 0.8
@@ -331,7 +331,8 @@ def crop_and_resize_image(image, original_bbox, height, width,
 
 
 def parse_and_preprocess_image_record(record, counter, height, width,
-                                      distort=False, nsummary=10):
+                                      brightness, contrast, saturation, hue,
+                                      distort=False, nsummary=10, increased_aug=False):
     imgdata, label, bbox, text = deserialize_image_record(record)
     label -= 1  # Change to 0-based (don't use background class)
     with tf.name_scope('preprocess_train'):
@@ -342,13 +343,14 @@ def parse_and_preprocess_image_record(record, counter, height, width,
         image = crop_and_resize_image(image, bbox, height, width, distort)
         if distort:
             image = tf.image.random_flip_left_right(image)
-            image = tf.image.random_brightness(image, max_delta=brightness)
-            image = distort_image_ops.random_hsv_in_yiq(image, 
-                                                        lower_saturation=saturation, 
-                                                        upper_saturation=2.0 - saturation, 
-                                                        max_delta_hue=hue * math.pi)
-            image = tf.image.random_contrast(image, lower=contrast, upper=2.0 - contrast)
-            tf.summary.image('distorted_color_image', tf.expand_dims(image, 0))
+            if increased_aug:
+                image = tf.image.random_brightness(image, max_delta=brightness)
+                image = distort_image_ops.random_hsv_in_yiq(image, 
+                                                            lower_saturation=saturation, 
+                                                            upper_saturation=2.0 - saturation, 
+                                                            max_delta_hue=hue * math.pi)
+                image = tf.image.random_contrast(image, lower=contrast, upper=2.0 - contrast)
+                tf.summary.image('distorted_color_image', tf.expand_dims(image, 0))
         image = tf.clip_by_value(image, 0., 255.)
         image = tf.cast(image, tf.uint8)
         return image, label
@@ -388,7 +390,7 @@ def make_dataset(filenames, take_count, batch_size, height, width,
         ds = tf.data.Dataset.zip((ds, counter))
         preproc_func = lambda record, counter_: parse_and_preprocess_image_record(
             record, counter_, height, width, brightness, contrast, saturation, hue,
-            distort=training, nsummary=nsummary if training else 0)
+            distort=training, nsummary=nsummary if training else 0, increased_aug=increased_aug)
         ds = ds.map(preproc_func, num_parallel_calls=num_threads)
         if training:
             ds = ds.shuffle(shuffle_buffer_size, seed=7 * (1 + hvd.rank()))
@@ -833,8 +835,8 @@ def add_cli_args():
                          help="""Takes either `steps` (decay by a factor at specified steps) 
                          or `poly`(polynomial_decay with degree 2)""")
     
-    add_bool_argument('--use_larc', default=False,
-                        help="Use Layer wise Adaptive Rate Control which helps convergence at really large batch sizes")
+    add_bool_argument(cmdline, '--use_larc', default=False, 
+                        help="""Use Layer wise Adaptive Rate Control which helps convergence at really large batch sizes""")
     cmdline.add_argument('--leta', default=0.013, type=float,
                          help="""The trust coefficient for LARC optimization, LARC Eta""")
     
