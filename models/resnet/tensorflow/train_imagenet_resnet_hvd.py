@@ -455,7 +455,7 @@ def _fp32_trainvar_getter(getter, name, shape=None, dtype=None,
     storage_dtype = tf.float32 if trainable else dtype
     variable = getter(name, shape, dtype=storage_dtype,
                       trainable=trainable,
-                      # regularizer=regularizer if trainable and 'BatchNorm' not in name and 'batchnorm' not in name and 'batch_norm' not in name and 'Batch_Norm' not in name else None,
+                      regularizer=regularizer if trainable and 'BatchNorm' not in name and 'batchnorm' not in name and 'batch_norm' not in name and 'Batch_Norm' not in name else None,
                       *args, **kwargs)
     if trainable and dtype != tf.float32:
         cast_name = name + '/fp16_cast'
@@ -1068,7 +1068,7 @@ def main():
                         FLAGS.brightness, FLAGS.contrast, FLAGS.saturation, FLAGS.hue,
                         training=False, shard=True, increased_aug=False),
                     checkpoint_path=c['path'])
-                c['epoch'] = c['step'] / nstep_per_epoch
+                c['epoch'] = c['step'] / (num_training_samples // (FLAGS.batch_size * FLAGS.num_gpus))
                 c['top1'] = eval_result['val-top1acc']
                 c['top5'] = eval_result['val-top5acc']
                 c['loss'] = eval_result['loss']
