@@ -21,6 +21,14 @@ if [ -z "$1" ]
     echo "User is asking to run $gpus GPUs!"
 fi
 
+echo "Starting multi-node training process. First, let's clean things up..."
+echo "Cleaning up all current python processes..."
+export COMMAND="pkill -9 python"; while read -u 10 host; do host=${host%% slots*}; ssh -o "StrictHostKeyChecking no" $host "$COMMAND"; done 10<hosts
+echo "Deleting logs folder..."
+export COMMAND="rm -rf ~/resnet50_log/"; while read -u 10 host; do host=${host%% slots*}; ssh -o "StrictHostKeyChecking no" $host "$COMMAND"; done 10<hosts
+echo "Checking disk space..."
+export COMMAND="df /"; while read -u 10 host; do host=${host%% slots*}; ssh -o "StrictHostKeyChecking no" $host "$COMMAND"; done 10<hosts
+
 source activate tensorflow_p36
 
 # adjust the learning rate based on how many gpus are being used.
