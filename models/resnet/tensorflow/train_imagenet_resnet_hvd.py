@@ -783,9 +783,14 @@ def add_cli_args():
     cmdline.add_argument('--num_epochs', type=int,
                          help="""Number of epochs to run.
                          Overrides --num_batches. Ignored during eval.""")
-    cmdline.add_argument('--log_dir', default="imagenet_resnet",
+    cmdline.add_argument('--log_dir', default='imagenet_resnet',
                          help="""Directory in which to write training
-                         summaries and checkpoints.""")
+                         summaries and checkpoints. If the log directory already 
+                         contains some checkpoints, it tries to resume training
+                         from the last saved checkpoint. Pass --clear_log if you
+                         want to clear all checkpoints and start a fresh run""")
+    add_bool_argument(cmdline, '--clear_log', default=False,
+                      help="""Clear the log folder passed so a fresh run can be started""")
     cmdline.add_argument('--log_name', type=str, default='hvd_train.log')
     add_bool_argument(cmdline, '--local_ckpt',
                       help="""Performs local checkpoints (i.e. one per node)""")
@@ -814,7 +819,7 @@ def add_cli_args():
     add_bool_argument(cmdline, '--adv_conv_init', default=True,
                       help="""init conv with MSRA initializer""")
 
-    cmdline.add_argument('--lr', default=6.4, type=float,
+    cmdline.add_argument('--lr', type=float,
                          help="""Start learning rate""")
     cmdline.add_argument('--mom', default=0.90, type=float,
                          help="""Momentum""")
@@ -906,12 +911,15 @@ def main():
     FLAGS.log_dir = None if FLAGS.log_dir == "" else FLAGS.log_dir
 
     if FLAGS.eval:
-        FLAGS.log_name = 'eval' + FLAGS.log_name
+        FLAGS.log_name = 'eval_' + FLAGS.log_name
     if FLAGS.local_ckpt:
         do_checkpoint = hvd.local_rank() == 0
     else:
         do_checkpoint = hvd.rank() == 0
-    if do_checkpoint and not os.path.isdir(FLAGS.log_dir):
+    if hvd.local_rank() == 0 and FLAGS.clear_log and os.path.isdir(FLAGS.log_dir):
+        shutil.rmtree(FLAGS.log_dir)
+
+    if hvd.local_rank() == 0 and not os.path.isdir(FLAGS.log_dir):
         os.makedirs(FLAGS.log_dir)
 
     logger = logging.getLogger(FLAGS.log_name)
@@ -934,13 +942,19 @@ def main():
     
     height, width = 224, 224
     global_batch_size = FLAGS.batch_size * hvd.size()
+    rank0log(logger, 'PY' + str(sys.version) + 'TF' + str(tf.__version__))
+    rank0log(logger, "Horovod size: ", hvd.size())
 
     if FLAGS.data_dir:
         filename_pattern = os.path.join(FLAGS.data_dir, '%s-*')
         train_filenames = sorted(tf.gfile.Glob(filename_pattern % 'train'))
         eval_filenames = sorted(tf.gfile.Glob(filename_pattern % 'validation'))
         num_training_samples = get_num_records(train_filenames)
+        rank0log(logger, "Using data from: ", FLAGS.data_dir)
+        rank0log(logger, 'Found ', num_training_samples, ' training samples')
     else:
+        if not FLAGS.synthetic:
+            raise ValueError('data_dir missing. Please pass --synthetic if you want to run on synthetic data. Else please pass --data_dir')
         train_filenames = eval_filenames = []
         num_training_samples = 1281167
     training_samples_per_rank = num_training_samples // hvd.size()
@@ -962,23 +976,28 @@ def main():
         steps = []
         lr_steps = []
 
+    if not FLAGS.lr:
+        if FLAGS.use_larc:
+            FLAGS.lr = 3.7
+        else:
+            FLAGS.lr = (hvd.size() * FLAGS.batch_size * 0.1) / 256
+    rank0log(logger, 'Using a learning rate of ', FLAGS.lr)
+
     if not FLAGS.save_checkpoints_steps:
         # default to save one checkpoint per epoch
         FLAGS.save_checkpoints_steps = nstep_per_epoch
+    rank0log(logger, 'Checkpointing every ' + str(FLAGS.save_checkpoints_steps) + ' steps')
     if not FLAGS.save_summary_steps:
         # default to save one checkpoint per epoch
         FLAGS.save_summary_steps = nstep_per_epoch
-
+    rank0log(logger, 'Saving summary every ' + str(FLAGS.save_summary_steps) + ' steps')
     warmup_it = nstep_per_epoch * FLAGS.warmup_epochs
 
-
-    rank0log(logger, 'PY' + str(sys.version) + 'TF' + str(tf.__version__))
     config = tf.ConfigProto()
     config.gpu_options.visible_device_list = str(hvd.local_rank())
     config.gpu_options.force_gpu_compatible = True  # Force pinned memory
     config.intra_op_parallelism_threads = 1  # Avoid pool of Eigen threads
     config.inter_op_parallelism_threads = 5
-    rank0log(logger, "Horovod size: ", hvd.size())
 
     classifier = tf.estimator.Estimator(
         model_fn=cnn_model_function,
@@ -1020,7 +1039,7 @@ def main():
 
     if not FLAGS.eval:
         num_preproc_threads = 5
-        rank0log(logger, "Preproc threads", num_preproc_threads)
+        rank0log(logger, "Using preprocessing threads per GPU: ", num_preproc_threads)
         training_hooks = [hvd.BroadcastGlobalVariablesHook(0),
                           PrefillStagingAreasHook()]
         if hvd.rank() == 0:
