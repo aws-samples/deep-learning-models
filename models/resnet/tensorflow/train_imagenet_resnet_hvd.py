@@ -925,13 +925,13 @@ def main():
     formatter = logging.Formatter('%(message)s')
     ch.setFormatter(formatter)
     logger.addHandler(ch)
-    if not hvd.local_rank():
+    if not hvd.rank():
         fh = logging.FileHandler(os.path.join(FLAGS.log_dir, FLAGS.log_name))
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(formatter)
         # add handlers to logger
         logger.addHandler(fh)
-
+    
     height, width = 224, 224
     global_batch_size = FLAGS.batch_size * hvd.size()
 
