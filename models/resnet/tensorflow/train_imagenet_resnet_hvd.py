@@ -896,6 +896,13 @@ def main():
     os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
     hvd.init()
 
+
+    config = tf.ConfigProto()
+    config.gpu_options.visible_device_list = str(hvd.local_rank())
+    config.gpu_options.force_gpu_compatible = True  # Force pinned memory
+    config.intra_op_parallelism_threads = 1  # Avoid pool of Eigen threads
+    config.inter_op_parallelism_threads = 5
+
     # random.seed(5 * (1 + hvd.rank()))
     # np.random.seed(7 * (1 + hvd.rank()))
     # tf.set_random_seed(31 * (1 + hvd.rank()))
@@ -918,10 +925,14 @@ def main():
         do_checkpoint = hvd.rank() == 0
     if hvd.local_rank() == 0 and FLAGS.clear_log and os.path.isdir(FLAGS.log_dir):
         shutil.rmtree(FLAGS.log_dir)
+    barrier = hvd.allreduce(tf.constant(0, dtype=tf.float32))
+    tf.Session(config=config).run(barrier)
 
     if hvd.local_rank() == 0 and not os.path.isdir(FLAGS.log_dir):
         os.makedirs(FLAGS.log_dir)
-
+    barrier = hvd.allreduce(tf.constant(0, dtype=tf.float32))
+    tf.Session(config=config).run(barrier)
+    
     logger = logging.getLogger(FLAGS.log_name)
     logger.setLevel(logging.INFO)  # INFO, ERROR
     # file handler which logs debug messages
@@ -951,7 +962,8 @@ def main():
         eval_filenames = sorted(tf.gfile.Glob(filename_pattern % 'validation'))
         num_training_samples = get_num_records(train_filenames)
         rank0log(logger, "Using data from: ", FLAGS.data_dir)
-        rank0log(logger, 'Found ', num_training_samples, ' training samples')
+        if not FLAGS.eval:
+            rank0log(logger, 'Found ', num_training_samples, ' training samples')
     else:
         if not FLAGS.synthetic:
             raise ValueError('data_dir missing. Please pass --synthetic if you want to run on synthetic data. Else please pass --data_dir')
@@ -981,23 +993,19 @@ def main():
             FLAGS.lr = 3.7
         else:
             FLAGS.lr = (hvd.size() * FLAGS.batch_size * 0.1) / 256
-    rank0log(logger, 'Using a learning rate of ', FLAGS.lr)
-
     if not FLAGS.save_checkpoints_steps:
         # default to save one checkpoint per epoch
         FLAGS.save_checkpoints_steps = nstep_per_epoch
-    rank0log(logger, 'Checkpointing every ' + str(FLAGS.save_checkpoints_steps) + ' steps')
     if not FLAGS.save_summary_steps:
         # default to save one checkpoint per epoch
         FLAGS.save_summary_steps = nstep_per_epoch
-    rank0log(logger, 'Saving summary every ' + str(FLAGS.save_summary_steps) + ' steps')
-    warmup_it = nstep_per_epoch * FLAGS.warmup_epochs
+    
+    if not FLAGS.eval:
+        rank0log(logger, 'Using a learning rate of ', FLAGS.lr)
+        rank0log(logger, 'Checkpointing every ' + str(FLAGS.save_checkpoints_steps) + ' steps')
+        rank0log(logger, 'Saving summary every ' + str(FLAGS.save_summary_steps) + ' steps')
 
-    config = tf.ConfigProto()
-    config.gpu_options.visible_device_list = str(hvd.local_rank())
-    config.gpu_options.force_gpu_compatible = True  # Force pinned memory
-    config.intra_op_parallelism_threads = 1  # Avoid pool of Eigen threads
-    config.inter_op_parallelism_threads = 5
+    warmup_it = nstep_per_epoch * FLAGS.warmup_epochs
 
     classifier = tf.estimator.Estimator(
         model_fn=cnn_model_function,

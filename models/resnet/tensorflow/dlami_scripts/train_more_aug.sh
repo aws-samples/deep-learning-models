@@ -10,7 +10,7 @@
 
 if [ -z "$1" ]
   then
-    gpus=64
+    gpus=256
   else
     gpus=$1
 fi
