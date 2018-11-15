@@ -14,9 +14,11 @@ if [ -z "$1" ]
   else
     gpus=$1
 fi
-echo "Launching training job using $gpus GPUs"
 
-source activate tensorflow_p36
+function runclust(){ while read -u 10 host; do host=${host%% slots*}; ssh -o "StrictHostKeyChecking no" $host ""$2""; done 10<$1; };
+runclust hosts "source activate tensorflow_p36 &"
+
+echo "Launching training job using $gpus GPUs"
 set -ex
 
 # Training
@@ -27,7 +29,7 @@ set -ex
 	-x HOROVOD_HIERARCHICAL_ALLREDUCE=1 -x HOROVOD_FUSION_THRESHOLD=16777216 \
 	-x NCCL_MIN_NRINGS=4 -x LD_LIBRARY_PATH -x PATH -mca pml ob1 -mca btl ^openib \
 	-x NCCL_SOCKET_IFNAME=ens3 -mca btl_tcp_if_exclude lo,docker0 \
-	python -W ignore ~/deep-learning-models/models/resnet/tensorflow/train_imagenet_resnet_hvd.py \
+	python -W ignore train_imagenet_resnet_hvd.py \
 	--data_dir ~/data/tf-imagenet/ --num_epochs 90 \
 	--lr_decay_mode poly --warmup_epochs 10 --clear_log
 
@@ -39,6 +41,6 @@ set -ex
 	-x HOROVOD_HIERARCHICAL_ALLREDUCE=1 -x HOROVOD_FUSION_THRESHOLD=16777216 \
 	-x NCCL_MIN_NRINGS=4 -x LD_LIBRARY_PATH -x PATH -mca pml ob1 -mca btl ^openib \
 	-x NCCL_SOCKET_IFNAME=ens3 -mca btl_tcp_if_exclude lo,docker0 \
-	python -W ignore ~/deep-learning-models/models/resnet/tensorflow/train_imagenet_resnet_hvd.py \
+	python -W ignore train_imagenet_resnet_hvd.py \
 	--data_dir ~/data/tf-imagenet/ --num_epochs 90 \
 	--eval --num_gpus $gpus

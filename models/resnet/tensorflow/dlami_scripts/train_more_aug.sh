@@ -14,9 +14,11 @@ if [ -z "$1" ]
   else
     gpus=$1
 fi
-echo "Launching training job using $gpus GPUs"
 
-source activate tensorflow_p36
+function runclust(){ while read -u 10 host; do host=${host%% slots*}; ssh -o "StrictHostKeyChecking no" $host ""$2""; done 10<$1; };
+runclust hosts "source activate tensorflow_p36 &"
+
+echo "Launching training job using $gpus GPUs"
 set -ex
 
 # Training
