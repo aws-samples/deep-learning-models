@@ -1,7 +1,6 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
-# Ensure you have Horovod, OpenMPI, and Tensorflow installed on each machine
 # Specify hosts in the file `hosts`
 
 # Below was tested on DLAMI v17 Ubuntu. 
