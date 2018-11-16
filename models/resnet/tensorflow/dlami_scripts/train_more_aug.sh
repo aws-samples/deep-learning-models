@@ -15,8 +15,14 @@ if [ -z "$1" ]
     gpus=$1
 fi
 
-function runclust(){ while read -u 10 host; do host=${host%% slots*}; ssh -o "StrictHostKeyChecking no" $host ""$2""; done 10<$1; };
-runclust hosts "source activate tensorflow_p36 &"
+function runclust(){ while read -u 10 host; do host=${host%% slots*}; if [ ""$3"" == "verbose" ]; then echo "On $host"; fi; ssh -o "StrictHostKeyChecking no" $host ""$2""; done 10<$1; };
+
+# Activating tensorflow_p36 on each machine
+runclust hosts "echo 'Activating tensorflow_p36'; tmux new-session -s activation_tf -d \"source activate tensorflow_p36 > activation_log.txt;\"" verbose; 
+# Waiting for activation to finish
+runclust hosts "while tmux has-session -t activation_tf 2>/dev/null; do :; done; cat activation_log.txt"
+# Activate locally for the mpirun command to use
+source activate tensorflow_p36
 
 echo "Launching training job using $gpus GPUs"
 set -ex
@@ -29,7 +35,7 @@ set -ex
 	-x HOROVOD_HIERARCHICAL_ALLREDUCE=1 -x HOROVOD_FUSION_THRESHOLD=16777216 \
 	-x NCCL_MIN_NRINGS=4 -x LD_LIBRARY_PATH -x PATH -mca pml ob1 -mca btl ^openib \
 	-x NCCL_SOCKET_IFNAME=ens3 -mca btl_tcp_if_exclude lo,docker0 \
-	python -W ignore ~/deep-learning-models/models/resnet/tensorflow/train_imagenet_resnet_hvd.py \
+	python -W ignore train_imagenet_resnet_hvd.py \
 	--data_dir ~/data/tf-imagenet/ --num_epochs 90 --increased_aug \
 	--mom 0.977 --wdecay 0.0005 --loss_scale 256. --use_larc \
 	--lr_decay_mode linear_cosine --warmup_epochs 5 --clear_log
@@ -42,6 +48,6 @@ set -ex
 	-x HOROVOD_HIERARCHICAL_ALLREDUCE=1 -x HOROVOD_FUSION_THRESHOLD=16777216 \
 	-x NCCL_MIN_NRINGS=4 -x LD_LIBRARY_PATH -x PATH -mca pml ob1 -mca btl ^openib \
 	-x NCCL_SOCKET_IFNAME=ens3 -mca btl_tcp_if_exclude lo,docker0 \
-	python -W ignore ~/deep-learning-models/models/resnet/tensorflow/train_imagenet_resnet_hvd.py \
+	python -W ignore train_imagenet_resnet_hvd.py \
 	--data_dir ~/data/tf-imagenet/ --num_epochs 90 \
 	--eval --num_gpus $gpus

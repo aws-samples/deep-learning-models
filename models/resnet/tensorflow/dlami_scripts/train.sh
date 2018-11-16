@@ -15,8 +15,14 @@ if [ -z "$1" ]
     gpus=$1
 fi
 
-function runclust(){ while read -u 10 host; do host=${host%% slots*}; ssh -o "StrictHostKeyChecking no" $host ""$2""; done 10<$1; };
-runclust hosts "source activate tensorflow_p36 &"
+function runclust(){ while read -u 10 host; do host=${host%% slots*}; if [ ""$3"" == "verbose" ]; then echo "On $host"; fi; ssh -o "StrictHostKeyChecking no" $host ""$2""; done 10<$1; };
+
+# Activating tensorflow_p36 on each machine
+runclust hosts "echo 'Activating tensorflow_p36'; tmux new-session -s activation_tf -d \"source activate tensorflow_p36 > activation_log.txt;\"" verbose; 
+# Waiting for activation to finish
+runclust hosts "while tmux has-session -t activation_tf 2>/dev/null; do :; done; cat activation_log.txt"
+# Activate locally for the mpirun command to use
+source activate tensorflow_p36
 
 echo "Launching training job using $gpus GPUs"
 set -ex
