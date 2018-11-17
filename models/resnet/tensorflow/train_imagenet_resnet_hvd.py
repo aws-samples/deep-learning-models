@@ -51,9 +51,6 @@ from glob import glob
 from operator import itemgetter
 from tensorflow.python.util import nest
 
-# uncomment to suppress TF info messages
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '0'
-
 def rank0log(logger, *args, **kwargs):
     if hvd.rank() == 0:
         if logger:
