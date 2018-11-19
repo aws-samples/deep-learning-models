@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT-0
 
 # Specify hosts in the file `hosts`
+# Use train_more_aug.sh when training with large number of GPUs (128, 256, etc)
 
 # Below was tested on DLAMI v17 Ubuntu. 
 # If you have version 12 or older, you need to remove the NCCL_SOCKET_IFNAME and -mca btl_tcp_if_exclude lo,docker0
@@ -19,6 +20,8 @@ function runclust(){ while read -u 10 host; do host=${host%% slots*}; if [ ""$3"
 runclust hosts "echo 'Activating tensorflow_p36'; tmux new-session -s activation_tf -d \"source activate tensorflow_p36 > activation_log.txt;\"" verbose; 
 # Waiting for activation to finish
 runclust hosts "while tmux has-session -t activation_tf 2>/dev/null; do :; done; cat activation_log.txt"
+# You can comment out the above two runclust commands if you have activated the environment on all machines at least once
+
 # Activate locally for the mpirun command to use
 source activate tensorflow_p36
 
@@ -27,6 +30,7 @@ set -ex
 
 if [  -n "$(uname -a | grep Ubuntu)" ]; then INTERFACE=ens3 ; else INTERFACE=eth0; fi
 NUM_GPUS_MASTER=`nvidia-smi -L | wc -l`
+if [ "nvidia-smi --query-gpu=memory.total --format=csv,noheader -i 0 | awk '{print $1}'" -gt 15000 ]; then BATCH_SIZE=256; else BATCH_SIZE=128; fi
 
 # Training
 # adjust the learning rate based on how many gpus are being used. 
@@ -38,7 +42,7 @@ NUM_GPUS_MASTER=`nvidia-smi -L | wc -l`
 	-x NCCL_SOCKET_IFNAME=$INTERFACE -mca btl_tcp_if_exclude lo,docker0 \
 	-x TF_CPP_MIN_LOG_LEVEL=0 \
 	python -W ignore train_imagenet_resnet_hvd.py \
-	--data_dir ~/data/tf-imagenet/ --num_epochs 90 \
+	--data_dir ~/data/tf-imagenet/ --num_epochs 90 -b $BATCH_SIZE \
 	--lr_decay_mode poly --warmup_epochs 10 --clear_log
 
 # Evaluation
@@ -51,5 +55,5 @@ NUM_GPUS_MASTER=`nvidia-smi -L | wc -l`
 	-x NCCL_SOCKET_IFNAME=$INTERFACE -mca btl_tcp_if_exclude lo,docker0 \
 	-x TF_CPP_MIN_LOG_LEVEL=0 \
 	python -W ignore train_imagenet_resnet_hvd.py \
-	--data_dir ~/data/tf-imagenet/ --num_epochs 90 \
+	--data_dir ~/data/tf-imagenet/ --num_epochs 90 -b $BATCH_SIZE \
 	--eval --num_gpus $gpus

@@ -19,6 +19,8 @@ function runclust(){ while read -u 10 host; do host=${host%% slots*}; if [ ""$3"
 runclust hosts "echo 'Activating tensorflow_p36'; tmux new-session -s activation_tf -d \"source activate tensorflow_p36 > activation_log.txt;\"" verbose; 
 # Waiting for activation to finish
 runclust hosts "while tmux has-session -t activation_tf 2>/dev/null; do :; done; cat activation_log.txt"
+# You can comment out the above two runclust commands if you have activated the environment on all machines at least once
+
 # Activate locally for the mpirun command to use
 source activate tensorflow_p36
 
@@ -26,6 +28,8 @@ echo "Launching training job with synthetic data using $gpus GPUs"
 set -ex
 
 if [  -n "$(uname -a | grep Ubuntu)" ]; then INTERFACE=ens3 ; else INTERFACE=eth0; fi
+if [ "$gpus" -ge 128 ]; then LARC_AND_SCALING=" --use_larc --loss_scale 256." ; else LARC_AND_SCALING=""; fi
+if [ "nvidia-smi --query-gpu=memory.total --format=csv,noheader -i 0 | awk '{print $1}'" -gt 15000 ]; then BATCH_SIZE=256; else BATCH_SIZE=128; fi
 
 # Training
 ~/anaconda3/envs/tensorflow_p36/bin/mpirun -np $gpus -hostfile hosts -mca plm_rsh_no_tree_spawn 1 \
@@ -35,4 +39,4 @@ if [  -n "$(uname -a | grep Ubuntu)" ]; then INTERFACE=ens3 ; else INTERFACE=eth
 	-x NCCL_SOCKET_IFNAME=$INTERFACE -mca btl_tcp_if_exclude lo,docker0 \
 	-x TF_CPP_MIN_LOG_LEVEL=0 \
 	python -W ignore train_imagenet_resnet_hvd.py \
-	--synthetic --num_epochs 5 --clear_log
+	--synthetic -b $BATCH_SIZE --num_epochs 5 --clear_log $LARC_AND_SCALING
