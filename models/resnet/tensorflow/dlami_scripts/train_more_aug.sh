@@ -44,7 +44,7 @@ if [ $GPU_MEM -gt 15000 ] ; then BATCH_SIZE=256; else BATCH_SIZE=128; fi
 	python -W ignore train_imagenet_resnet_hvd.py \
 	--data_dir ~/data/tf-imagenet/ --num_epochs 90 --increased_aug -b $BATCH_SIZE \
 	--mom 0.977 --wdecay 0.0005 --loss_scale 256. --use_larc \
-	--lr_decay_mode linear_cosine --warmup_epochs 10 --clear_log
+	--lr_decay_mode linear_cosine --warmup_epochs 5 --clear_log
 
 # Evaluation
 # Using only gpus on master node for evaluation as we saved checkpoints only on master node
