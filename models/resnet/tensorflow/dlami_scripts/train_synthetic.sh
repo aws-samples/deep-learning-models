@@ -29,7 +29,8 @@ set -ex
 
 if [  -n "$(uname -a | grep Ubuntu)" ]; then INTERFACE=ens3 ; else INTERFACE=eth0; fi
 if [ "$gpus" -ge 128 ]; then LARC_AND_SCALING=" --use_larc --loss_scale 256." ; else LARC_AND_SCALING=""; fi
-if [ "nvidia-smi --query-gpu=memory.total --format=csv,noheader -i 0 | awk '{print $1}'" -gt 15000 ]; then BATCH_SIZE=256; else BATCH_SIZE=128; fi
+GPU_MEM=`nvidia-smi --query-gpu=memory.total --format=csv,noheader -i 0 | awk '{print $1}'`
+if [ $GPU_MEM -gt 15000 ] ; then BATCH_SIZE=256; else BATCH_SIZE=128; fi
 
 # Training
 ~/anaconda3/envs/tensorflow_p36/bin/mpirun -np $gpus -hostfile hosts -mca plm_rsh_no_tree_spawn 1 \

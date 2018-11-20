@@ -30,7 +30,8 @@ set -ex
 
 if [  -n "$(uname -a | grep Ubuntu)" ]; then INTERFACE=ens3 ; else INTERFACE=eth0; fi
 NUM_GPUS_MASTER=`nvidia-smi -L | wc -l`
-if [ "nvidia-smi --query-gpu=memory.total --format=csv,noheader -i 0 | awk '{print $1}'" -gt 15000 ]; then BATCH_SIZE=256; else BATCH_SIZE=128; fi
+GPU_MEM=`nvidia-smi --query-gpu=memory.total --format=csv,noheader -i 0 | awk '{print $1}'`
+if [ $GPU_MEM -gt 15000 ] ; then BATCH_SIZE=256; else BATCH_SIZE=128; fi
 
 # Training
 # adjust the learning rate based on how many gpus are being used. 
