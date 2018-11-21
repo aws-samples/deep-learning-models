@@ -378,7 +378,7 @@ def make_dataset(filenames, take_count, batch_size, height, width,
             ds = ds.take(take_count)  # make sure all ranks have the same amount
 
         if training:
-            ds = ds.apply(tf.data.experimental.shuffle_and_repeat(shuffle_buffer_size, seed=5*(1+hvd.rank())))
+            ds = ds.shuffle(1000, seed=7 * (1 + hvd.rank()))
 
         ds = ds.interleave(
             tf.data.TFRecordDataset, cycle_length=num_readers, block_length=1)
@@ -389,7 +389,7 @@ def make_dataset(filenames, take_count, batch_size, height, width,
             distort=training, nsummary=nsummary if training else 0, increased_aug=increased_aug)
         ds = ds.map(preproc_func, num_parallel_calls=num_threads)
         if training:
-            ds = ds.shuffle(shuffle_buffer_size, seed=7 * (1 + hvd.rank()))
+            ds = ds.apply(tf.data.experimental.shuffle_and_repeat(shuffle_buffer_size, seed=5*(1+hvd.rank())))
     ds = ds.batch(batch_size)
     return ds
 
