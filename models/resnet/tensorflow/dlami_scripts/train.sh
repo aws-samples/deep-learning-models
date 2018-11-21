@@ -1,15 +1,16 @@
 # Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
-# Specify hosts in the file `hosts`
-# Use train_more_aug.sh when training with large number of GPUs (128, 256, etc)
+# Specify hosts in the file `hosts`, ensure that the number of slots is equal to the number of GPUs on that host
 
-# Below was tested on DLAMI v17 Ubuntu. 
-# If you have version 12 or older, you need to remove the NCCL_SOCKET_IFNAME and -mca btl_tcp_if_exclude lo,docker0
+# Use train_more_aug.sh when training with large number of GPUs (128, 256, etc). That script uses more augmentations and layer wise adaptive rate control (LARC) to help with convergence at large batch sizes. 
+
+# This script has been tested on DLAMI v17 and above
 
 if [ -z "$1" ]
   then
-    gpus=64
+    echo "Pass the number of GPUs you want to train on as the first argument"
+    exit 1
   else
     gpus=$1
 fi
@@ -28,14 +29,15 @@ source activate tensorflow_p36
 echo "Launching training job using $gpus GPUs"
 set -ex
 
+# use ens3 interface for DLAMI Ubuntu and eth0 interface for DLAMI AmazonLinux
 if [  -n "$(uname -a | grep Ubuntu)" ]; then INTERFACE=ens3 ; else INTERFACE=eth0; fi
 NUM_GPUS_MASTER=`nvidia-smi -L | wc -l`
+
+# p3 instances have larger GPU memory, so a higher batch size can be used
 GPU_MEM=`nvidia-smi --query-gpu=memory.total --format=csv,noheader -i 0 | awk '{print $1}'`
 if [ $GPU_MEM -gt 15000 ] ; then BATCH_SIZE=256; else BATCH_SIZE=128; fi
 
 # Training
-# adjust the learning rate based on how many gpus are being used. 
-# for x gpus use x*0.1 as the learning rate for resnet50 with 256batch size per gpu
 ~/anaconda3/envs/tensorflow_p36/bin/mpirun -np $gpus -hostfile hosts -mca plm_rsh_no_tree_spawn 1 \
 	-bind-to socket -map-by slot \
 	-x HOROVOD_HIERARCHICAL_ALLREDUCE=1 -x HOROVOD_FUSION_THRESHOLD=16777216 \
