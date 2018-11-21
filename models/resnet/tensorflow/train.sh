@@ -6,7 +6,7 @@
 
 if [ -z "$1" ]
   then
-    echo "Pass the number of GPUs you want to train on as the first argument"
+    echo "Usage: "$0" <num_gpus>"
     exit 1
   else
     gpus=$1
