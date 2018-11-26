@@ -1091,7 +1091,7 @@ def main():
                         FLAGS.brightness, FLAGS.contrast, FLAGS.saturation, FLAGS.hue,
                         training=False, shard=True, increased_aug=False),
                     checkpoint_path=c['path'])
-                c['epoch'] = c['step'] / (num_training_samples // (FLAGS.batch_size * FLAGS.num_gpus))
+                c['epoch'] = math.ceil(c['step'] / (num_training_samples / (FLAGS.batch_size * FLAGS.num_gpus)))
                 c['top1'] = eval_result['val-top1acc']
                 c['top5'] = eval_result['val-top5acc']
                 c['loss'] = eval_result['loss']
