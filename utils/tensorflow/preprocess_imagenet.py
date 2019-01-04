@@ -111,6 +111,7 @@ def download_dataset(raw_data_dir):
   if not os.path.isfile(filename):
       _download(BASE_URL + TRAINING_FILE, filename)
 
+  tf.logging.info('Extracing the training set')
   # The training tarball contains multiple tar balls inside it. Extract them
   # in order to create a clean directory structure.
   for member in _get_members(filename):
@@ -131,6 +132,7 @@ def download_dataset(raw_data_dir):
   filename = os.path.join(raw_data_dir, VALIDATION_FILE)
   if not os.path.isfile(filename):
       _download(BASE_URL + VALIDATION_FILE, filename)
+  tf.logging.info('Extracing the validation set')
   _untar_file(filename, directory)
 
 
