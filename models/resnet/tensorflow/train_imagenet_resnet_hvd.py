@@ -1100,13 +1100,13 @@ def main():
                 c['top1'] = eval_result['val-top1acc']
                 c['top5'] = eval_result['val-top5acc']
                 c['loss'] = eval_result['loss']
-            rank0log(logger, ' step  epoch  top1    top5     loss   checkpoint_time(UTC)')
+            rank0log(logger, ' step  epoch  top1    top5     loss   checkpoint_time')
             barrier = hvd.allreduce(tf.constant(0, dtype=tf.float32))
             for i, c in enumerate(ckpts):
                 tf.Session(config=config).run(barrier)
                 if 'top1' not in c:
                     continue
-                rank0log(logger,'{:5d}  {:5.1f}  {:5.3f}  {:6.2f}  {:6.2f}  {time}'
+                rank0log(logger,'{:5d}  {:5.1f}  {:5.3f}  {:6.2f}  {:6.2f}  UTC:{time}'
                          .format(c['step'],
                                  c['epoch'],
                                  c['top1'] * 100,
