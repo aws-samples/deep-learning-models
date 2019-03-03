@@ -811,6 +811,7 @@ def add_cli_args():
                          help="""Nodes that can use multiple threads to parallelize their execution will schedule the individual pieces into this pool.
                                 Default value 1 avoid pool of Eiden threads""")
     cmdline.add_argument('--inter_op_parallelism_threads', type=int, default=5, help="""All ready nodes are scheduled in this pool.""")
+    cmdline.add_argument('--num_parallel_calls', type=int, default=5, help="""The level of parallelism for data preprocessing across multiple CPU cores""")
 
     cmdline.add_argument('--save_checkpoints_steps', type=int, default=1000)
     cmdline.add_argument('--save_summary_steps', type=int, default=0)
@@ -1046,7 +1047,7 @@ def main():
             keep_checkpoint_max=None))
 
     if not FLAGS.eval:
-        num_preproc_threads = 5
+        num_preproc_threads = FLAGS.num_parallel_calls
         rank0log(logger, "Using preprocessing threads per GPU: ", num_preproc_threads)
         training_hooks = [hvd.BroadcastGlobalVariablesHook(0),
                           PrefillStagingAreasHook()]
