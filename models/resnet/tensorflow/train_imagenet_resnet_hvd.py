@@ -807,6 +807,11 @@ def add_cli_args():
     cmdline.add_argument('--num_gpus', default=1, type=int,
                          help="""Specify total number of GPUS used to train a checkpointed model during eval.
                                 Used only to calculate epoch number to print during evaluation""")
+    cmdline.add_argument('--intra_op_parallelism_threads', type=int, default=1,
+                         help="""Nodes that can use multiple threads to parallelize their execution will schedule the individual pieces into this pool.
+                                Default value 1 avoid pool of Eiden threads""")
+    cmdline.add_argument('--inter_op_parallelism_threads', type=int, default=5, help="""All ready nodes are scheduled in this pool.""")
+    cmdline.add_argument('--num_parallel_calls', type=int, default=5, help="""The level of parallelism for data preprocessing across multiple CPU cores""")
 
     cmdline.add_argument('--save_checkpoints_steps', type=int, default=1000)
     cmdline.add_argument('--save_summary_steps', type=int, default=0)
@@ -892,13 +897,6 @@ def main():
     os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
     hvd.init()
 
-
-    config = tf.ConfigProto()
-    config.gpu_options.visible_device_list = str(hvd.local_rank())
-    config.gpu_options.force_gpu_compatible = True  # Force pinned memory
-    config.intra_op_parallelism_threads = 1  # Avoid pool of Eigen threads
-    config.inter_op_parallelism_threads = 5
-
     # random.seed(5 * (1 + hvd.rank()))
     # np.random.seed(7 * (1 + hvd.rank()))
     # tf.set_random_seed(31 * (1 + hvd.rank()))
@@ -909,6 +907,13 @@ def main():
         for bad_arg in unknown_args:
             print("ERROR: Unknown command line arg: %s" % bad_arg)
         raise ValueError("Invalid command line arg(s)")
+
+
+    config = tf.ConfigProto()
+    config.gpu_options.visible_device_list = str(hvd.local_rank())
+    config.gpu_options.force_gpu_compatible = True  # Force pinned memory
+    config.intra_op_parallelism_threads = FLAGS.intra_op_parallelism_threads
+    config.inter_op_parallelism_threads = FLAGS.inter_op_parallelism_threads
 
     FLAGS.data_dir = None if FLAGS.data_dir == "" else FLAGS.data_dir
     FLAGS.log_dir = None if FLAGS.log_dir == "" else FLAGS.log_dir
@@ -1042,7 +1047,7 @@ def main():
             keep_checkpoint_max=None))
 
     if not FLAGS.eval:
-        num_preproc_threads = 5
+        num_preproc_threads = FLAGS.num_parallel_calls
         rank0log(logger, "Using preprocessing threads per GPU: ", num_preproc_threads)
         training_hooks = [hvd.BroadcastGlobalVariablesHook(0),
                           PrefillStagingAreasHook()]
