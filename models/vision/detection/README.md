@@ -45,12 +45,12 @@ Training on N GPUs (V100s in our experiments) with a per-gpu batch size of M = N
 The results were obtained on SageMaker.
 12 epochs training:
 
-| Num_GPUs x Images_Per_GPU | Instance type | Training time | Box mAP |
-| ------------- | ------------- | ------------- | ------------- |
-
-| 8x4 | P3dn.24xl | h.mm h | 36.40% |
-| 16x4 | P3dn.24xl | h.mm h | 36.30% |
-| 32x4 | P3.16xl | h.mm h | 35.70% |
+| Num_GPUs x Images_Per_GPU | Instance type | Training time | Box mAP | Notes |
+| ------------------------- | ------------- | ------------: | ------: | ----- |
+| 8x4 | P3dn.24xl | 5h 15 | 36.40% | |
+| 16x4 | P3dn.24xl | 2h 50 | 36.30% | |
+| 32x4 | P3dn.24xl | 1h 27 | 35.70% | HP search not done |
+| 64x2 | P3dn.24xl | 0h 56 | 35.50% | HP search not done |
 
 
 ### Example output
