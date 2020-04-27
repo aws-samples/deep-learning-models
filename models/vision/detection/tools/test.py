@@ -9,13 +9,13 @@ import shutil
 import tempfile
 import tensorflow as tf
 from pycocotools.cocoeval import COCOeval
-from mmdet.core import coco_eval, results2json
-from mmdet.datasets import build_dataloader, build_dataset
-from mmdet.models import build_detector
-from mmdet.utils.misc import Config, mkdir_or_exist
-from mmdet.utils.runner.dist_utils import get_dist_info, init_dist
-from mmdet.utils import fileio
-from mmdet.core.bbox import transforms
+from awsdet.core import coco_eval, results2json
+from awsdet.datasets import build_dataloader, build_dataset
+from awsdet.models import build_detector
+from awsdet.utils.misc import Config, mkdir_or_exist
+from awsdet.utils.runner.dist_utils import get_dist_info, init_dist
+from awsdet.utils import fileio
+from awsdet.core.bbox import transforms
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 init_dist()

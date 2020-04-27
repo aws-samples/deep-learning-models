@@ -14,16 +14,16 @@ import tensorflow_addons as tfa
 import tensorflow as tf
 import horovod.tensorflow as hvd
 
-from mmdet.datasets import DATASETS, build_dataloader, build_dataset, dali
-from mmdet.models import build_detector
-from mmdet.utils.schedulers import schedulers
-from mmdet.core import CocoDistEvalmAPHook, CocoDistEvalRecallHook
-from mmdet.utils.runner.hooks.logger import tensorboard, text
-from mmdet.utils.runner.hooks import checkpoint, iter_timer, visualizer
-from mmdet.apis.train import parse_losses, batch_processor, build_optimizer, get_root_logger
-from mmdet.utils.misc import Config
+from awsdet.datasets import DATASETS, build_dataloader, build_dataset, dali
+from awsdet.models import build_detector
+from awsdet.utils.schedulers import schedulers
+from awsdet.core import CocoDistEvalmAPHook, CocoDistEvalRecallHook
+from awsdet.utils.runner.hooks.logger import tensorboard, text
+from awsdet.utils.runner.hooks import checkpoint, iter_timer, visualizer
+from awsdet.apis.train import parse_losses, batch_processor, build_optimizer, get_root_logger
+from awsdet.utils.misc import Config
 import horovod.tensorflow as hvd
-from mmdet.utils.runner import sagemaker_runner
+from awsdet.utils.runner import sagemaker_runner
 import argparse
 
 ##########################################################################################

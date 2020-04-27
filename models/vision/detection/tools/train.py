@@ -10,14 +10,14 @@ import time
 import numpy as np
 import tensorflow as tf
 
-from mmdet.utils.misc import Config, mkdir_or_exist
-from mmdet.utils.runner import init_dist, master_only, get_dist_info
-from mmdet.utils.keras import freeze_model_layers
+from awsdet.utils.misc import Config, mkdir_or_exist
+from awsdet.utils.runner import init_dist, master_only, get_dist_info
+from awsdet.utils.keras import freeze_model_layers
 
-from mmdet import __version__
-from mmdet.apis import (get_root_logger, set_random_seed, train_detector,)
-from mmdet.datasets import build_dataset, build_dataloader
-from mmdet.models import build_detector
+from awsdet import __version__
+from awsdet.apis import (get_root_logger, set_random_seed, train_detector,)
+from awsdet.datasets import build_dataset, build_dataloader
+from awsdet.models import build_detector
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 # tf.config.experimental_run_functions_eagerly(True)
@@ -25,13 +25,6 @@ os.environ['TF_CUDNN_USE_AUTOTUNE']= str(0)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
-    # parser.add_argument(
-    #    'config',
-    #    help='train config file path',
-    #    nargs='*',
-    #    default=
-    #    '/Users/mzanur/workspace/mmdetection_tf/configs/faster_rcnn_r50_fpn_1x_local.py'
-    # )
     parser.add_argument(
         'config',
         help='train config file path'
@@ -46,7 +39,7 @@ def parse_args():
         help='whether to evaluate the checkpoint during training')
     parser.add_argument(
         '--seed', type=int, default=17, help='random seed'
-    )  #TODO: check implementation probably not correct for TF
+    )
     parser.add_argument(
         '--deterministic',
         action='store_true',
@@ -83,10 +76,6 @@ def print_model_info(model, logger):
 def main():
     args = parse_args()
     num_gpus = len(gpus)
-#    if args.amp:
-#        tf.keras.backend.set_floatx('float16')
-#       tf.config.optimizer.set_experimental_options({"auto_mixed_precision": True})
-
     cfg = Config.fromfile(args.config)
     # update configs according to CLI args
     if args.work_dir is not None:
@@ -103,12 +92,6 @@ def main():
     # init distributed env first, since logger depends on the dist info.
     init_dist()
 
-    #if args.amp:
-        # broken in TF 2.1
-        # tf.keras.backend.set_floatx('float16')
-        # policy = tf.keras.mixed_precision.experimental.Policy('mixed_float16')
-        # tf.keras.mixed_precision.experimental.set_policy(policy)
- 
     if not gpus:
         distributed = False  # single node single gpu
     else:

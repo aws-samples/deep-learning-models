@@ -3,7 +3,7 @@
 # -*- coding: utf-8 -*-
 from argparse import ArgumentParser
 
-from mmdet.core import coco_eval
+from awsdet.core import coco_eval
 
 
 def main():
