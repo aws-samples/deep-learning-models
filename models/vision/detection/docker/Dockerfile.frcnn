@@ -221,6 +221,7 @@ RUN ${PIP} install tensorflow_addons \
                 s3fs \
                 imgaug \
                 tqdm \
+                ipykernel \
                 tensorflow_datasets \
                 scikit-image \
                 cython \
