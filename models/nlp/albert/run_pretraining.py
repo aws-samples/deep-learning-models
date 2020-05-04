@@ -1,6 +1,8 @@
 """
 albert-base
 wrapped_train_step w/ 32bsz, 1acc: 3.13 it/s; 3.51 it/s
+wrapped train_step w/ skipping loss/acc allreduce: ? it/s, 3.54 it/s
+wrapped train_step w/ skipping xla: ? it/s, 1.50 it/s
 wrapped train_batch & wrapped_allreduce: 2.99 it/s, 3.42 it/s
 
 Max per-GPU batch size (albert):
