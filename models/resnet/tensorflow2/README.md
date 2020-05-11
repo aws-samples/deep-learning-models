@@ -11,12 +11,12 @@ Instructions for converting raw Imagenet data to TFRecord can be found [here](ht
 Your data should be stored on S3 in the format
 
 ```
-s3://my-bucket/imagnet/train-00001-of-01024
-s3://my-bucket/imagnet/train-00002-of-01024
+s3://my-bucket/imagenet/train-00001-of-01024
+s3://my-bucket/imagenet/train-00002-of-01024
 .
 .
 .
-s3://my-bucket/imagnet/validation-00128-of-00128
+s3://my-bucket/imagenet/validation-00128-of-00128
 ```
 
 ### Instance setup
@@ -25,7 +25,7 @@ On your EC2 instance copy your data from S3
 
 ```
 mkdir -p ~/shared_workspace/imagenet/data
-aws s3 cp --recursive s3://my-bucket/imagnet ~/shared_workspace/imagenet/data
+aws s3 cp --recursive s3://my-bucket/imagenet ~/shared_workspace/imagenet/data
 ```
 
 Pull the DLC from AWS ECR
