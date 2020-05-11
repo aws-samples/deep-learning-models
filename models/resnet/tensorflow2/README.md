@@ -49,7 +49,23 @@ GPU_COUNT=`expr \`nvidia-smi --query-gpu=gpu_name --format=csv | wc -l\` - 1`
 printf "localhost\tslots=${GPU_COUNT}\n" >> ~/shared_workspace/hosts
 ```
 
-Launch training with DLC
+### Launch training with DLC
+
+The Resnet script runs with MPI. Below is an example command to launch training.
+
+```
+RESNET_TRAIN="mpirun --hostfile /root/shared_workspace/hosts \
+                     -mca plm_rsh_no_tree_spawn 1 \
+                     -bind-to socket -map-by slot \
+                     -x HOROVOD_HIERARCHICAL_ALLREDUCE=1 -x HOROVOD_FUSION_THRESHOLD=16777216 \
+                     -x NCCL_MIN_NRINGS=4 -x LD_LIBRARY_PATH -x PATH -mca pml ob1 -mca btl ^openib \
+                     -x NCCL_SOCKET_IFNAME=$INTERFACE -mca btl_tcp_if_exclude lo,docker0 \
+                     -x TF_CPP_MIN_LOG_LEVEL=0 \
+                     python -W ignore /root/shared_workspace/imagenet/deep-learning-models/models/resnet/tensorflow2/train_tf2_resnet.py \
+                     --data_dir /root/shared_workspace/imagenet/data"
+```
+
+This can be run interactively in the container, or launched with docker run.
 
 ```
 docker run --rm -it --gpus all \
@@ -58,14 +74,5 @@ docker run --rm -it --gpus all \
     --ulimit stack=67108864 --ulimit memlock=-1 \
     --security-opt seccomp=unconfined \
     -v ~/shared_workspace:/root/shared_workspace \
-    ${ECR_REPO}/${DLC} /bin/bash -c "mpirun --hostfile /root/shared_workspace/hosts \
-                                     -mca plm_rsh_no_tree_spawn 1 \
-                                     -bind-to socket -map-by slot \
-                                     -x HOROVOD_HIERARCHICAL_ALLREDUCE=1 -x HOROVOD_FUSION_THRESHOLD=16777216 \
-                                     -x NCCL_MIN_NRINGS=4 -x LD_LIBRARY_PATH -x PATH -mca pml ob1 -mca btl ^openib \
-                                     -x NCCL_SOCKET_IFNAME=$INTERFACE -mca btl_tcp_if_exclude lo,docker0 \
-                                     -x TF_CPP_MIN_LOG_LEVEL=0 \
-                                     python -W ignore /root/shared_workspace/imagenet/deep-learning-models/models/resnet/tensorflow2/train_tf2_resnet.py \
-                                     --data_dir /root/shared_workspace/imagenet/data \
-                                     --batch_size 128 --num_batches 500"
+    ${ECR_REPO}/${DLC} /bin/bash -c "${RESNET_TRAIN}"
 ```
