@@ -126,4 +126,7 @@ if __name__ == '__main__':
     print(sys.argv[2])
     print(sys.argv[3])
     print(sys.argv[4])
-    upload_metrics(parsed_results, sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+    if parsed_results['loss'] < 100:
+        upload_metrics(parsed_results, sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+    else:
+        print('nothing being parsed')
