@@ -94,7 +94,7 @@ def parse():
     parser.add_argument("--epochs", help="int", default=13, type=int)
     parser.add_argument("--use_rcnn_bn", help="bool", default="False")
     parser.add_argument("--use_conv", help="bool", default="True")
-    parser.add_argument("--ls", help="float", default=0.0, type=Float)
+    parser.add_argument("--ls", help="float", default=0.0, type=float)
 
     args = parser.parse_args()
     return args
