@@ -135,6 +135,7 @@ def parse():
     parser.add_argument("--schedule", help="learning rate schedule type")
     parser.add_argument("--warmup_init_lr_scale", help="float")
     parser.add_argument("--warmup_steps", help="int")
+    parser.add_argument("--epochs", help="int", default=13, type=int)
     parser.add_argument("--use_rcnn_bn", help="bool")
     parser.add_argument("--use_conv", help="bool")
     parser.add_argument("--ls", help="float")
@@ -151,10 +152,11 @@ if __name__=='__main__':
     cfg.fp16 = (args.fp16 == 'True')
     cfg.ls = float(args.ls)
     cfg.use_rcnn_bn = (args.use_rcnn_bn == 'True')
-    cfg.use_conv = (args.use_conv == 'True')           
+    cfg.use_conv = (args.use_conv == 'True')  
     cfg.schedule = args.schedule
     cfg.workers_per_gpu = 1 # unused
     cfg.warmup_init_lr_scale = float(args.warmup_init_lr_scale)
     cfg.warmup_steps = int(args.warmup_steps)
+    cfg.training_epochs = args.epochs
     cfg.model_name = args.name
     main(cfg)
