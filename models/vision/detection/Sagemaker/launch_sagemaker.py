@@ -25,6 +25,7 @@ def format_hyperparameters(args):
 def main(args):
     hyperparameters = format_hyperparameters(args)
     now = datetime.now()
+    time_str = now.strftime("%d-%m-%Y-%H-%M")
     distributions = {
     "mpi": {
         "enabled": True,
@@ -62,7 +63,7 @@ def main(args):
     estimator.fit(channels, wait=False, job_name=job_name)
     
     print("Started Sagemaker job: {}".format(job_name))
-    pprint(configuration)
+    pprint.pprint(configuration)
     
     
 
