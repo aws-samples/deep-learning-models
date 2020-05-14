@@ -89,7 +89,7 @@ def parse():
     parser.add_argument("--batch_size_per_device", help="integer", default=2, type=int)
     parser.add_argument("--fp16", help="boolean", default="True")
     parser.add_argument("--schedule", help="learning rate schedule type", default="1x")
-    parser.add_argument("--warmup_init_lr_scale", help="float")
+    parser.add_argument("--warmup_init_lr_scale", help="float", default=3.0)
     parser.add_argument("--warmup_steps", help="int", default=500, type=int)
     parser.add_argument("--epochs", help="int", default=13, type=int)
     parser.add_argument("--use_rcnn_bn", help="bool", default="False")
