@@ -78,7 +78,7 @@ if __name__ == "__main__":
         "ml.p3.16xlarge": "p316",
         "ml.g4dn.12xlarge": "g4dn",
     }[instance_type]
-    job_name = f"albert-pretrain-{instance_count}x{instance_abbr}"
+    job_name = f"albert-pretrain-ci-test-{instance_count}x{instance_abbr}"
 
     launch_sagemaker_job(
         job_name=job_name,

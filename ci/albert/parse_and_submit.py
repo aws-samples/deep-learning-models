@@ -25,6 +25,9 @@ def extract_result(log_abspath):
             if 'Loss: ' in line:
                 temp_loss = float(regex_extract(line, 'Loss: ([-+]?\d*\.\d+|\d+)'))
                 loss = min(loss, temp_loss)
+            if 'Training seconds: ' in line:
+                time = float(regex_extract(line, 'Training seconds: ([-+]?\d*\.\d+|\d+)'))
+                result['time'] = time
     result['mlm'] = mlm
     result['sop'] = sop
     result['loss'] = loss
@@ -34,12 +37,16 @@ def upload_metrics(parsed_results, num_gpus, batch_size, instance_type, platform
     client = boto3.client('cloudwatch')
     print(parsed_results['loss'])
     client.put_metric_data(
-      Namespace='ALBERT_Test',
+      Namespace='ModelOptimization',
       MetricData=[
         {
           'MetricName': 'Loss',
           'Value': parsed_results['loss'],
           'Dimensions': [
+              {
+                  'Name': 'Model',
+                  'Value': 'ALBERT'
+              },
               {
                   'Name': 'Platform',
                   'Value': str(platform)
@@ -62,12 +69,16 @@ def upload_metrics(parsed_results, num_gpus, batch_size, instance_type, platform
     )
     print(parsed_results['mlm'])
     client.put_metric_data(
-      Namespace='ALBERT_Test',
+      Namespace='ModelOptimization',
       MetricData=[
         {
           'MetricName': 'MLM Accuracy',
           'Value': parsed_results['mlm'],
           'Dimensions': [
+              {
+                  'Name': 'Model',
+                  'Value': 'ALBERT'
+              },
               {
                   'Name': 'Platform',
                   'Value': str(platform)
@@ -90,12 +101,48 @@ def upload_metrics(parsed_results, num_gpus, batch_size, instance_type, platform
     )
     print(parsed_results['sop'])
     client.put_metric_data(
-      Namespace='ALBERT_Test',
+      Namespace='ModelOptimization',
       MetricData=[
         {
           'MetricName': 'SOP Accuracy',
           'Value': parsed_results['sop'],
           'Dimensions': [
+              {
+                  'Name': 'Model',
+                  'Value': 'ALBERT'
+              },
+              {
+                  'Name': 'Platform',
+                  'Value': str(platform)
+              },
+              {
+                  'Name': 'Instance Type',
+                  'Value': str(instance_type)
+              },
+              {
+                  'Name': 'Num of GPUs',
+                  'Value': 'GPUs:' + str(num_gpus)
+              },
+              {
+                  'Name': 'Batch Size',
+                  'Value': 'Batch Size:' + str(batch_size)
+              }
+          ]
+        }
+      ]
+    )
+    print(parsed_results['time'])
+    client.put_metric_data(
+      Namespace='ModelOptimization',
+      MetricData=[
+        {
+          'MetricName': 'Training time',
+          'Value': parsed_results['sop'],
+          'Dimensions': [
+              {
+                  'Name': 'Model',
+                  'Value': 'ALBERT'
+              },
               {
                   'Name': 'Platform',
                   'Value': str(platform)
