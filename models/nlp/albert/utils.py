@@ -16,40 +16,49 @@ from transformers.data.processors.squad import (
 import horovod.tensorflow as hvd  # isort:skip
 
 
-def rewrap_tf_function(func):
+def rewrap_tf_function(func, experimental_compile=None):
     # If func is already a tf.function, un-wrap it and re-wrap it.
     # Necessary to avoid TF's global cache bugs when changing models.
     if hasattr(func, "python_function"):
-        return tf.function(func.python_function)
+        return tf.function(func.python_function, experimental_compile=experimental_compile)
     else:
-        return tf.function(func)
-
-
-class cached_property(property):
-    """
-    Descriptor that mimics @property but caches output in member variable.
-    From tensorflow_datasets
-    Built-in in functools from Python 3.8.
-    """
-
-    def __get__(self, obj, objtype=None):
-        # See docs.python.org/3/howto/descriptor.html#properties
-        if obj is None:
-            return self
-        if self.fget is None:
-            raise AttributeError("unreadable attribute")
-        attr = "__cached_" + self.fget.__name__
-        cached = getattr(obj, attr, None)
-        if cached is None:
-            cached = self.fget(obj)
-            setattr(obj, attr, cached)
-        return cached
+        return tf.function(func, experimental_compile=experimental_compile)
 
 
 def f1_score(precision: tf.Tensor, recall: tf.Tensor) -> tf.Tensor:
     return tf.math.maximum(
         tf.cast(0, dtype=precision.dtype), 2 * (precision * recall) / (precision + recall)
     )
+
+
+def gather_indexes(sequence_tensor: "[batch,seq_length,width]", positions) -> tf.Tensor:
+    """Gathers the vectors at the specific positions over a 3D minibatch."""
+    sequence_shape = sequence_tensor.shape.as_list()
+    batch_size = sequence_shape[0]
+    seq_length = sequence_shape[1]
+    width = sequence_shape[2]
+
+    flat_offsets = tf.reshape(tf.range(0, batch_size, dtype=tf.int64) * seq_length, [-1, 1])
+    flat_positions = tf.reshape(positions + flat_offsets, [-1])
+    flat_sequence_tensor = tf.reshape(sequence_tensor, [batch_size * seq_length, width])
+    output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
+    output_tensor = tf.reshape(output_tensor, [batch_size, -1, width])
+    return output_tensor
+
+
+def gather_indexes_2d(sequence_tensor: "[batch,seq_length]", positions) -> tf.Tensor:
+    """ Gathers the vectors at the specific positions over a 2D minibatch."""
+    # TODO: Merge this with gather_indexes()
+    sequence_shape = sequence_tensor.shape.as_list()
+    batch_size = sequence_shape[0]
+    seq_length = sequence_shape[1]
+
+    flat_offsets = tf.reshape(tf.range(0, batch_size, dtype=tf.int64) * seq_length, [-1, 1])
+    flat_positions = tf.reshape(positions + flat_offsets, [-1])
+    flat_sequence_tensor = tf.reshape(sequence_tensor, [batch_size * seq_length])
+    output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
+    output_tensor = tf.reshape(output_tensor, [batch_size, -1])
+    return output_tensor
 
 
 @lru_cache(maxsize=4)

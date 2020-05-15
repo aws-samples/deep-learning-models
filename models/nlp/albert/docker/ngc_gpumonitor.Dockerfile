@@ -22,6 +22,6 @@ RUN pip install matplotlib scikit-learn scikit-image seaborn \
 
 CMD nohup jupyter lab --allow-root --ip=0.0.0.0 --no-browser > notebook.log
 
-# docker run -it --rm -d --gpus all --net=host --name tensorflow -v ~/workspace:/workspace/shared_workspace jarednielsen/albert:ngc_gpumonitor
+# docker run -it --rm -d --gpus all --net=host --name tensorflow -v ~/workspace:/workspace/shared_workspace jarednielsen/albert-tf:ngc_gpumonitor
 # ssh -L localhost:6006:localhost:8888 ubuntu@${IP_FSX_CONNECTION}
 # docker exec tensorflow bash -c "jupyter notebook list"

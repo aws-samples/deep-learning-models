@@ -6,19 +6,17 @@ To use a script located on FSx, use environment variable mode. It is necessary t
 to the Python function, but this will be ignored if the environment variable is set.
 
 SageMaker will mount an input FSx channel not at /fsx, but at /opt/ml/input/data/training.
-So data at /fsx/model-optimization/ is actually at /opt/ml/input/data/training/model-optimization/
+So data at /fsx/myfolder/ is actually at /opt/ml/input/data/training/myfolder/
 
 When using a custom container, enabling SSH is necessary, as shown here:
 https://github.com/aws/sagemaker-tensorflow-container/blob/master/docker/1.15.2/py3/Dockerfile.cpu#L45-L77
 """
 
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from sagemaker.inputs import FileSystemInput
 from sagemaker.tensorflow import TensorFlow
-
-from fsx_settings import FSX_ID, IMAGE_NAME, ROLE, SECURITY_GROUP_IDS, SUBNETS
 
 
 def launch_sagemaker_job(
@@ -28,6 +26,11 @@ def launch_sagemaker_job(
     instance_type: str,
     instance_count: int,
     hyperparameters: Dict[str, Any],
+    role: str,
+    image_name: str,
+    fsx_id: str,
+    subnet_ids: List[str],
+    security_group_ids: List[str],
 ) -> None:
     """ Create a SageMaker job connected to FSx and Horovod. """
     hvd_processes_per_host = {"ml.p3dn.24xlarge": 8, "ml.p3.16xlarge": 8, "ml.g4dn.12xlarge": 4,}[
@@ -42,7 +45,7 @@ def launch_sagemaker_job(
     }
     # Create FSx input
     fsx_input = FileSystemInput(
-        file_system_id=FSX_ID,
+        file_system_id=fsx_id,
         file_system_type="FSxLustre",
         directory_path="/fsx",
         file_system_access_mode="rw",
@@ -52,16 +55,16 @@ def launch_sagemaker_job(
         base_job_name=job_name,
         entry_point=entry_point,
         source_dir=source_dir,
-        role=ROLE,
+        role=role,
         framework_version="2.1.0",
         py_version="py3",
         hyperparameters=hyperparameters,
         train_instance_count=instance_count,
         train_instance_type=instance_type,
         distributions=distributions,
-        image_name=IMAGE_NAME,
-        subnets=SUBNETS,
-        security_group_ids=SECURITY_GROUP_IDS,
+        image_name=image_name,
+        subnets=subnet_ids,
+        security_group_ids=security_group_ids,
         enable_sagemaker_metrics=True,
     )
     # Launch the job

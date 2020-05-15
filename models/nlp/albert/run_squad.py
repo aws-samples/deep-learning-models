@@ -13,6 +13,9 @@ Multi-gpu single-node throws an error, probably OOM.
 import argparse
 import datetime
 import logging
+import math
+import os
+from tempfile import TemporaryDirectory
 from typing import Dict, List, Optional, Union
 
 import tensorflow as tf
@@ -32,10 +35,9 @@ from transformers.data.processors.squad import (
     SquadProcessor,
     SquadV1Processor,
     SquadV2Processor,
-    squad_convert_examples_to_features,
 )
 
-from learning_rate_schedules import LinearWarmupLinearDecaySchedule
+from learning_rate_schedules import LinearWarmupPolyDecaySchedule
 from models import load_qa_from_pretrained
 from run_squad_evaluation import get_evaluation_metrics
 from utils import f1_score, get_dataset, get_tokenizer
@@ -171,7 +173,7 @@ def run_validation(model, val_dataset, num_batches: int = 100) -> List[tf.Tensor
     val_exact_match /= num_batches
     val_precision /= num_batches
     val_recall /= num_batches
-    val_f1 = f1_score(val_precision, val_recall)
+    val_f1 = f1_score(precision=val_precision, recall=val_recall)
 
     return (val_loss, val_acc, val_exact_match, val_f1, val_precision, val_recall)
 
@@ -201,6 +203,62 @@ def wrap_tf_function_idempotent(func):
         return func
     else:
         return tf.function(func)
+
+
+def hvd_barrier():
+    hvd.allreduce(tf.random.normal([1]))
+
+
+def get_squad_results_while_pretraining(
+    model: tf.keras.Model,
+    model_size: str,
+    fsx_prefix: str,
+    step: int,
+    fast: bool = False,
+    dummy_eval: bool = False,
+):
+    # This is inefficient, since each rank will save and serialize the model separately.
+    # It would be better to have rank 0 save the model and all the ranks read it, but
+    # `run_name` isn't deterministic due to timestamps, so only rank 0 has the run_name.
+    # TODO: Improve. If only tf.keras.clone_model(model) worked.
+    with TemporaryDirectory() as dirname:
+        path = os.path.join(dirname, "model")
+        model.save_weights(path)
+        hvd_barrier()
+        cloned_model = type(model)(config=model.config)
+        cloned_model.load_weights(path).expect_partial()
+        hvd_barrier()
+        per_gpu_batch_size = min(3, int(math.ceil(48 / hvd.size())))
+        if fast:
+            warmup_steps = 5
+            total_steps = 10
+            dataset = "debug"
+        else:
+            warmup_steps = 814
+            total_steps = 8144
+            dataset = "squadv2"
+
+        squad_run_name = f"pretrain{step}-"
+        squad_results = run_squad_and_get_results(
+            run_name=squad_run_name,
+            fsx_prefix=fsx_prefix,
+            pre_layer_norm=cloned_model.config.pre_layer_norm,
+            model_size=model_size,
+            load_from=cloned_model,
+            load_step=None,
+            batch_size=per_gpu_batch_size,  # This will be less than 3, so no OOM errors
+            checkpoint_frequency=None,
+            validate_frequency=None,
+            learning_rate=3e-5,
+            warmup_steps=warmup_steps,
+            total_steps=total_steps,
+            dataset=dataset,
+            dummy_eval=dummy_eval,
+        )
+        hvd_barrier()
+
+    if hvd.rank() == 0:
+        return squad_results
 
 
 def run_squad_and_get_results(
@@ -241,16 +299,16 @@ def run_squad_and_get_results(
 
     tokenizer = get_tokenizer()
 
-    schedule = LinearWarmupLinearDecaySchedule(
+    schedule = LinearWarmupPolyDecaySchedule(
         max_learning_rate=learning_rate,
         end_learning_rate=0,
         warmup_steps=warmup_steps,
         total_steps=total_steps,
     )
     optimizer = tfa.optimizers.AdamW(weight_decay=0.0, learning_rate=schedule)
-    optimizer = tf.keras.mixed_precision.experimental.LossScaleOptimizer(
+    optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(
         optimizer, loss_scale="dynamic"
-    )
+    )  # AMP
 
     model.call = wrap_tf_function_idempotent(model.call)
 
@@ -409,7 +467,6 @@ if __name__ == "__main__":
     parser.add_argument("--model_size", default="base", choices=["base", "large"])
     parser.add_argument("--load_from", required=True)
     parser.add_argument("--load_step", type=int)
-    parser.add_argument("--skip_amp", choices=["true"])
     parser.add_argument("--skip_xla", choices=["true"])
     parser.add_argument("--eager", choices=["true"])
     parser.add_argument(
@@ -429,13 +486,15 @@ if __name__ == "__main__":
     parser.add_argument("--warmup_steps", default=814, type=int)
     parser.add_argument("--learning_rate", default=3e-5, type=float)
     parser.add_argument("--dataset", default="squadv2")
+    parser.add_argument("--seed", type=int, default=42)
     # Logging information
     parser.add_argument("--name", default="default")
     parser.add_argument("--validate_frequency", default=1000, type=int)
     parser.add_argument("--checkpoint_frequency", default=500, type=int)
     parser.add_argument("--model_dir", help="Unused, but passed by SageMaker")
     args = parser.parse_args()
-    tf.random.set_seed(42)
+    tf.random.set_seed(args.seed)
+    tf.autograph.set_verbosity(0)
 
     # Horovod init
     hvd.init()
@@ -447,9 +506,6 @@ if __name__ == "__main__":
     # XLA, AMP, AutoGraph
     parse_bool = lambda arg: arg == "true"
     tf.config.optimizer.set_jit(not parse_bool(args.skip_xla))
-    tf.config.optimizer.set_experimental_options(
-        {"auto_mixed_precision": not parse_bool(args.skip_amp)}
-    )
     tf.config.experimental_run_functions_eagerly(parse_bool(args.eager))
 
     if hvd.rank() == 0:

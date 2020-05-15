@@ -1,4 +1,5 @@
 import argparse
+import os
 
 from sagemaker_utils import launch_sagemaker_job
 
@@ -10,6 +11,18 @@ if __name__ == "__main__":
         help="For example, /Users/myusername/Desktop/deep-learning-models/models/nlp/albert",
     )
     parser.add_argument("--entry_point", type=str, default="run_squad.py")
+    parser.add_argument("--role", default=os.environ["SAGEMAKER_ROLE"])
+    parser.add_argument("--image_name", default=os.environ["SAGEMAKER_IMAGE_NAME"])
+    parser.add_argument("--fsx_id", default=os.environ["SAGEMAKER_FSX_ID"])
+    parser.add_argument(
+        "--subnet_ids", help="Comma-separated string", default=os.environ["SAGEMAKER_SUBNET_IDS"]
+    )
+    parser.add_argument(
+        "--security_group_ids",
+        help="Comma-separated string",
+        default=os.environ["SAGEMAKER_SECURITY_GROUP_IDS"],
+    )
+    # Instance specs
     parser.add_argument(
         "--instance_type",
         type=str,
@@ -19,16 +32,17 @@ if __name__ == "__main__":
     parser.add_argument("--instance_count", type=int, default=1)
     # Training script parameters
     # None are required because defaults are in run_squad.py
-    parser.add_argument("--load_from", type=str, required=True)
+    parser.add_argument("--load_from", required=True)
+    parser.add_argument("--model_type")
+    parser.add_argument("--model_size")
     parser.add_argument("--batch_size", type=int)
     parser.add_argument("--total_steps", type=int)
     parser.add_argument("--learning_rate", type=float)
-    parser.add_argument("--data_dir", type=str)
-    parser.add_argument("--dataset", type=str)
-    parser.add_argument("--name", type=str)
+    parser.add_argument("--data_dir")
+    parser.add_argument("--dataset")
+    parser.add_argument("--name")
     parser.add_argument("--validate_frequency", type=int)
     parser.add_argument("--checkpoint_frequency", type=int)
-    parser.add_argument("--skip_amp", choices=["true"])
     parser.add_argument("--skip_xla", choices=["true"])
     parser.add_argument("--eager", choices=["true"])
     args = parser.parse_args()
@@ -37,6 +51,11 @@ if __name__ == "__main__":
     # Pop off the SageMaker parameters
     source_dir = args_dict.pop("source_dir")
     entry_point = args_dict.pop("entry_point")
+    role = args_dict.pop("role")
+    image_name = args_dict.pop("image_name")
+    fsx_id = args_dict.pop("fsx_id")
+    subnet_ids = args_dict.pop("subnet_ids").replace(" ", "").split(",")
+    security_group_ids = args_dict.pop("security_group_ids").replace(" ", "").split(",")
     instance_type = args_dict.pop("instance_type")
     instance_count = args_dict.pop("instance_count")
     # Only the script parameters remain
@@ -59,4 +78,9 @@ if __name__ == "__main__":
         instance_type=instance_type,
         instance_count=instance_count,
         hyperparameters=hyperparameters,
+        role=role,
+        image_name=image_name,
+        fsx_id=fsx_id,
+        subnet_ids=subnet_ids,
+        security_group_ids=security_group_ids,
     )

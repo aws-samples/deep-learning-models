@@ -20,21 +20,29 @@ Language models help AWS customers to improve search results, text classificatio
 3. Create an Elastic Container Registry repository. Then build a Docker image from `docker/ngc_sagemaker.Dockerfile` and push it to ECR.
 
 ```bash
-export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:ngc_sagemaker
+export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:ngc_tf21_sagemaker
 docker build -t ${IMAGE} -f docker/ngc_sagemaker.Dockerfile .
 $(aws ecr get-login --no-include-email)
 docker push ${IMAGE}
 ```
 
-3. Define variables to point to the FSx volume by modifying `fsx_settings.py`.
+4. Define environment variables to point to the FSx volume. For a list, use a comma-separated string.
 
-4. Launch the SageMaker job.
+```bash
+export SAGEMAKER_ROLE=arn:aws:iam::${ACCOUNT_ID}:role/service-role/AmazonSageMaker-ExecutionRole-20200101T123
+export SAGEMAKER_IMAGE_NAME=${IMAGE}
+export SAGEMAKER_FSX_ID=fs-123
+export SAGEMAKER_SUBNET_IDS=subnet-123
+export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
+```
+
+5. Launch the SageMaker job.
 
 ```bash
 python sagemaker_pretraining.py \
     --source_dir=. \
     --instance_type=ml.p3dn.24xlarge \
-    --instance_count=8 \
+    --instance_count=1 \
     --load_from=scratch \
     --model_type=albert \
     --model_size=base \

@@ -7,7 +7,9 @@ wrapped train_batch & wrapped_allreduce: 2.99 it/s, 3.42 it/s
 
 Max per-GPU batch size (albert):
 base:
-- 512seq: 32 on p3dn w/ 2 grad_acc (1.72 it/s on TF2.1, 1.82 it/s single-node), 16 on p316
+- 512seq:
+  - 64 on p3dn w/ 1 grad_acc (? it/s on TF2.1, 1.88 it/s single-node)
+  - 32 on p3dn w/ 2 grad_acc (1.72 it/s on TF2.1, 1.82 it/s single-node), 16 on p316
 large:
 - 512seq: 16 on p3dn w/ 4 grad_acc (0.60 it/s on TF2.1, 0.63 it/s single-node), 8 on p316
 
@@ -25,126 +27,28 @@ import argparse
 import datetime
 import glob
 import logging
-import math
-import os
-from tempfile import TemporaryDirectory
 from typing import List
 
 import tensorflow as tf
 import tqdm
-from run_squad import run_squad_and_get_results
 from tensorflow_addons.optimizers import LAMB, AdamW
-from transformers import (  # GradientAccumulator,
+from transformers import (
     AutoConfig,
-    TFAlbertForMaskedLM,
+    GradientAccumulator,
     TFAlbertModel,
     TFAutoModelForPreTraining,
     TFBertForPreTraining,
 )
 
-from gradient_accumulator import GradientAccumulator
-from learning_rate_schedules import LinearWarmupLinearDecaySchedule
-from utils import get_tokenizer, rewrap_tf_function
+from datasets import get_mlm_dataset
+from learning_rate_schedules import LinearWarmupPolyDecaySchedule
+from run_squad import get_squad_results_while_pretraining
+from utils import gather_indexes, get_tokenizer, rewrap_tf_function
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
 
 logger = logging.getLogger(__name__)
-
-
-def gather_indexes(sequence_tensor: "[batch,seq_length,width]", positions) -> tf.Tensor:
-    """Gathers the vectors at the specific positions over a minibatch."""
-    sequence_shape = sequence_tensor.shape.as_list()
-    batch_size = sequence_shape[0]
-    seq_length = sequence_shape[1]
-    width = sequence_shape[2]
-
-    flat_offsets = tf.reshape(tf.range(0, batch_size, dtype=tf.int64) * seq_length, [-1, 1])
-    flat_positions = tf.reshape(positions + flat_offsets, [-1])
-    flat_sequence_tensor = tf.reshape(sequence_tensor, [batch_size * seq_length, width])
-    output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
-    output_tensor = tf.reshape(output_tensor, [batch_size, -1, width])
-    return output_tensor
-
-
-def gather_indexes_2d(sequence_tensor: "[batch,seq_length,width]", positions) -> tf.Tensor:
-    sequence_shape = sequence_tensor.shape.as_list()
-    batch_size = sequence_shape[0]
-    seq_length = sequence_shape[1]
-
-    flat_offsets = tf.reshape(tf.range(0, batch_size, dtype=tf.int64) * seq_length, [-1, 1])
-    flat_positions = tf.reshape(positions + flat_offsets, [-1])
-    flat_sequence_tensor = tf.reshape(sequence_tensor, [batch_size * seq_length])
-    output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
-    output_tensor = tf.reshape(output_tensor, [batch_size, -1])
-    return output_tensor
-
-
-def get_mlm_dataset(
-    *,
-    filenames: List[str],
-    max_seq_length: int,
-    max_predictions_per_seq: int,
-    batch_size: int,
-    buffer_size: int = 1000,
-) -> tf.data.Dataset:
-    """ Reads the dataset from TFRecords and returns it. """
-
-    def _parse_function(example_proto):
-        # Parse the input `tf.Example` proto using the dictionary above.
-        return tf.io.parse_single_example(example_proto, name_to_features)
-
-    name_to_features = {
-        "input_ids": tf.io.FixedLenFeature([max_seq_length], tf.int64),  # corresponds to input_ids
-        "input_mask": tf.io.FixedLenFeature(
-            [max_seq_length], tf.int64
-        ),  # corresponds to attention_mask
-        "segment_ids": tf.io.FixedLenFeature(
-            [max_seq_length], tf.int64
-        ),  # corresponds to token_type_ids
-        "masked_lm_positions": tf.io.FixedLenFeature(
-            [max_predictions_per_seq], tf.int64
-        ),  # The number in the sequence that is masked, in range [0, max_seq_length]. 0 signifies a pad.
-        "masked_lm_ids": tf.io.FixedLenFeature(
-            [max_predictions_per_seq], tf.int64
-        ),  # The token id that is masked, in range [0, vocab_size]. 0 signifies a pad.
-        "masked_lm_weights": tf.io.FixedLenFeature(
-            [max_predictions_per_seq], tf.float32
-        ),  # 1 if useful, 0 signifies a pad token
-        "next_sentence_labels": tf.io.FixedLenFeature([1], tf.int64),
-    }
-
-    # Example input pipeline here: https://github.com/NVIDIA/DeepLearningExamples/blob/master/TensorFlow/LanguageModeling/BERT/run_pretraining.py#L443
-    # 2048 TFRecord files here
-    if hvd.rank() == 0:
-        logger.info(f"Dataset length {len(filenames)}")
-        logger.debug(filenames)
-        assert len(filenames) > 0, f"Filenames is an empty list"
-    # Shard and shuffle the filenames
-    dataset = tf.data.Dataset.from_tensor_slices(filenames)
-    dataset = dataset.shard(hvd.size(), hvd.rank())
-    dataset = dataset.shuffle(buffer_size=len(filenames), reshuffle_each_iteration=True)
-    dataset = dataset.repeat()
-
-    # `cycle_length` is the number of parallel files that get read
-    num_cpu_threads = 2 * 96
-    cycle_length = min(num_cpu_threads, len(filenames))
-    # file_to_dataset_func = lambda file: tf.data.TFRecordDataset(file).map(_parse_function)
-    file_to_dataset_func = lambda file: tf.data.TFRecordDataset(file)
-    dataset = dataset.interleave(
-        file_to_dataset_func,
-        cycle_length=cycle_length,
-        block_length=1,
-        num_parallel_calls=cycle_length,
-    )
-    # Map and batch will be automatically fused together, see https://www.tensorflow.org/api_docs/python/tf/data/experimental/map_and_batch
-    dataset = dataset.map(_parse_function, num_parallel_calls=num_cpu_threads)
-    dataset = dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
-    dataset = dataset.batch(batch_size, drop_remainder=True)
-    # Shuffle the batches and prefetch some batches
-    dataset = dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
-
-    return dataset
 
 
 def mlm_loss_fn(
@@ -189,7 +93,7 @@ def sop_loss_fn(
     cross_entropy_batch = tf.nn.sparse_softmax_cross_entropy_with_logits(
         labels=label_truth, logits=prediction_logits
     )  # [b]
-    accuracy_batch = tf.cast(tf.math.equal(label_truth, label_preds), tf.float16)  # [b]
+    accuracy_batch = tf.cast(tf.math.equal(label_truth, label_preds), tf.float32)  # [b]
 
     cross_entropy = tf.reduce_mean(cross_entropy_batch)  # [1]
     accuracy = tf.reduce_mean(accuracy_batch)  # [b]
@@ -201,9 +105,7 @@ def train_batch(
     model,
     opt,
     gradient_accumulator,
-    input_ids,
-    attention_mask,
-    token_type_ids,
+    input_dict,
     label_positions,
     label_ids,
     label_weights,
@@ -212,12 +114,7 @@ def train_batch(
     skip_mlm: bool,
 ):
     with tf.GradientTape() as tape:
-        input_dict = {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "token_type_ids": token_type_ids,
-        }
-        mlm_logits, sop_logits, hidden_states = model(input_dict, training=True)
+        mlm_logits, sop_logits = model(input_dict, training=True)
 
         # MLM calculation
         if skip_mlm:
@@ -236,21 +133,21 @@ def train_batch(
             sop_loss, sop_acc = sop_loss_fn(
                 prediction_logits=sop_logits, next_sentence_labels=next_sentence_labels
             )
-        loss = tf.cast(mlm_loss, dtype=tf.float32) + tf.cast(
-            sop_loss, dtype=tf.float32
-        )  # Should there be a coefficient on one of these?
+        loss = tf.cast(mlm_loss, dtype=tf.float32) + tf.cast(sop_loss, dtype=tf.float32)
         scaled_loss = opt.get_scaled_loss(loss)
 
+    # TODO: On iteration 0, loss=11 and loss_scale()=32768, so scaled_loss=inf.
+    # But scaled_grads is not inf, how? tape.gradient() must not be using direct backprop calc
     scaled_grads = tape.gradient(scaled_loss, model.trainable_variables)
-    step_grads = opt.get_unscaled_gradients(scaled_grads)
-    gradient_accumulator(step_grads)
+    gradient_accumulator(scaled_grads)
     return loss, mlm_loss, mlm_acc, sop_loss, sop_acc
 
 
 def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_loss, sop_acc):
-    grads = gradient_accumulator.gradients
+    scaled_grads = gradient_accumulator.gradients
+    grads = opt.get_unscaled_gradients(scaled_grads)
     # This, which is equivalent to sparse_as_dense=True, gives a mild 2% speedup from 0.62 it/s to 0.63 it/s
-    # onn BERT-large multinode.
+    # on BERT-large multinode.
     grads = [
         tf.convert_to_tensor(grad)
         if grad is not None and isinstance(grad, tf.IndexedSlices)
@@ -263,6 +160,9 @@ def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_los
     # Placing before also gives a 20% speedup when training BERT-large, probably because the
     # gradient operations can be fused by XLA.
     (grads, grad_norm) = tf.clip_by_global_norm(grads, clip_norm=args.max_grad_norm)
+    weight_norm = tf.math.sqrt(
+        tf.math.reduce_sum([tf.norm(var, ord=2) ** 2 for var in model.trainable_variables])
+    )
 
     grads = [
         hvd.allreduce(grad, compression=hvd.Compression.fp16) if grad is not None else None
@@ -270,7 +170,11 @@ def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_los
     ]
 
     opt.apply_gradients(
-        [(grad, var) for (grad, var) in zip(grads, model.trainable_variables) if grad is not None]
+        [
+            (tf.cast(grad, var.dtype), var)
+            for (grad, var) in zip(grads, model.trainable_variables)
+            if grad is not None
+        ]
     )
 
     # Clear the gradient accumulator
@@ -282,7 +186,7 @@ def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_los
     sop_loss = hvd.allreduce(sop_loss)
     sop_acc = hvd.allreduce(sop_acc)
 
-    return loss, mlm_loss, mlm_acc, sop_loss, sop_acc, grad_norm
+    return loss, mlm_loss, mlm_acc, sop_loss, sop_acc, grad_norm, weight_norm
 
 
 # The bottleneck is here, since each node has 10 GiB/s PCI throughput, accumulating the gradients
@@ -303,16 +207,18 @@ def train_step(
         tf.constant(0, dtype=tf.float32),
         tf.constant(0, dtype=tf.float32),
         tf.constant(0, dtype=tf.float32),
-        tf.constant(0, dtype=tf.float16),
+        tf.constant(0, dtype=tf.float32),
     )
     for step in range(gradient_accumulation_steps):
         loss, mlm_loss, mlm_acc, sop_loss, sop_acc = train_batch(
             model=model,
             opt=opt,
             gradient_accumulator=gradient_accumulator,
-            input_ids=batch["input_ids"][step],
-            attention_mask=batch["input_mask"][step],
-            token_type_ids=batch["segment_ids"][step],
+            input_dict={
+                "input_ids": batch["input_ids"][step],
+                "attention_mask": batch["input_mask"][step],
+                "token_type_ids": batch["segment_ids"][step],
+            },
             label_positions=batch["masked_lm_positions"][step],
             label_ids=batch["masked_lm_ids"][step],
             label_weights=batch["masked_lm_weights"][step],
@@ -320,11 +226,11 @@ def train_step(
             skip_sop=skip_sop,
             skip_mlm=skip_mlm,
         )
-        total_loss += loss
-        total_mlm_loss += mlm_loss
-        total_mlm_acc += tf.cast(mlm_acc, tf.float32)
-        total_sop_loss += sop_loss
-        total_sop_acc += tf.cast(sop_acc, tf.float16)
+        total_loss += tf.cast(loss, total_loss.dtype)
+        total_mlm_loss += tf.cast(mlm_loss, total_mlm_loss.dtype)
+        total_mlm_acc += tf.cast(mlm_acc, total_mlm_acc.dtype)
+        total_sop_loss += tf.cast(sop_loss, total_sop_loss.dtype)
+        total_sop_acc += tf.cast(sop_acc, total_sop_acc.dtype)
 
     total_loss /= gradient_accumulation_steps
     total_mlm_loss /= gradient_accumulation_steps
@@ -359,10 +265,7 @@ def validation_batch(model, batch, skip_mlm: bool, skip_sop: bool):
         "attention_mask": attention_mask,
         "token_type_ids": token_type_ids,
     }
-    # mlm_logits: [b,seq_len,vocab_size]
-    # sop_logits: [b,2]
-    # hidden_states: tuple w/ len 13
-    mlm_logits, sop_logits, hidden_states = model(input_dict, training=False)
+    mlm_logits, sop_logits = model(input_dict, training=False)  # ([b,seq,vocab_size], [b,2])
 
     # MLM calculation
     if skip_mlm:
@@ -408,57 +311,6 @@ def run_validation(model, validation_dataset, skip_sop: bool, skip_mlm: bool):
     return (val_loss, val_mlm_loss, val_mlm_acc, val_sop_loss, val_sop_acc)
 
 
-def hvd_barrier():
-    hvd.allreduce(tf.random.normal([1]))
-
-
-def get_squad_results(
-    model: tf.keras.Model, model_size: str, step: int, fast: bool = False, dummy_eval: bool = False,
-):
-    # This is inefficient, since each rank will save and serialize the model separately.
-    # It would be better to have rank 0 save the model and all the ranks read it, but
-    # `run_name` isn't deterministic due to timestamps, so only rank 0 has the run_name.
-    # TODO: Improve. If only tf.keras.clone_model(model) worked.
-    with TemporaryDirectory() as dirname:
-        path = os.path.join(dirname, "model")
-        model.save_weights(path)
-        hvd_barrier()
-        cloned_model = type(model)(config=model.config)
-        cloned_model.load_weights(path).expect_partial()
-        hvd_barrier()
-        per_gpu_batch_size = min(3, int(math.ceil(48 / hvd.size())))
-        if fast:
-            warmup_steps = 5
-            total_steps = 10
-            dataset = "debug"
-        else:
-            warmup_steps = 814
-            total_steps = 8144
-            dataset = "squadv2"
-
-        squad_run_name = f"pretrain{step}-"
-        squad_results = run_squad_and_get_results(
-            run_name=squad_run_name,
-            fsx_prefix=args.fsx_prefix,
-            pre_layer_norm=cloned_model.config.pre_layer_norm,
-            model_size=model_size,
-            load_from=cloned_model,
-            load_step=None,
-            batch_size=per_gpu_batch_size,  # This will be less than 3, so no OOM errors
-            checkpoint_frequency=None,
-            validate_frequency=None,
-            learning_rate=3e-5,
-            warmup_steps=warmup_steps,
-            total_steps=total_steps,
-            dataset=dataset,
-            dummy_eval=dummy_eval,
-        )
-        hvd_barrier()
-
-    if hvd.rank() == 0:
-        return squad_results
-
-
 def wrap_global_functions(do_gradient_accumulation: bool):
     global validation_batch
     validation_batch = rewrap_tf_function(validation_batch)
@@ -474,6 +326,8 @@ def wrap_global_functions(do_gradient_accumulation: bool):
 
 def main(
     fsx_prefix: str,
+    load_from: str,
+    checkpoint_path: str,
     model_type: str,
     model_size: str,
     batch_size: int,
@@ -483,6 +337,7 @@ def main(
     name: str,
     learning_rate: float,
     end_learning_rate: float,
+    learning_rate_decay_power: float,
     warmup_steps: int,
     total_steps: int,
     skip_sop: bool,
@@ -492,6 +347,7 @@ def main(
     dummy_eval: bool,
     squad_steps: List[int],
     hidden_dropout_prob: float,
+    seed: int,
 ):
     # Hard-coded values that don't need to be arguments
     max_predictions_per_seq = 20
@@ -512,16 +368,26 @@ def main(
         else:
             loss_str = ""
 
-        amp_str = (
-            "-skipamp"
-            if not tf.config.optimizer.get_experimental_options().get("auto_mixed_precision", False)
-            else ""
+        metadata = (
+            f"{model_type}"
+            f"-{model_size}"
+            f"-{load_from}"
+            f"-{hvd.size()}gpus"
+            f"-{batch_size}batch"
+            f"-{gradient_accumulation_steps}accum"
+            f"-{learning_rate}maxlr"
+            f"-{end_learning_rate}endlr"
+            f"-{learning_rate_decay_power}power"
+            f"-{args.max_grad_norm}maxgrad"
+            f"-{optimizer}opt"
+            f"-{total_steps}steps"
+            f"-{max_seq_length}seq"
+            f"-{'preln' if pre_layer_norm else 'postln'}"
+            f"{loss_str}"
+            f"-{hidden_dropout_prob}dropout"
+            f"-{seed}seed"
         )
-        ln_str = "-preln" if pre_layer_norm else "-postln"
-        dropout_str = f"-{hidden_dropout_prob}dropout" if hidden_dropout_prob != 0 else ""
-        name_str = f"-{name}" if name else ""
-        metadata = f"{model_type}-{model_size}-{args.load_from}-{hvd.size()}gpus-{batch_size}batch-{gradient_accumulation_steps}accum-{learning_rate}lr-{args.max_grad_norm}maxgrad-{optimizer}opt-{total_steps}steps-{max_seq_length}seq{amp_str}{ln_str}{loss_str}{dropout_str}{name_str}"
-        run_name = f"{current_time}-{platform}-{metadata}"
+        run_name = f"{current_time}-{platform}-{metadata}-{name if name else 'unnamed'}"
 
         # Logging should only happen on a single process
         # https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time
@@ -545,29 +411,28 @@ def main(
 
     config = AutoConfig.from_pretrained(model_desc)
     config.pre_layer_norm = pre_layer_norm
-    config.output_hidden_states = True
     config.hidden_dropout_prob = hidden_dropout_prob
     model = TFAutoModelForPreTraining.from_config(config)
 
-    if args.load_from == "scratch":
+    if load_from == "scratch":
         pass
-    else:
+    elif load_from.startswith("huggingface"):
         assert model_type == "albert", "Only loading pretrained albert models is supported"
         huggingface_name = f"albert-{model_size}-v2"
-        if args.load_from == "huggingface":
+        if load_from == "huggingface":
             albert = TFAlbertModel.from_pretrained(huggingface_name, config=config)
             model.albert = albert
-        elif args.load_from == "huggingfacepreds":
-            mlm_model = TFAlbertForMaskedLM.from_pretrained(huggingface_name, config=config)
-            model.albert = mlm_model.albert
-            model.cls.predictions = mlm_model.predictions
+    else:
+        model = TFAutoModelForPreTraining.from_config(config)
+        model.load_weights(checkpoint_path)
 
     tokenizer = get_tokenizer()
-    schedule = LinearWarmupLinearDecaySchedule(
+    schedule = LinearWarmupPolyDecaySchedule(
         max_learning_rate=learning_rate,
         end_learning_rate=end_learning_rate,
         warmup_steps=warmup_steps,
         total_steps=total_steps,
+        power=learning_rate_decay_power,
     )
     if optimizer == "lamb":
         opt = LAMB(
@@ -581,12 +446,11 @@ def main(
     elif optimizer == "adam":
         opt = AdamW(weight_decay=0.0, learning_rate=schedule)
 
-    opt = tf.keras.mixed_precision.experimental.LossScaleOptimizer(opt, loss_scale="dynamic")
+    # AMP
+    opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale="dynamic")
     gradient_accumulator = GradientAccumulator()
 
-    # Train filenames are [1, 2047]
-    # Val filenames are [0]
-    # Note the different subdirectories
+    # Train filenames are [1, 2047], Val filenames are [0]. Note the different subdirectories
     train_glob = f"{fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
     validation_glob = f"{fsx_prefix}/albert_pretraining/tfrecords/validation/max_seq_len_{max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
 
@@ -602,9 +466,7 @@ def main(
     train_dataset = train_dataset.batch(
         gradient_accumulation_steps
     )  # Batch of batches, helpful for gradient accumulation. Shape [grad_steps, batch_size, ...]
-    # train_dataset = (
-    #    train_dataset.repeat()
-    # )  # One iteration with 10 dupes, 8 nodes seems to be 60-70k steps.
+    # One iteration with 10 dupes, 8 nodes seems to be 60-70k steps.
     train_dataset = train_dataset.prefetch(buffer_size=8)
 
     # Validation should only be done on one node, since Horovod doesn't allow allreduce on a subset of ranks
@@ -626,7 +488,8 @@ def main(
 
     for i, batch in enumerate(train_dataset):
         learning_rate = schedule(step=tf.constant(i, dtype=tf.float32))
-        loss, mlm_loss, mlm_acc, sop_loss, sop_acc, grad_norm = train_step(
+        loss_scale = opt.loss_scale()
+        loss, mlm_loss, mlm_acc, sop_loss, sop_acc, grad_norm, weight_norm = train_step(
             model=model,
             opt=opt,
             gradient_accumulator=gradient_accumulator,
@@ -645,8 +508,13 @@ def main(
         do_squad = i in squad_steps or is_final_step
         # Squad requires all the ranks to train, but results are only returned on rank 0
         if do_squad:
-            squad_results = get_squad_results(
-                model=model, model_size=model_size, step=i, fast=fast_squad, dummy_eval=dummy_eval,
+            squad_results = get_squad_results_while_pretraining(
+                model=model,
+                model_size=model_size,
+                fsx_prefix=fsx_prefix,
+                step=i,
+                fast=fast_squad,
+                dummy_eval=dummy_eval,
             )
             if hvd.rank() == 0:
                 squad_exact, squad_f1 = squad_results["exact"], squad_results["f1"]
@@ -687,11 +555,9 @@ def main(
                     f"{fsx_prefix}/logs/albert/{run_name}"
                 )
             # Log to TensorBoard
-            weight_norm = tf.math.sqrt(
-                tf.math.reduce_sum([tf.norm(var, ord=2) ** 2 for var in model.trainable_variables])
-            )
             with summary_writer.as_default():
                 tf.summary.scalar("weight_norm", weight_norm, step=i)
+                tf.summary.scalar("loss_scale", loss_scale, step=i)
                 tf.summary.scalar("learning_rate", learning_rate, step=i)
                 tf.summary.scalar("train_loss", loss, step=i)
                 tf.summary.scalar("train_mlm_loss", mlm_loss, step=i)
@@ -720,7 +586,33 @@ def main(
 def get_squad_steps(extra_steps_str: str) -> List[int]:
     """ Parse a comma-separated string of integers, append it to list of default steps. """
     extra_squad_steps = [int(val) for val in extra_steps_str.split(",")] if extra_steps_str else []
-    default_squad_steps = [k * 1000 for k in [5, 10, 20, 40, 60, 80, 100, 120]]
+    default_squad_steps = [
+        k * 1000
+        for k in [
+            5,
+            10,
+            20,
+            40,
+            60,
+            80,
+            100,
+            120,
+            140,
+            160,
+            180,
+            200,
+            220,
+            240,
+            260,
+            280,
+            300,
+            320,
+            340,
+            360,
+            380,
+            400,
+        ]
+    ]
     return extra_squad_steps + default_squad_steps
 
 
@@ -736,13 +628,15 @@ if __name__ == "__main__":
     parser.add_argument("--total_steps", type=int, default=125000)
     parser.add_argument("--learning_rate", type=float, default=0.00176)
     parser.add_argument("--end_learning_rate", type=float, default=3e-5)
+    parser.add_argument("--learning_rate_decay_power", type=float, default=1.0)
     parser.add_argument("--hidden_dropout_prob", type=float, default=0.0)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     parser.add_argument("--optimizer", default="lamb", choices=["lamb", "adam"])
     parser.add_argument("--name", default="", help="Additional info to append to metadata")
     parser.add_argument(
-        "--load_from", default="scratch", choices=["scratch", "huggingface", "huggingfacepreds"],
+        "--load_from", default="scratch", choices=["scratch", "checkpoint", "huggingface"],
     )
+    parser.add_argument("--checkpoint_path", default=None)
     parser.add_argument(
         "--fsx_prefix",
         default="/fsx",
@@ -750,12 +644,7 @@ if __name__ == "__main__":
         help="Change to /opt/ml/input/data/training on SageMaker",
     )
     # SageMaker does not work with 'store_const' args, since it parses into a dictionary
-    # We will treat any value not equal to None as True, and use --skip_amp=True
-    parser.add_argument(
-        "--skip_amp",
-        choices=["true"],
-        help="For debugging. Faster startup time, slower runtime, more GPU vRAM.",
-    )
+    # We will treat any value not equal to None as True, and use --skip_xla=true
     parser.add_argument(
         "--skip_xla",
         choices=["true"],
@@ -780,8 +669,9 @@ if __name__ == "__main__":
     parser.add_argument("--extra_squad_steps", type=str)
     parser.add_argument("--fast_squad", choices=["true"])
     parser.add_argument("--dummy_eval", choices=["true"])
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
-    tf.random.set_seed(42)
+    tf.random.set_seed(args.seed)
     tf.autograph.set_verbosity(0)
 
     # Horovod init
@@ -791,16 +681,15 @@ if __name__ == "__main__":
         tf.config.experimental.set_memory_growth(gpu, True)
     if gpus:
         tf.config.set_visible_devices(gpus[hvd.local_rank()], "GPU")
-    # XLA, AMP, AutoGraph
+    # XLA, AutoGraph
     parse_bool = lambda arg: arg == "true"
     tf.config.optimizer.set_jit(not parse_bool(args.skip_xla))
-    tf.config.optimizer.set_experimental_options(
-        {"auto_mixed_precision": not parse_bool(args.skip_amp)}
-    )
     tf.config.experimental_run_functions_eagerly(parse_bool(args.eager))
 
     main(
         fsx_prefix=args.fsx_prefix,
+        load_from=args.load_from,
+        checkpoint_path=args.checkpoint_path,
         model_type=args.model_type,
         model_size=args.model_size,
         batch_size=args.batch_size,
@@ -810,6 +699,7 @@ if __name__ == "__main__":
         name=args.name,
         learning_rate=args.learning_rate,
         end_learning_rate=args.end_learning_rate,
+        learning_rate_decay_power=args.learning_rate_decay_power,
         warmup_steps=args.warmup_steps,
         total_steps=args.total_steps,
         skip_sop=parse_bool(args.skip_sop),
@@ -819,4 +709,5 @@ if __name__ == "__main__":
         dummy_eval=parse_bool(args.dummy_eval),
         squad_steps=get_squad_steps(args.extra_squad_steps),
         hidden_dropout_prob=args.hidden_dropout_prob,
+        seed=args.seed,
     )

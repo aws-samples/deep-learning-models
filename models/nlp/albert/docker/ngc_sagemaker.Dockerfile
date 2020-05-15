@@ -23,4 +23,4 @@ RUN pip install --no-cache-dir \
     mpi4py \
     sagemaker-containers \
     tensorflow-addons==0.9.1 \
-    git+git://github.com/jarednielsen/transformers.git@tfsquadwip
+    git+git://github.com/jarednielsen/transformers.git@tfsquad
