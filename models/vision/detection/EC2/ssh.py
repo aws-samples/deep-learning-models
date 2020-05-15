@@ -41,7 +41,7 @@ class SSH(object):
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         return ssh
 
-    def run_on_node(self, hostname, command):
+    def run_on_node(self, hostname, command, get_pty=False):
         """
         Run ssh command on a given host
 
@@ -61,12 +61,18 @@ class SSH(object):
         ssh.connect(hostname=hostname, username=self.user_name,
                          key_filename=self.key)
         stdin, stdout, stderr = ssh.exec_command(command)
+        if get_pty:
+            while True:
+                line = stdout.readline()
+                if not line:
+                    break
+                print(line)
         results = {'stdout': ''.join(stdout.readlines()),
                    'stderr': ''.join(stderr.readlines())}
         ssh.close()
         return results
 
-    def run_on_master(self, command, wait=True):
+    def run_on_master(self, command, wait=True, get_pty=False):
         """
         Run a command on the master node (first ip in list)
 
@@ -85,11 +91,14 @@ class SSH(object):
         if wait==False returns thread object without waiting for results
 
         """
-        task = self.thread_pool.submit(self.run_on_node, self.public_ips[0], command)
-        if wait:
-            while not task.done():
-                continue
-            return task.result()
+        if get_pty:
+            task = self.run_on_node(self.public_ips[0], command, get_pty=True)
+        else:
+            task = self.thread_pool.submit(self.run_on_node, self.public_ips[0], command)
+            if wait:
+                while not task.done():
+                    continue
+                return task.result()
         return task
 
     def run_on_workers(self, command, wait=True):

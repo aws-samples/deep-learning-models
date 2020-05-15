@@ -60,6 +60,8 @@ del config
 
 ssh_client.scp_local_to_all('efa_tutorial/setup_scripts/efa_setup.sh', 'efa_setup.sh')
 
+ssh_client.run_on_all('sudo chmod +X efa_setup.sh && sudo chmod 777 efa_setup.sh')
+
 ssh_client.run_on_all('./efa_setup.sh')
 
 ################################################################
@@ -255,11 +257,10 @@ mpirun --allow-run-as-root \
              --ls 0.0 \
              --epochs 1 \
              --name demo
-
 """
 
 ssh_client.run_on_master('mkdir -p ~/shared_workspace/logs')
-training_thread = ssh_client.run_on_master("""nohup docker exec mpicont bash -c \"{}\" &> ~/shared_workspace/logs/out.log &""".format(training_launch))
+training_thread = ssh_client.run_on_master("""docker exec mpicont bash -c \"{}\" 2>&1 | tee ~/shared_workspace/logs/out.log""".format(training_launch))
 
 ################################################################
 # Cleanup and shutdown
