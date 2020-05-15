@@ -16,6 +16,10 @@ parser.add_argument("--keypair")
 args = parser.parse_args()
 keypair = os.getcwd() + "/" + args.keypair
 
+dockerhub_user = args.docker_user
+dockerhub_repo = 'efa'
+dockerhub_tag = 'dlami_28'
+
 ec2_session = boto3.Session(region_name="us-east-1")
 ec2_client = ec2_session.client("ec2")
 ec2_resource = ec2_session.resource("ec2")
@@ -45,7 +49,7 @@ while True:
 print(pci[0]['stdout'])
 
 
-'''################################################################
+################################################################
 # Setup Containers
 ################################################################
 
@@ -106,7 +110,7 @@ print(datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
 start = time.time()
 training_thread = ssh_client.run_on_master("""docker exec mpicont bash -c \"{}\" &> ~/shared_workspace/logs/out.log&""".format(training_launch))
 print(datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-end = time.time()'''
+end = time.time()
 ################################################################
 # Cleanup and shutdown
 # disconnect from notebook
@@ -122,4 +126,4 @@ end = time.time()'''
 #ssh_client.run_on_all("docker stop mpicont")
 sleep(3000)
 ssh_client.run_on_all("python ~/shared_workspace/logs/parse_and_submit.py ~/shared_workspace/logs/out.log 8 32 p3dn.24xlarge EC2 > parselog")
-ec2_client.stop_instances(InstanceIds=instances)
+#ec2_client.stop_instances(InstanceIds=instances)

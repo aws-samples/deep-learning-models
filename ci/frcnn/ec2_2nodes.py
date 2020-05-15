@@ -167,7 +167,7 @@ print('container set')'''
 # Setup Containers
 ################################################################
 
-'''launch_cont = """docker run --rm -it -d --gpus all \
+launch_cont = """docker run --rm -it -d --gpus all \
                     --name mpicont \
                     --net=host --uts=host --ipc=host \
                     --ulimit stack=67108864 --ulimit memlock=-1 \
@@ -180,7 +180,7 @@ print('container set')'''
                     """.format(dockerhub_user, dockerhub_repo, dockerhub_tag)
 
 ssh_client.run_on_all(launch_cont)
-ssh_client.run_on_all("docker images > ~/imagelog")'''
+ssh_client.run_on_all("docker images > ~/imagelog")
 ################################################################
 # setup nccl tests (optional)
 ################################################################
