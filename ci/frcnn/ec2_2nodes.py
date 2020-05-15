@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--instance_id1")
 parser.add_argument("--instance_id2")
 parser.add_argument("--docker_user")
-parser.add_arguement("--keypair")
+parser.add_argument("--keypair")
 
 args = parser.parse_args()
 

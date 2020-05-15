@@ -11,7 +11,7 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument("--instance_id")
 parser.add_argument("--docker_user")
-parser.add_arguement("--keypair")
+parser.add_argument("--keypair")
 
 args = parser.parse_args()
 keypair = os.getcwd() + "/" + args.keypair
