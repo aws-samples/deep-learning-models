@@ -120,6 +120,6 @@ end = time.time()'''
 
 #notebook.disconnect()
 #ssh_client.run_on_all("docker stop mpicont")
-#sleep(3000)
+sleep(3000)
 ssh_client.run_on_all("python ~/shared_workspace/logs/parse_and_submit.py ~/shared_workspace/logs/out.log 8 32 p3dn.24xlarge EC2 > parselog")
-#ec2_client.stop_instances(InstanceIds=instances)
+ec2_client.stop_instances(InstanceIds=instances)

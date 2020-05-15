@@ -289,4 +289,4 @@ training_thread = ssh_client.run_on_master("""docker exec mpicont bash -c \"{}\"
 #ssh_client.run_on_all("docker stop mpicont")
 sleep(3000)
 ssh_client.run_on_master("python ~/shared_workspace/logs/parse_and_submit.py ~/shared_workspace/logs/out.log 16 64 p3dn.24xlarge EC2 > parselog")
-#ec2_client.stop_instances(InstanceIds=instances)
+ec2_client.stop_instances(InstanceIds=instances)
