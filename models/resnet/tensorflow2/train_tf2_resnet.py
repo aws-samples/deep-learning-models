@@ -15,20 +15,19 @@
 
 
 '''
-mpirun -np 8 --H localhost:8 \
--bind-to none -map-by slot -mca pml ob1 -mca -x TF_CUDNN_USE_AUTOTUNE=0 \
--x TF_ENABLE_NHWC=1 -x FI_OFI_RXR_INLINE_MR_ENABLE=1 -x NCCL_TREE_THRESHOLD=4294967296 \
--x PATH -x NCCL_SOCKET_IFNAME=^docker0,lo -x NCCL_MIN_NRINGS=13 -x NCCL_DEBUG=INFO \
--x HOROVOD_CYCLE_TIME=0.5 -x HOROVOD_FUSION_THRESHOLD=67108864 python new_resnet.py --synthetic
-source activate tensorflow2_p36 && \
-mpirun -np 8 --H localhost:8 -mca plm_rsh_no_tree_spawn 1 \
-        -bind-to socket -map-by slot \
-        -x HOROVOD_HIERARCHICAL_ALLREDUCE=1 -x HOROVOD_FUSION_THRESHOLD=16777216 \
-        -x NCCL_MIN_NRINGS=4 -x LD_LIBRARY_PATH -x PATH -mca pml ob1 -mca btl ^openib \
-        -x NCCL_SOCKET_IFNAME=$INTERFACE -mca btl_tcp_if_exclude lo,docker0 \
-        -x TF_CPP_MIN_LOG_LEVEL=0 \
-        python -W ignore ~/new_resnet.py \
-        --synthetic --batch_size 128 --num_batches 100 --clear_log 2 > train.log
+
+        
+mpirun -np 8 --H localhost:8 --allow-run-as-root \
+        -mca btl_tcp_if_exclude docker0,lo -x NCCL_SOCKET_IFNAME=^docker0,lo \
+        python -W ignore deep-learning-models/models/resnet/tensorflow2/train_tf2_resnet.py \
+        --synthetic \
+        --batch_size 256 --num_batches 100 --clear_log 2
+        
+mpirun -np 8 --H localhost:8 --allow-run-as-root \
+        -mca btl_tcp_if_exclude docker0,lo -x NCCL_SOCKET_IFNAME=^docker0,lo \
+        python -W ignore deep-learning-models/models/resnet/tensorflow2/train_tf2_resnet.py \
+        --data_dir /workspace/shared_workspace/data \
+        --batch_size 256 --num_batches 100 --clear_log 2
 '''
 
 
@@ -50,10 +49,7 @@ def parse(record):
     parsed = tf.io.parse_single_example(record, features)
     image = tf.image.decode_jpeg(parsed['image/encoded'])
     image = tf.image.resize(image, (224, 224))
-    image = tf.image.random_brightness(image, .1)
-    image = tf.image.random_jpeg_quality(image, 70, 100)
-    image = tf.image.random_flip_left_right(image)
-    image = tf.cast(image, tf.float32)
+    image = tf.cast(image, tf.float16)
     label = tf.cast(parsed['image/class/label'] - 1, tf.int32)
     return image, label
 
@@ -64,46 +60,34 @@ def data_gen():
         label = tf.random.uniform(minval=0, maxval=999, shape=[1], dtype=tf.int32)
         yield image, label
 
-def create_data(data_dir = None, synthetic=False, batch_size=256):
+def create_data(data_dir = None, synthetic=False, batch_size=128):
     if synthetic:
         ds = tf.data.Dataset.from_generator(data_gen, output_types=(tf.float32, tf.int32))
     else:
         filenames = [os.path.join(data_dir, i) for i in os.listdir(data_dir)]
-        ds = tf.data.Dataset.from_tensor_slices(filenames).shard(hvd.size(), hvd.rank())
-        ds = ds.shuffle(1000, seed=7 * (1 + hvd.rank()))
-        ds = ds.interleave(
-            tf.data.TFRecordDataset, cycle_length=1, block_length=1)
-        ds = ds.map(parse, num_parallel_calls=10)
-        ds = ds.apply(tf.data.experimental.shuffle_and_repeat(10000, seed=5 * (1 + hvd.rank())))
-    ds = ds.batch(batch_size)
+        ds = tf.data.TFRecordDataset(filenames).shard(hvd.size(), hvd.rank())
+        ds = ds.map(parse, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    ds = ds.batch(batch_size).prefetch(128)
     return ds
 
 @tf.function
-def train_step(model, opt, loss_func, images, labels, first_batch):
+def train_step(model, opt, loss_func, images, labels, first_batch, fp32=False):
     with tf.GradientTape() as tape:
         probs = model(images, training=True)
         loss_value = loss_func(labels, probs)
+        if not fp32:
+            scaled_loss = opt.get_scaled_loss(loss_value)
     tape = hvd.DistributedGradientTape(tape, compression=hvd.Compression.fp16)
-    grads = tape.gradient(loss_value, model.trainable_variables)
+    if fp32:
+        grads = tape.gradient(loss_value, model.trainable_variables)
+    else:
+        scaled_grads = tape.gradient(scaled_loss, model.trainable_variables)
+        grads = opt.get_unscaled_gradients(scaled_grads)
     opt.apply_gradients(zip(grads, model.trainable_variables))
     if first_batch:
         hvd.broadcast_variables(model.variables, root_rank=0)
         hvd.broadcast_variables(opt.variables(), root_rank=0)
     return loss_value
-
-def add_bool_argument(cmdline, shortname, longname=None, default=False, help=None):
-    if longname is None:
-        shortname, longname = None, shortname
-    elif default == True:
-        raise ValueError("""Boolean arguments that are True by default should not have short names.""")
-    name = longname[2:]
-    feature_parser = cmdline.add_mutually_exclusive_group(required=False)
-    if shortname is not None:
-        feature_parser.add_argument(shortname, '--' + name, dest=name, action='store_true', help=help, default=default)
-    else:
-        feature_parser.add_argument('--' + name, dest=name, action='store_true', help=help, default=default)
-    feature_parser.add_argument('--no' + name, dest=name, action='store_false')
-    return cmdline
 
 def add_cli_args():
     cmdline = argparse.ArgumentParser(
@@ -121,7 +105,15 @@ def add_cli_args():
                          help="""Start learning rate""")
     cmdline.add_argument('--momentum', default=0.01, type=float,
                          help="""Start learning rate""")
-    add_bool_argument(cmdline, '--synthetic', help="""Whether to use synthetic data for training""")
+    cmdline.add_argument('-fp32', '--fp32', 
+                         help="""disable mixed precision training""",
+                         action='store_true')
+    cmdline.add_argument('-xla_off', '--xla_off', 
+                         help="""disable xla""",
+                         action='store_true')
+    cmdline.add_argument('-s', '--synthetic', 
+                         help="""Use synthetic data for training""",
+                         action='store_true')
     return cmdline
 
 def main():
@@ -134,19 +126,24 @@ def main():
     if gpus:
         tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
     os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
-    # get command line args
     cmdline = add_cli_args()
     FLAGS, unknown_args = cmdline.parse_known_args()
+    if not FLAGS.xla_off:
+        tf.config.optimizer.set_jit(True)
+    if not FLAGS.fp32:
+        tf.config.optimizer.set_experimental_options({"auto_mixed_precision": True})
     ds = create_data(FLAGS.data_dir, FLAGS.synthetic, FLAGS.batch_size)
     model = tf.keras.applications.ResNet50(weights=None, classes=1000)
     opt = tf.keras.optimizers.SGD(learning_rate=FLAGS.learning_rate * hvd.size(), momentum=0.1)
+    if not FLAGS.fp32:
+        opt = tf.keras.mixed_precision.experimental.LossScaleOptimizer(opt, loss_scale="dynamic")
     loss_func = tf.keras.losses.SparseCategoricalCrossentropy()
 
     loop_time = time()
     if hvd.local_rank() == 0:
         print("Step \t Throughput \t Loss")
     for batch, (images, labels) in enumerate(ds):
-        loss = train_step(model, opt, loss_func, images, labels, batch==0)
+        loss = train_step(model, opt, loss_func, images, labels, batch==0, fp32=FLAGS.fp32)
         if hvd.local_rank() == 0:
             duration = time() - loop_time
             loop_time = time()
