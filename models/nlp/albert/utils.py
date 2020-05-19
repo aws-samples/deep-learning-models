@@ -1,7 +1,9 @@
+import logging
 from functools import lru_cache
 from typing import List
 
 import tensorflow as tf
+import tqdm
 from transformers import AlbertTokenizer, PreTrainedTokenizer
 from transformers.data.processors.squad import (
     SquadExample,
@@ -14,6 +16,21 @@ from transformers.data.processors.squad import (
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
+
+
+class TqdmLoggingHandler(logging.Handler):
+    def __init__(self, level=logging.NOTSET):
+        super().__init__(level)
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            tqdm.tqdm.write(msg)
+            self.flush()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except:
+            self.handleError(record)
 
 
 def rewrap_tf_function(func, experimental_compile=None):

@@ -27,6 +27,7 @@ import argparse
 import datetime
 import glob
 import logging
+import time
 from typing import List, Tuple
 
 import numpy as np
@@ -44,7 +45,7 @@ from transformers import (
 from datasets import get_mlm_dataset
 from learning_rate_schedules import LinearWarmupPolyDecaySchedule
 from run_squad import get_squad_results_while_pretraining
-from utils import gather_indexes, rewrap_tf_function
+from utils import TqdmLoggingHandler, gather_indexes, rewrap_tf_function
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
@@ -401,7 +402,7 @@ def main(
         format = "%(asctime)-15s %(name)-12s: %(levelname)-8s %(message)s"
         handlers = [
             logging.FileHandler(f"{fsx_prefix}/logs/albert/{run_name}.log"),
-            logging.StreamHandler(),
+            TqdmLoggingHandler(),
         ]
         logging.basicConfig(level=level, format=format, handlers=handlers)
 
@@ -442,6 +443,7 @@ def main(
     opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale="dynamic")
     gradient_accumulator = GradientAccumulator()
 
+    loaded_opt_weights = None
     if load_from == "scratch":
         pass
     elif load_from.startswith("huggingface"):
@@ -494,6 +496,7 @@ def main(
         logger.info(f"Starting training, job name {run_name}")
 
     i = 0
+    start_time = time.perf_counter()
     for batch in train_dataset:
         learning_rate = schedule(step=tf.constant(i, dtype=tf.float32))
         loss_scale = opt.loss_scale()
@@ -542,7 +545,14 @@ def main(
             description = f"Loss: {loss:.3f}, MLM: {mlm_loss:.3f}, SOP: {sop_loss:.3f}, MLM_acc: {mlm_acc:.3f}, SOP_acc: {sop_acc:.3f}"
             pbar.set_description(description)
             if do_log:
-                logger.info(f"Train step {i} -- {description}")
+                elapsed_time = time.perf_counter() - start_time
+                if i == 0:
+                    logger.info(f"First step: {elapsed_time:.3f} secs")
+                else:
+                    it_per_sec = log_frequency / elapsed_time
+                    # import pdb; pdb.set_trace()
+                    logger.info(f"Train step {i} -- {description} -- It/s: {it_per_sec:.3f}")
+                    start_time = time.perf_counter()
 
             if do_checkpoint:
                 checkpoint_prefix = f"{fsx_prefix}/checkpoints/albert/{run_name}-step{i}"
