@@ -22,5 +22,5 @@ RUN mkdir -p /root/.ssh/ && \
 RUN pip install --no-cache-dir \
     mpi4py \
     sagemaker-containers \
-    tensorflow-addons==0.9.1 \
-    git+git://github.com/jarednielsen/transformers.git@tfsquad
+    tensorflow-addons==0.9.1
+RUN pip install git+git://github.com/jarednielsen/transformers.git@tfsquad

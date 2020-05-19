@@ -3,7 +3,7 @@ FROM nvidia/cuda:10.1-devel-ubuntu18.04
 # TensorFlow version is tightly coupled to CUDA and cuDNN so it should be selected carefully
 ENV HOROVOD_VERSION=0.19.2
 ENV TENSORFLOW_PIP=tensorflow
-ENV TENSORFLOW_VERSION=2.1.0
+ENV TENSORFLOW_VERSION=2.1.1
 ENV PYTORCH_VERSION=1.4.0
 ENV TORCHVISION_VERSION=0.5.0
 ENV CUDNN_VERSION=7.6.5.32-1+cuda10.1
