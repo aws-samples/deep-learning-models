@@ -27,8 +27,9 @@ import argparse
 import datetime
 import glob
 import logging
-from typing import List
+from typing import List, Tuple
 
+import numpy as np
 import tensorflow as tf
 import tqdm
 from tensorflow_addons.optimizers import LAMB, AdamW
@@ -43,7 +44,7 @@ from transformers import (
 from datasets import get_mlm_dataset
 from learning_rate_schedules import LinearWarmupPolyDecaySchedule
 from run_squad import get_squad_results_while_pretraining
-from utils import gather_indexes, get_tokenizer, rewrap_tf_function
+from utils import gather_indexes, rewrap_tf_function
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
@@ -324,6 +325,11 @@ def wrap_global_functions(do_gradient_accumulation: bool):
         train_step = rewrap_tf_function(train_step)
 
 
+def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str]:
+    """ Returns the model_ckpt path and opt_ckpt path. """
+    return f"{prefix}.ckpt", f"{prefix}-opt.npy"
+
+
 def main(
     fsx_prefix: str,
     load_from: str,
@@ -414,19 +420,7 @@ def main(
     config.hidden_dropout_prob = hidden_dropout_prob
     model = TFAutoModelForPreTraining.from_config(config)
 
-    if load_from == "scratch":
-        pass
-    elif load_from.startswith("huggingface"):
-        assert model_type == "albert", "Only loading pretrained albert models is supported"
-        huggingface_name = f"albert-{model_size}-v2"
-        if load_from == "huggingface":
-            albert = TFAlbertModel.from_pretrained(huggingface_name, config=config)
-            model.albert = albert
-    else:
-        model = TFAutoModelForPreTraining.from_config(config)
-        model.load_weights(checkpoint_path)
-
-    tokenizer = get_tokenizer()
+    # Create optimizer and enable AMP loss scaling.
     schedule = LinearWarmupPolyDecaySchedule(
         max_learning_rate=learning_rate,
         end_learning_rate=end_learning_rate,
@@ -445,10 +439,25 @@ def main(
         )
     elif optimizer == "adam":
         opt = AdamW(weight_decay=0.0, learning_rate=schedule)
-
-    # AMP
     opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale="dynamic")
     gradient_accumulator = GradientAccumulator()
+
+    if load_from == "scratch":
+        pass
+    elif load_from.startswith("huggingface"):
+        assert model_type == "albert", "Only loading pretrained albert models is supported"
+        huggingface_name = f"albert-{model_size}-v2"
+        if load_from == "huggingface":
+            albert = TFAlbertModel.from_pretrained(huggingface_name, config=config)
+            model.albert = albert
+    else:
+        model_ckpt, opt_ckpt = get_checkpoint_paths_from_prefix(checkpoint_path)
+
+        model = TFAutoModelForPreTraining.from_config(config)
+        if hvd.rank() == 0:
+            model.load_weights(model_ckpt)
+            loaded_opt_weights = np.load(opt_ckpt, allow_pickle=True)
+            # We do not set the weights yet, we have to do a first step to initialize the optimizer.
 
     # Train filenames are [1, 2047], Val filenames are [0]. Note the different subdirectories
     train_glob = f"{fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
@@ -482,11 +491,10 @@ def main(
 
         pbar = tqdm.tqdm(total_steps)
         summary_writer = None  # Only create a writer if we make it through a successful step
-
-    if hvd.rank() == 0:
         logger.info(f"Starting training, job name {run_name}")
 
-    for i, batch in enumerate(train_dataset):
+    i = 0
+    for batch in train_dataset:
         learning_rate = schedule(step=tf.constant(i, dtype=tf.float32))
         loss_scale = opt.loss_scale()
         loss, mlm_loss, mlm_acc, sop_loss, sop_acc, grad_norm, weight_norm = train_step(
@@ -501,8 +509,11 @@ def main(
 
         # Don't want to wrap broadcast_variables() in a tf.function, can lead to asynchronous errors
         if i == 0:
+            if hvd.rank() == 0 and loaded_opt_weights is not None:
+                opt.set_weights(loaded_opt_weights)
             hvd.broadcast_variables(model.variables, root_rank=0)
             hvd.broadcast_variables(opt.variables(), root_rank=0)
+            i = opt.get_weights()[0] - 1
 
         is_final_step = i >= total_steps - 1
         do_squad = i in squad_steps or is_final_step
@@ -534,10 +545,16 @@ def main(
                 logger.info(f"Train step {i} -- {description}")
 
             if do_checkpoint:
-                checkpoint_path = f"{fsx_prefix}/checkpoints/albert/{run_name}-step{i}.ckpt"
-                logger.info(f"Saving checkpoint at {checkpoint_path}")
-                model.save_weights(checkpoint_path)
-                # model.load_weights(checkpoint_path)
+                checkpoint_prefix = f"{fsx_prefix}/checkpoints/albert/{run_name}-step{i}"
+                model_ckpt = f"{checkpoint_prefix}.ckpt"
+                opt_ckpt = f"{checkpoint_prefix}-opt.npy"
+                logger.info(f"Saving model at {model_ckpt}, optimizer at {opt_ckpt}")
+                model.save_weights(model_ckpt)
+                # model.load_weights(model_ckpt)
+
+                opt_weights = opt.get_weights()
+                np.save(opt_ckpt, opt_weights)
+                # opt.set_weights(opt_weights)
 
             if do_validation:
                 val_loss, val_mlm_loss, val_mlm_acc, val_sop_loss, val_sop_acc = run_validation(
@@ -575,6 +592,7 @@ def main(
                     tf.summary.scalar("squad_f1", squad_f1, step=i)
                     tf.summary.scalar("squad_exact", squad_exact, step=i)
 
+        i += 1
         if is_final_step:
             break
 
