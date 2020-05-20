@@ -48,6 +48,42 @@ import horovod.tensorflow as hvd  # isort:skip
 logger = logging.getLogger(__name__)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    # Model loading
+    parser.add_argument("--model_type", default="albert", choices=["albert", "bert"])
+    parser.add_argument("--model_size", default="base", choices=["base", "large"])
+    parser.add_argument("--load_from", required=True)
+    parser.add_argument("--load_step", type=int)
+    parser.add_argument("--skip_xla", choices=["true"])
+    parser.add_argument("--eager", choices=["true"])
+    parser.add_argument(
+        "--pre_layer_norm",
+        choices=["true"],
+        help="See https://github.com/huggingface/transformers/pull/3929",
+    )
+    parser.add_argument(
+        "--fsx_prefix",
+        default="/fsx",
+        choices=["/fsx", "/opt/ml/input/data/training"],
+        help="Change to /opt/ml/input/data/training on SageMaker",
+    )
+    # Hyperparameters from https://arxiv.org/pdf/1909.11942.pdf#page=17
+    parser.add_argument("--batch_size", default=6, type=int)
+    parser.add_argument("--total_steps", default=8144, type=int)
+    parser.add_argument("--warmup_steps", default=814, type=int)
+    parser.add_argument("--learning_rate", default=3e-5, type=float)
+    parser.add_argument("--dataset", default="squadv2")
+    parser.add_argument("--seed", type=int, default=42)
+    # Logging information
+    parser.add_argument("--name", default="default")
+    parser.add_argument("--validate_frequency", default=1000, type=int)
+    parser.add_argument("--checkpoint_frequency", default=500, type=int)
+    parser.add_argument("--model_dir", help="Unused, but passed by SageMaker")
+    args = parser.parse_args()
+    return args
+
+
 def loss_fn(start_logits, end_logits, start_positions, end_positions, attention_mask):
     # Is this masking even necessary?
     # We need to mask so only the relevant logits contribute to crossentropy loss
@@ -461,38 +497,7 @@ def run_squad_and_get_results(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    # Model loading
-    parser.add_argument("--model_type", default="albert", choices=["albert", "bert"])
-    parser.add_argument("--model_size", default="base", choices=["base", "large"])
-    parser.add_argument("--load_from", required=True)
-    parser.add_argument("--load_step", type=int)
-    parser.add_argument("--skip_xla", choices=["true"])
-    parser.add_argument("--eager", choices=["true"])
-    parser.add_argument(
-        "--pre_layer_norm",
-        choices=["true"],
-        help="See https://github.com/huggingface/transformers/pull/3929",
-    )
-    parser.add_argument(
-        "--fsx_prefix",
-        default="/fsx",
-        choices=["/fsx", "/opt/ml/input/data/training"],
-        help="Change to /opt/ml/input/data/training on SageMaker",
-    )
-    # Hyperparameters from https://arxiv.org/pdf/1909.11942.pdf#page=17
-    parser.add_argument("--batch_size", default=6, type=int)
-    parser.add_argument("--total_steps", default=8144, type=int)
-    parser.add_argument("--warmup_steps", default=814, type=int)
-    parser.add_argument("--learning_rate", default=3e-5, type=float)
-    parser.add_argument("--dataset", default="squadv2")
-    parser.add_argument("--seed", type=int, default=42)
-    # Logging information
-    parser.add_argument("--name", default="default")
-    parser.add_argument("--validate_frequency", default=1000, type=int)
-    parser.add_argument("--checkpoint_frequency", default=500, type=int)
-    parser.add_argument("--model_dir", help="Unused, but passed by SageMaker")
-    args = parser.parse_args()
+    args = parse_args()
     tf.random.set_seed(args.seed)
     tf.autograph.set_verbosity(0)
 

@@ -17,7 +17,7 @@ Language models help AWS customers to improve search results, text classificatio
 
 2. Download the datasets onto FSx. You will need English Wikipedia and BookCorpus, and helper scripts for downloading will be forthcoming.
 
-3. Create an Elastic Container Registry repository. Then build a Docker image from `docker/ngc_sagemaker.Dockerfile` and push it to ECR.
+3. Create an Amazon Elastic Container Registry (ECR) repository. Then build a Docker image from `docker/ngc_sagemaker.Dockerfile` and push it to ECR.
 
 ```bash
 export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:ngc_tf21_sagemaker
