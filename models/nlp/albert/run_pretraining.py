@@ -27,8 +27,10 @@ import argparse
 import datetime
 import glob
 import logging
-from typing import List
+import time
+from typing import List, Tuple
 
+import numpy as np
 import tensorflow as tf
 import tqdm
 from tensorflow_addons.optimizers import LAMB, AdamW
@@ -40,15 +42,28 @@ from transformers import (
     TFBertForPreTraining,
 )
 
+from arguments import populate_pretraining_parser
 from datasets import get_mlm_dataset
 from learning_rate_schedules import LinearWarmupPolyDecaySchedule
 from run_squad import get_squad_results_while_pretraining
-from utils import gather_indexes, get_tokenizer, rewrap_tf_function
+from utils import TqdmLoggingHandler, gather_indexes, rewrap_tf_function
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
 
 logger = logging.getLogger(__name__)
+
+
+def get_squad_steps(extra_steps_str: str) -> List[int]:
+    """ Parse a comma-separated string of integers, append it to list of default steps. """
+    extra_squad_steps = [int(val) for val in extra_steps_str.split(",")] if extra_steps_str else []
+    # fmt: off
+    default_squad_steps = [
+        k * 1000
+        for k in [5, 10, 20,40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300, 320, 340, 360, 380, 400]
+    ]
+    # fmt: on
+    return extra_squad_steps + default_squad_steps
 
 
 def mlm_loss_fn(
@@ -159,7 +174,7 @@ def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_los
     # Placing before has a regularization effect, no single example can contribute as much.
     # Placing before also gives a 20% speedup when training BERT-large, probably because the
     # gradient operations can be fused by XLA.
-    (grads, grad_norm) = tf.clip_by_global_norm(grads, clip_norm=args.max_grad_norm)
+    (grads, grad_norm) = tf.clip_by_global_norm(grads, clip_norm=max_grad_norm)
     weight_norm = tf.math.sqrt(
         tf.math.reduce_sum([tf.norm(var, ord=2) ** 2 for var in model.trainable_variables])
     )
@@ -324,43 +339,53 @@ def wrap_global_functions(do_gradient_accumulation: bool):
         train_step = rewrap_tf_function(train_step)
 
 
-def main(
-    fsx_prefix: str,
-    load_from: str,
-    checkpoint_path: str,
-    model_type: str,
-    model_size: str,
-    batch_size: int,
-    max_seq_length: int,
-    gradient_accumulation_steps: int,
-    optimizer: str,
-    name: str,
-    learning_rate: float,
-    end_learning_rate: float,
-    learning_rate_decay_power: float,
-    warmup_steps: int,
-    total_steps: int,
-    skip_sop: bool,
-    skip_mlm: bool,
-    pre_layer_norm: bool,
-    fast_squad: bool,
-    dummy_eval: bool,
-    squad_steps: List[int],
-    hidden_dropout_prob: float,
-    seed: int,
-):
-    # Hard-coded values that don't need to be arguments
+def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str]:
+    """ Returns the model_ckpt path and opt_ckpt path. """
+    return f"{prefix}.ckpt", f"{prefix}-opt.npy"
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    populate_pretraining_parser(parser)
+    args = parser.parse_args()
+    tf.random.set_seed(args.seed)
+    tf.autograph.set_verbosity(0)
+
+    # Settings init
+    parse_bool = lambda arg: arg == "true"
     max_predictions_per_seq = 20
-    log_frequency = 1000
     checkpoint_frequency = 5000
     validate_frequency = 2000
     histogram_frequency = 100
-    do_gradient_accumulation = gradient_accumulation_steps > 1
+    do_gradient_accumulation = args.gradient_accumulation_steps > 1
+    do_xla = not parse_bool(args.skip_xla)
+    do_eager = parse_bool(args.eager)
+    skip_sop = parse_bool(args.skip_sop)
+    skip_mlm = parse_bool(args.skip_mlm)
+    pre_layer_norm = parse_bool(args.pre_layer_norm)
+    fast_squad = parse_bool(args.fast_squad)
+    dummy_eval = parse_bool(args.dummy_eval)
+    squad_steps = get_squad_steps(args.extra_squad_steps)
+    is_sagemaker = args.fsx_prefix.startswith("/opt/ml")
+    disable_tqdm = is_sagemaker
+    global max_grad_norm
+    max_grad_norm = args.max_grad_norm
+
+    # Horovod init
+    hvd.init()
+    gpus = tf.config.list_physical_devices("GPU")
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    if gpus:
+        tf.config.set_visible_devices(gpus[hvd.local_rank()], "GPU")
+    # XLA, AutoGraph
+    tf.config.optimizer.set_jit(do_xla)
+    tf.config.experimental_run_functions_eagerly(do_eager)
 
     if hvd.rank() == 0:
         # Run name should only be used on one process to avoid race conditions
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        platform = "eks" if args.fsx_prefix == "/fsx" else "sm"
+        platform = "sm" if is_sagemaker else "eks"
         if skip_sop:
             loss_str = "-skipsop"
         elif skip_mlm:
@@ -369,33 +394,33 @@ def main(
             loss_str = ""
 
         metadata = (
-            f"{model_type}"
-            f"-{model_size}"
-            f"-{load_from}"
+            f"{args.model_type}"
+            f"-{args.model_size}"
+            f"-{args.load_from}"
             f"-{hvd.size()}gpus"
-            f"-{batch_size}batch"
-            f"-{gradient_accumulation_steps}accum"
-            f"-{learning_rate}maxlr"
-            f"-{end_learning_rate}endlr"
-            f"-{learning_rate_decay_power}power"
+            f"-{args.batch_size}batch"
+            f"-{args.gradient_accumulation_steps}accum"
+            f"-{args.learning_rate}maxlr"
+            f"-{args.end_learning_rate}endlr"
+            f"-{args.learning_rate_decay_power}power"
             f"-{args.max_grad_norm}maxgrad"
-            f"-{optimizer}opt"
-            f"-{total_steps}steps"
-            f"-{max_seq_length}seq"
+            f"-{args.optimizer}opt"
+            f"-{args.total_steps}steps"
+            f"-{args.max_seq_length}seq"
             f"-{'preln' if pre_layer_norm else 'postln'}"
             f"{loss_str}"
-            f"-{hidden_dropout_prob}dropout"
-            f"-{seed}seed"
+            f"-{args.hidden_dropout_prob}dropout"
+            f"-{args.seed}seed"
         )
-        run_name = f"{current_time}-{platform}-{metadata}-{name if name else 'unnamed'}"
+        run_name = f"{current_time}-{platform}-{metadata}-{args.name if args.name else 'unnamed'}"
 
         # Logging should only happen on a single process
         # https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time
         level = logging.INFO
         format = "%(asctime)-15s %(name)-12s: %(levelname)-8s %(message)s"
         handlers = [
-            logging.FileHandler(f"{fsx_prefix}/logs/albert/{run_name}.log"),
-            logging.StreamHandler(),
+            logging.FileHandler(f"{args.fsx_prefix}/logs/albert/{run_name}.log"),
+            TqdmLoggingHandler(),
         ]
         logging.basicConfig(level=level, format=format, handlers=handlers)
 
@@ -404,37 +429,25 @@ def main(
 
     wrap_global_functions(do_gradient_accumulation)
 
-    if model_type == "albert":
-        model_desc = f"albert-{model_size}-v2"
-    elif model_type == "bert":
-        model_desc = f"bert-{model_size}-uncased"
+    if args.model_type == "albert":
+        model_desc = f"albert-{args.model_size}-v2"
+    elif args.model_type == "bert":
+        model_desc = f"bert-{args.model_size}-uncased"
 
     config = AutoConfig.from_pretrained(model_desc)
     config.pre_layer_norm = pre_layer_norm
-    config.hidden_dropout_prob = hidden_dropout_prob
+    config.hidden_dropout_prob = args.hidden_dropout_prob
     model = TFAutoModelForPreTraining.from_config(config)
 
-    if load_from == "scratch":
-        pass
-    elif load_from.startswith("huggingface"):
-        assert model_type == "albert", "Only loading pretrained albert models is supported"
-        huggingface_name = f"albert-{model_size}-v2"
-        if load_from == "huggingface":
-            albert = TFAlbertModel.from_pretrained(huggingface_name, config=config)
-            model.albert = albert
-    else:
-        model = TFAutoModelForPreTraining.from_config(config)
-        model.load_weights(checkpoint_path)
-
-    tokenizer = get_tokenizer()
+    # Create optimizer and enable AMP loss scaling.
     schedule = LinearWarmupPolyDecaySchedule(
-        max_learning_rate=learning_rate,
-        end_learning_rate=end_learning_rate,
-        warmup_steps=warmup_steps,
-        total_steps=total_steps,
-        power=learning_rate_decay_power,
+        max_learning_rate=args.learning_rate,
+        end_learning_rate=args.end_learning_rate,
+        warmup_steps=args.warmup_steps,
+        total_steps=args.total_steps,
+        power=args.learning_rate_decay_power,
     )
-    if optimizer == "lamb":
+    if args.optimizer == "lamb":
         opt = LAMB(
             learning_rate=schedule,
             weight_decay_rate=0.01,
@@ -443,29 +456,44 @@ def main(
             epsilon=1e-6,
             exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"],
         )
-    elif optimizer == "adam":
+    elif args.optimizer == "adam":
         opt = AdamW(weight_decay=0.0, learning_rate=schedule)
-
-    # AMP
     opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale="dynamic")
     gradient_accumulator = GradientAccumulator()
 
+    loaded_opt_weights = None
+    if args.load_from == "scratch":
+        pass
+    elif args.load_from.startswith("huggingface"):
+        assert args.model_type == "albert", "Only loading pretrained albert models is supported"
+        huggingface_name = f"albert-{args.model_size}-v2"
+        if args.load_from == "huggingface":
+            albert = TFAlbertModel.from_pretrained(huggingface_name, config=config)
+            model.albert = albert
+    else:
+        model_ckpt, opt_ckpt = get_checkpoint_paths_from_prefix(args.checkpoint_path)
+
+        model = TFAutoModelForPreTraining.from_config(config)
+        if hvd.rank() == 0:
+            model.load_weights(model_ckpt)
+            loaded_opt_weights = np.load(opt_ckpt, allow_pickle=True)
+            # We do not set the weights yet, we have to do a first step to initialize the optimizer.
+
     # Train filenames are [1, 2047], Val filenames are [0]. Note the different subdirectories
-    train_glob = f"{fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
-    validation_glob = f"{fsx_prefix}/albert_pretraining/tfrecords/validation/max_seq_len_{max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
+    train_glob = f"{args.fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{args.max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
+    validation_glob = f"{args.fsx_prefix}/albert_pretraining/tfrecords/validation/max_seq_len_{args.max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
 
     train_filenames = glob.glob(train_glob)
     validation_filenames = glob.glob(validation_glob)
 
     train_dataset = get_mlm_dataset(
         filenames=train_filenames,
-        max_seq_length=max_seq_length,
+        max_seq_length=args.max_seq_length,
         max_predictions_per_seq=max_predictions_per_seq,
-        batch_size=batch_size,
+        batch_size=args.batch_size,
     )  # Of shape [batch_size, ...]
-    train_dataset = train_dataset.batch(
-        gradient_accumulation_steps
-    )  # Batch of batches, helpful for gradient accumulation. Shape [grad_steps, batch_size, ...]
+    # Batch of batches, helpful for gradient accumulation. Shape [grad_steps, batch_size, ...]
+    train_dataset = train_dataset.batch(args.gradient_accumulation_steps)
     # One iteration with 10 dupes, 8 nodes seems to be 60-70k steps.
     train_dataset = train_dataset.prefetch(buffer_size=8)
 
@@ -473,20 +501,20 @@ def main(
     if hvd.rank() == 0:
         validation_dataset = get_mlm_dataset(
             filenames=validation_filenames,
-            max_seq_length=max_seq_length,
+            max_seq_length=args.max_seq_length,
             max_predictions_per_seq=max_predictions_per_seq,
-            batch_size=batch_size,
+            batch_size=args.batch_size,
         )
         # validation_dataset = validation_dataset.batch(1)
         validation_dataset = validation_dataset.prefetch(buffer_size=8)
 
-        pbar = tqdm.tqdm(total_steps)
+        pbar = tqdm.tqdm(args.total_steps, disable=disable_tqdm)
         summary_writer = None  # Only create a writer if we make it through a successful step
-
-    if hvd.rank() == 0:
         logger.info(f"Starting training, job name {run_name}")
 
-    for i, batch in enumerate(train_dataset):
+    i = 0
+    start_time = time.perf_counter()
+    for batch in train_dataset:
         learning_rate = schedule(step=tf.constant(i, dtype=tf.float32))
         loss_scale = opt.loss_scale()
         loss, mlm_loss, mlm_acc, sop_loss, sop_acc, grad_norm, weight_norm = train_step(
@@ -494,27 +522,30 @@ def main(
             opt=opt,
             gradient_accumulator=gradient_accumulator,
             batch=batch,
-            gradient_accumulation_steps=gradient_accumulation_steps,
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
             skip_sop=skip_sop,
             skip_mlm=skip_mlm,
         )
 
         # Don't want to wrap broadcast_variables() in a tf.function, can lead to asynchronous errors
         if i == 0:
+            if hvd.rank() == 0 and loaded_opt_weights is not None:
+                opt.set_weights(loaded_opt_weights)
             hvd.broadcast_variables(model.variables, root_rank=0)
             hvd.broadcast_variables(opt.variables(), root_rank=0)
+            i = opt.get_weights()[0] - 1
 
-        is_final_step = i >= total_steps - 1
+        is_final_step = i >= args.total_steps - 1
         do_squad = i in squad_steps or is_final_step
         # Squad requires all the ranks to train, but results are only returned on rank 0
         if do_squad:
             squad_results = get_squad_results_while_pretraining(
                 model=model,
-                model_size=model_size,
-                fsx_prefix=fsx_prefix,
+                model_size=args.model_size,
+                fsx_prefix=args.fsx_prefix,
                 step=i,
-                fast=fast_squad,
-                dummy_eval=dummy_eval,
+                fast=args.fast_squad,
+                dummy_eval=args.dummy_eval,
             )
             if hvd.rank() == 0:
                 squad_exact, squad_f1 = squad_results["exact"], squad_results["f1"]
@@ -523,7 +554,7 @@ def main(
             wrap_global_functions(do_gradient_accumulation)
 
         if hvd.rank() == 0:
-            do_log = i % log_frequency == 0
+            do_log = i % args.log_frequency == 0
             do_checkpoint = (i % checkpoint_frequency == 0) or is_final_step
             do_validation = (i % validate_frequency == 0) or is_final_step
 
@@ -531,13 +562,25 @@ def main(
             description = f"Loss: {loss:.3f}, MLM: {mlm_loss:.3f}, SOP: {sop_loss:.3f}, MLM_acc: {mlm_acc:.3f}, SOP_acc: {sop_acc:.3f}"
             pbar.set_description(description)
             if do_log:
-                logger.info(f"Train step {i} -- {description}")
+                elapsed_time = time.perf_counter() - start_time
+                if i == 0:
+                    logger.info(f"First step: {elapsed_time:.3f} secs")
+                else:
+                    it_per_sec = args.log_frequency / elapsed_time
+                    logger.info(f"Train step {i} -- {description} -- It/s: {it_per_sec:.2f}")
+                    start_time = time.perf_counter()
 
             if do_checkpoint:
-                checkpoint_path = f"{fsx_prefix}/checkpoints/albert/{run_name}-step{i}.ckpt"
-                logger.info(f"Saving checkpoint at {checkpoint_path}")
-                model.save_weights(checkpoint_path)
-                # model.load_weights(checkpoint_path)
+                checkpoint_prefix = f"{args.fsx_prefix}/checkpoints/albert/{run_name}-step{i}"
+                model_ckpt = f"{checkpoint_prefix}.ckpt"
+                opt_ckpt = f"{checkpoint_prefix}-opt.npy"
+                logger.info(f"Saving model at {model_ckpt}, optimizer at {opt_ckpt}")
+                model.save_weights(model_ckpt)
+                # model.load_weights(model_ckpt)
+
+                opt_weights = opt.get_weights()
+                np.save(opt_ckpt, opt_weights)
+                # opt.set_weights(opt_weights)
 
             if do_validation:
                 val_loss, val_mlm_loss, val_mlm_acc, val_sop_loss, val_sop_acc = run_validation(
@@ -552,7 +595,7 @@ def main(
             # Create summary_writer after the first step
             if summary_writer is None:
                 summary_writer = tf.summary.create_file_writer(
-                    f"{fsx_prefix}/logs/albert/{run_name}"
+                    f"{args.fsx_prefix}/logs/albert/{run_name}"
                 )
             # Log to TensorBoard
             with summary_writer.as_default():
@@ -575,6 +618,7 @@ def main(
                     tf.summary.scalar("squad_f1", squad_f1, step=i)
                     tf.summary.scalar("squad_exact", squad_exact, step=i)
 
+        i += 1
         if is_final_step:
             break
 
@@ -583,131 +627,5 @@ def main(
         logger.info(f"Finished pretraining, job name {run_name}")
 
 
-def get_squad_steps(extra_steps_str: str) -> List[int]:
-    """ Parse a comma-separated string of integers, append it to list of default steps. """
-    extra_squad_steps = [int(val) for val in extra_steps_str.split(",")] if extra_steps_str else []
-    default_squad_steps = [
-        k * 1000
-        for k in [
-            5,
-            10,
-            20,
-            40,
-            60,
-            80,
-            100,
-            120,
-            140,
-            160,
-            180,
-            200,
-            220,
-            240,
-            260,
-            280,
-            300,
-            320,
-            340,
-            360,
-            380,
-            400,
-        ]
-    ]
-    return extra_squad_steps + default_squad_steps
-
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model_dir", help="Unused, but passed by SageMaker")
-    parser.add_argument("--model_type", default="albert", choices=["albert", "bert"])
-    parser.add_argument("--model_size", default="base", choices=["base", "large"])
-    parser.add_argument("--batch_size", type=int, default=32, help="per GPU")
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=2)
-    parser.add_argument("--max_seq_length", type=int, default=512, choices=[128, 512])
-    parser.add_argument("--warmup_steps", type=int, default=3125)
-    parser.add_argument("--total_steps", type=int, default=125000)
-    parser.add_argument("--learning_rate", type=float, default=0.00176)
-    parser.add_argument("--end_learning_rate", type=float, default=3e-5)
-    parser.add_argument("--learning_rate_decay_power", type=float, default=1.0)
-    parser.add_argument("--hidden_dropout_prob", type=float, default=0.0)
-    parser.add_argument("--max_grad_norm", type=float, default=1.0)
-    parser.add_argument("--optimizer", default="lamb", choices=["lamb", "adam"])
-    parser.add_argument("--name", default="", help="Additional info to append to metadata")
-    parser.add_argument(
-        "--load_from", default="scratch", choices=["scratch", "checkpoint", "huggingface"],
-    )
-    parser.add_argument("--checkpoint_path", default=None)
-    parser.add_argument(
-        "--fsx_prefix",
-        default="/fsx",
-        choices=["/fsx", "/opt/ml/input/data/training"],
-        help="Change to /opt/ml/input/data/training on SageMaker",
-    )
-    # SageMaker does not work with 'store_const' args, since it parses into a dictionary
-    # We will treat any value not equal to None as True, and use --skip_xla=true
-    parser.add_argument(
-        "--skip_xla",
-        choices=["true"],
-        help="For debugging. Faster startup time, slower runtime, more GPU vRAM.",
-    )
-    parser.add_argument(
-        "--eager",
-        choices=["true"],
-        help="For debugging. Faster launch, slower runtime, more GPU vRAM.",
-    )
-    parser.add_argument(
-        "--skip_sop", choices=["true"], help="Only use MLM loss, and exclude the SOP loss.",
-    )
-    parser.add_argument(
-        "--skip_mlm", choices=["true"], help="Only use SOP loss, and exclude the MLM loss.",
-    )
-    parser.add_argument(
-        "--pre_layer_norm",
-        choices=["true"],
-        help="Place layer normalization before the attention & FFN, rather than after adding the residual connection. https://openreview.net/pdf?id=B1x8anVFPr",
-    )
-    parser.add_argument("--extra_squad_steps", type=str)
-    parser.add_argument("--fast_squad", choices=["true"])
-    parser.add_argument("--dummy_eval", choices=["true"])
-    parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
-    tf.random.set_seed(args.seed)
-    tf.autograph.set_verbosity(0)
-
-    # Horovod init
-    hvd.init()
-    gpus = tf.config.list_physical_devices("GPU")
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
-    if gpus:
-        tf.config.set_visible_devices(gpus[hvd.local_rank()], "GPU")
-    # XLA, AutoGraph
-    parse_bool = lambda arg: arg == "true"
-    tf.config.optimizer.set_jit(not parse_bool(args.skip_xla))
-    tf.config.experimental_run_functions_eagerly(parse_bool(args.eager))
-
-    main(
-        fsx_prefix=args.fsx_prefix,
-        load_from=args.load_from,
-        checkpoint_path=args.checkpoint_path,
-        model_type=args.model_type,
-        model_size=args.model_size,
-        batch_size=args.batch_size,
-        max_seq_length=args.max_seq_length,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        optimizer=args.optimizer,
-        name=args.name,
-        learning_rate=args.learning_rate,
-        end_learning_rate=args.end_learning_rate,
-        learning_rate_decay_power=args.learning_rate_decay_power,
-        warmup_steps=args.warmup_steps,
-        total_steps=args.total_steps,
-        skip_sop=parse_bool(args.skip_sop),
-        skip_mlm=parse_bool(args.skip_mlm),
-        pre_layer_norm=parse_bool(args.pre_layer_norm),
-        fast_squad=parse_bool(args.fast_squad),
-        dummy_eval=parse_bool(args.dummy_eval),
-        squad_steps=get_squad_steps(args.extra_squad_steps),
-        hidden_dropout_prob=args.hidden_dropout_prob,
-        seed=args.seed,
-    )
+    main()

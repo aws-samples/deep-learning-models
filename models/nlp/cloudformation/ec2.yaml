@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template to create EC2 instance.'
+
+Parameters:
+  # Update these parameters
+  KeyName:
+    Default: my-key-name
+    Type: String
+  VPCId:
+    Default: vpc-123
+    Type: String
+  FileSystem:
+    # from fsx.yaml
+    Default: fs-123
+    Type: String
+  LustreBucketName:
+    # from fsx.yaml
+    Default: dlmodels
+    Type: String
+
+  # These parameters can be kept
+  AvailabilityZone:
+    Default: us-east-1b # No p3dn's in 1a
+    Type: String
+  Device:
+    Default: /dev/sdf
+    Type: String
+  InstanceName:
+    Default: dlmodels
+    Type: String
+  UniqueName:
+    Default: dlmodels
+    Type: String
+
+  InstanceType:
+    Default: p3dn.24xlarge
+    Type: String
+
+Resources:
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Ref UniqueName
+      LaunchTemplateData:
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              DeleteOnTermination: True
+              VolumeSize: 500 # in GiB
+              VolumeType: gp2
+        EbsOptimized: True
+        ImageId: ami-0698bcaf8bd9ef56d # Deep Learning AMI (Ubuntu 18.04) Version 26.0 in us-east-1
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref KeyName
+        UserData:
+          'Fn::Base64': !Sub |
+            #!/bin/bash -ex
+            # Install lustre drivers
+            wget -O - https://fsx-lustre-client-repo-public-keys.s3.amazonaws.com/fsx-ubuntu-public-key.asc | sudo apt-key add -
+            sudo bash -c 'echo "deb https://fsx-lustre-client-repo.s3.amazonaws.com/ubuntu bionic main" > /etc/apt/sources.list.d/fsxlustreclientrepo.list && apt-get update'
+            sudo apt install -y lustre-client-modules-$(uname -r)
+            # Mount lustre filesystem
+            sudo mkdir /fsx
+            sudo mount -t lustre ${FileSystem}.fsx.us-east-1.amazonaws.com@tcp:/fsx /fsx
+            # Create tmux session to automatically ssh into, then detach
+            tmux new -s workspace -d
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: 1
+      AvailabilityZone: !Ref AvailabilityZone
+      SecurityGroupIds:
+        - !GetAtt SecurityGroup.GroupId
+      Tags:
+        - Key: Name
+          Value: !Ref InstanceName
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow incoming and outgoing traffic.
+      GroupName: !Ref UniqueName
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Ref UniqueName
+      VpcId: !Ref VPCId
+
+Outputs:
+  IpAddress:
+    Description: The IP address of the first EC2 instance
+    Value: !GetAtt EC2Instance.PublicIp
+  FileSystemId:
+    Description: The Lustre FSx id
+    Value: !Ref FileSystem

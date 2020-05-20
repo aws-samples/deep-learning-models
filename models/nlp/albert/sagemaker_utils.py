@@ -13,10 +13,33 @@ https://github.com/aws/sagemaker-tensorflow-container/blob/master/docker/1.15.2/
 """
 
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from sagemaker.inputs import FileSystemInput
 from sagemaker.tensorflow import TensorFlow
+
+
+def pop_sagemaker_args(args_dict: Dict) -> Tuple:
+    source_dir = args_dict.pop("source_dir")
+    entry_point = args_dict.pop("entry_point")
+    role = args_dict.pop("role")
+    image_name = args_dict.pop("image_name")
+    fsx_id = args_dict.pop("fsx_id")
+    subnet_ids = args_dict.pop("subnet_ids").replace(" ", "").split(",")
+    security_group_ids = args_dict.pop("security_group_ids").replace(" ", "").split(",")
+    instance_type = args_dict.pop("instance_type")
+    instance_count = args_dict.pop("instance_count")
+    return (
+        source_dir,
+        entry_point,
+        role,
+        image_name,
+        fsx_id,
+        subnet_ids,
+        security_group_ids,
+        instance_type,
+        instance_count,
+    )
 
 
 def launch_sagemaker_job(
