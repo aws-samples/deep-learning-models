@@ -15,7 +15,7 @@ Parameters:
     Type: String
   LustreBucketName:
     # from fsx.yaml
-    Default: modeloptimization
+    Default: dlmodels
     Type: String
 
   # These parameters can be kept

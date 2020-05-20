@@ -15,7 +15,7 @@ Language models help AWS customers to improve search results, text classificatio
 
 1. Create an FSx volume.
 
-2. Download the datasets onto FSx. You will need English Wikipedia and BookCorpus, and helper scripts for downloading will be forthcoming.
+2. Download the datasets onto FSx. The simplest way to start is with English Wikipedia.
 
 3. Create an Amazon Elastic Container Registry (ECR) repository. Then build a Docker image from `docker/ngc_sagemaker.Dockerfile` and push it to ECR.
 
