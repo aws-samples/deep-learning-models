@@ -1,6 +1,7 @@
 import argparse
 import os
 
+from arguments import populate_pretraining_parser
 from sagemaker_utils import launch_sagemaker_job
 
 if __name__ == "__main__":
@@ -33,28 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--instance_count", type=int, default=1)
 
     # Training script parameters
-    # None are required because defaults are in run_pretraining.py
-    parser.add_argument("--load_from")
-    parser.add_argument("--model_type")
-    parser.add_argument("--model_size")
-    parser.add_argument("--batch_size", type=int)
-    parser.add_argument("--num_eval_batches", type=int)
-    parser.add_argument("--max_seq_length", type=int)
-    parser.add_argument("--gradient_accumulation_steps", type=int)
-    parser.add_argument("--warmup_steps", type=int)
-    parser.add_argument("--total_steps", type=int)
-    parser.add_argument("--learning_rate", type=float)
-    parser.add_argument("--max_grad_norm", type=float)
-    parser.add_argument("--optimizer")
-    parser.add_argument("--name")
-    parser.add_argument("--checkpoint_name")
-    parser.add_argument("--model_dir")
-    # SageMaker does not work with 'store_const' args, since it parses into a dictionary
-    # We will treat any value not equal to None as True, and use --skip_xla=true
-    parser.add_argument("--skip_xla", type=str, choices=["true"])
-    parser.add_argument("--eager", type=str, choices=["true"])
-    parser.add_argument("--skip_sop", type=str, choices=["true"])
-    parser.add_argument("--skip_mlm", type=str, choices=["true"])
+    populate_pretraining_parser(parser)
     args = parser.parse_args()
 
     args_dict = args.__dict__

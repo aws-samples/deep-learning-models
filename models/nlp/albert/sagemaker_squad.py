@@ -1,6 +1,7 @@
 import argparse
 import os
 
+from arguments import populate_squad_parser
 from sagemaker_utils import launch_sagemaker_job
 
 if __name__ == "__main__":
@@ -32,19 +33,7 @@ if __name__ == "__main__":
     parser.add_argument("--instance_count", type=int, default=1)
     # Training script parameters
     # None are required because defaults are in run_squad.py
-    parser.add_argument("--load_from", required=True)
-    parser.add_argument("--model_type")
-    parser.add_argument("--model_size")
-    parser.add_argument("--batch_size", type=int)
-    parser.add_argument("--total_steps", type=int)
-    parser.add_argument("--learning_rate", type=float)
-    parser.add_argument("--data_dir")
-    parser.add_argument("--dataset")
-    parser.add_argument("--name")
-    parser.add_argument("--validate_frequency", type=int)
-    parser.add_argument("--checkpoint_frequency", type=int)
-    parser.add_argument("--skip_xla", choices=["true"])
-    parser.add_argument("--eager", choices=["true"])
+    populate_squad_parser(parser)
     args = parser.parse_args()
 
     args_dict = args.__dict__
