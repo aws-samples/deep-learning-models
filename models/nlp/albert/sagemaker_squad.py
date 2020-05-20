@@ -1,38 +1,11 @@
 import argparse
-import os
 
-from arguments import populate_squad_parser
+from arguments import populate_sagemaker_parser, populate_squad_parser
 from sagemaker_utils import launch_sagemaker_job
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # SageMaker parameters
-    parser.add_argument(
-        "--source_dir",
-        help="For example, /Users/myusername/Desktop/deep-learning-models/models/nlp/albert",
-    )
-    parser.add_argument("--entry_point", type=str, default="run_squad.py")
-    parser.add_argument("--role", default=os.environ["SAGEMAKER_ROLE"])
-    parser.add_argument("--image_name", default=os.environ["SAGEMAKER_IMAGE_NAME"])
-    parser.add_argument("--fsx_id", default=os.environ["SAGEMAKER_FSX_ID"])
-    parser.add_argument(
-        "--subnet_ids", help="Comma-separated string", default=os.environ["SAGEMAKER_SUBNET_IDS"]
-    )
-    parser.add_argument(
-        "--security_group_ids",
-        help="Comma-separated string",
-        default=os.environ["SAGEMAKER_SECURITY_GROUP_IDS"],
-    )
-    # Instance specs
-    parser.add_argument(
-        "--instance_type",
-        type=str,
-        default="ml.p3dn.24xlarge",
-        choices=["ml.p3dn.24xlarge", "ml.p3.16xlarge"],
-    )
-    parser.add_argument("--instance_count", type=int, default=1)
-    # Training script parameters
-    # None are required because defaults are in run_squad.py
+    populate_sagemaker_parser(parser)
     populate_squad_parser(parser)
     args = parser.parse_args()
 

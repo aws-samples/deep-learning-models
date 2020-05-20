@@ -3,6 +3,7 @@ been abstracted into this file. It also makes the training scripts much shorter.
 """
 
 import argparse
+import os
 
 
 def populate_pretraining_parser(parser: argparse.ArgumentParser) -> None:
@@ -92,3 +93,31 @@ def populate_squad_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--validate_frequency", default=1000, type=int)
     parser.add_argument("--checkpoint_frequency", default=500, type=int)
     parser.add_argument("--model_dir", help="Unused, but passed by SageMaker")
+
+
+def populate_sagemaker_parser(parser: argparse.ArgumentParser) -> None:
+    # SageMaker parameters
+    parser.add_argument(
+        "--source_dir",
+        help="For example, /Users/myusername/Desktop/deep-learning-models/models/nlp/albert",
+    )
+    parser.add_argument("--entry_point", default="run_pretraining.py")
+    parser.add_argument("--role", default=os.environ["SAGEMAKER_ROLE"])
+    parser.add_argument("--image_name", default=os.environ["SAGEMAKER_IMAGE_NAME"])
+    parser.add_argument("--fsx_id", default=os.environ["SAGEMAKER_FSX_ID"])
+    parser.add_argument(
+        "--subnet_ids", help="Comma-separated string", default=os.environ["SAGEMAKER_SUBNET_IDS"]
+    )
+    parser.add_argument(
+        "--security_group_ids",
+        help="Comma-separated string",
+        default=os.environ["SAGEMAKER_SECURITY_GROUP_IDS"],
+    )
+    # Instance specs
+    parser.add_argument(
+        "--instance_type",
+        type=str,
+        default="ml.p3dn.24xlarge",
+        choices=["ml.p3dn.24xlarge", "ml.p3.16xlarge", "ml.g4dn.12xlarge"],
+    )
+    parser.add_argument("--instance_count", type=int, default=1)
