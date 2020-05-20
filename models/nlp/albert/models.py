@@ -8,10 +8,6 @@ from transformers import (
 )
 
 
-def get_initializer(stddev):
-    return tf.keras.initializers.TruncatedNormal(stddev=stddev)
-
-
 def load_qa_from_pretrained(
     model: Optional[tf.keras.Model] = None,
     name: Optional[str] = None,

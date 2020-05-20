@@ -1,7 +1,7 @@
 import argparse
 
 from arguments import populate_pretraining_parser, populate_sagemaker_parser
-from sagemaker_utils import launch_sagemaker_job
+from sagemaker_utils import launch_sagemaker_job, pop_sagemaker_args
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -11,20 +11,23 @@ if __name__ == "__main__":
 
     args_dict = args.__dict__
     # Pop off the SageMaker parameters
-    source_dir = args_dict.pop("source_dir")
-    entry_point = args_dict.pop("entry_point")
-    role = args_dict.pop("role")
-    image_name = args_dict.pop("image_name")
-    fsx_id = args_dict.pop("fsx_id")
-    subnet_ids = args_dict.pop("subnet_ids").replace(" ", "").split(",")
-    security_group_ids = args_dict.pop("security_group_ids").replace(" ", "").split(",")
-    instance_type = args_dict.pop("instance_type")
-    instance_count = args_dict.pop("instance_count")
+    (
+        source_dir,
+        entry_point,
+        role,
+        image_name,
+        fsx_id,
+        subnet_ids,
+        security_group_ids,
+        instance_type,
+        instance_count,
+    ) = pop_sagemaker_args(args_dict)
     # Only the script parameters remain
-    hyperparameters = {"fsx_prefix": "/opt/ml/input/data/training"}
+    hyperparameters = dict()
     for key, value in args_dict.items():
         if value is not None:
             hyperparameters[key] = value
+    hyperparameters["fsx_prefix"] = "/opt/ml/input/data/training"
 
     instance_abbr = {
         "ml.p3dn.24xlarge": "p3dn",
