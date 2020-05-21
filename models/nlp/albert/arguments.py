@@ -13,6 +13,7 @@ def populate_pretraining_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--batch_size", type=int, default=32, help="per GPU")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=2)
     parser.add_argument("--max_seq_length", type=int, default=512, choices=[128, 512])
+    parser.add_argument("--max_predictions_per_seq", type=int, default=20, choices=[20, 80])
     parser.add_argument("--warmup_steps", type=int, default=3125)
     parser.add_argument("--total_steps", type=int, default=125000)
     parser.add_argument("--learning_rate", type=float, default=0.00176)
