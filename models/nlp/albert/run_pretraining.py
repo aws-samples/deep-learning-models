@@ -174,6 +174,7 @@ def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_los
     # Placing before has a regularization effect, no single example can contribute as much.
     # Placing before also gives a 20% speedup when training BERT-large, probably because the
     # gradient operations can be fused by XLA.
+    (grads, grad_norm) = tf.clip_by_global_norm(grads, clip_norm=max_grad_norm)
     
     weight_norm = tf.math.sqrt(
         tf.math.reduce_sum([tf.norm(var, ord=2) ** 2 for var in model.trainable_variables])
@@ -183,7 +184,7 @@ def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_los
         hvd.allreduce(grad, compression=hvd.Compression.fp16) if grad is not None else None
         for grad in grads
     ]
-    (grads, grad_norm) = tf.clip_by_global_norm(grads, clip_norm=max_grad_norm)
+    
     opt.apply_gradients(
         [
             (tf.cast(grad, var.dtype), var)
