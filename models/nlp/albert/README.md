@@ -20,7 +20,7 @@ Language models help AWS customers to improve search results, text classificatio
 3. Create an Amazon Elastic Container Registry (ECR) repository. Then build a Docker image from `docker/ngc_sagemaker.Dockerfile` and push it to ECR.
 
 ```bash
-export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:ngc_tf21_sagemaker
+export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:ngc_tf210_sagemaker
 docker build -t ${IMAGE} -f docker/ngc_sagemaker.Dockerfile .
 $(aws ecr get-login --no-include-email)
 docker push ${IMAGE}
@@ -39,6 +39,9 @@ export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
 5. Launch the SageMaker job.
 
 ```bash
+# Add the main folder to your PYTHONPATH
+export PYTHONPATH=$PYTHONPATH:/path/to/deep-learning-models/models/nlp
+
 python sagemaker_pretraining.py \
     --source_dir=. \
     --instance_type=ml.p3dn.24xlarge \
@@ -52,6 +55,7 @@ python sagemaker_pretraining.py \
     --total_steps=125000 \
     --learning_rate=0.00176 \
     --optimizer=lamb \
+    --log_frequency=10 \
     --name=myfirstjob
 ```
 

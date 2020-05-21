@@ -14,7 +14,7 @@ from transformers.data.processors.squad import (
     SquadV2Processor,
 )
 
-from utils import get_dataset, get_tokenizer
+from common.utils import get_dataset, get_tokenizer
 
 
 def get_evaluation_metrics(

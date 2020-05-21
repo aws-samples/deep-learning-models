@@ -1,7 +1,7 @@
 import argparse
 
-from arguments import populate_pretraining_parser, populate_sagemaker_parser
-from sagemaker_utils import launch_sagemaker_job, pop_sagemaker_args
+from common.arguments import populate_pretraining_parser, populate_sagemaker_parser
+from common.sagemaker_utils import launch_sagemaker_job, pop_sagemaker_args
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -37,11 +37,11 @@ from transformers.data.processors.squad import (
     SquadV2Processor,
 )
 
-from arguments import populate_squad_parser
-from learning_rate_schedules import LinearWarmupPolyDecaySchedule
-from models import load_qa_from_pretrained
+from common.arguments import populate_squad_parser
+from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
+from common.models import load_qa_from_pretrained
+from common.utils import f1_score, get_dataset, get_tokenizer
 from run_squad_evaluation import get_evaluation_metrics
-from utils import f1_score, get_dataset, get_tokenizer
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip

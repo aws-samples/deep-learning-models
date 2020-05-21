@@ -27,7 +27,11 @@ def populate_pretraining_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--load_from", default="scratch", choices=["scratch", "checkpoint", "huggingface"],
     )
-    parser.add_argument("--checkpoint_path", default=None)
+    parser.add_argument(
+        "--checkpoint_path",
+        default=None,
+        help="For example, `/fsx/checkpoints/albert/2020..step125000`. No .ckpt on the end.",
+    )
     parser.add_argument(
         "--fsx_prefix",
         default="/fsx",
