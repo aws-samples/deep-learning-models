@@ -42,11 +42,11 @@ from transformers import (
     TFBertForPreTraining,
 )
 
-from arguments import populate_pretraining_parser
-from datasets import get_mlm_dataset
-from learning_rate_schedules import LinearWarmupPolyDecaySchedule
+from common.arguments import populate_pretraining_parser
+from common.datasets import get_mlm_dataset
+from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
+from common.utils import TqdmLoggingHandler, gather_indexes, rewrap_tf_function
 from run_squad import get_squad_results_while_pretraining
-from utils import TqdmLoggingHandler, gather_indexes, rewrap_tf_function
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip

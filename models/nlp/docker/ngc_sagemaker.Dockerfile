@@ -22,5 +22,8 @@ RUN mkdir -p /root/.ssh/ && \
 RUN pip install --no-cache-dir \
     mpi4py \
     sagemaker-containers \
-    tensorflow-addons==0.9.1
+    tensorflow-addons==0.10.0
+# TODO: Why does installing torch break TF XLA support?
+
 RUN pip install git+git://github.com/jarednielsen/transformers.git@tfsquad
+ENV PYTHONPATH "${PYTHONPATH}:/fsx/deep-learning-models/models/nlp"
