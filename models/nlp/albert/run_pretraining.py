@@ -609,17 +609,43 @@ def main():
                 )
                 with summary_writer.as_default():
                     HP_MODEL_TYPE = hp.HParam("model_type", hp.Discrete(["albert", "bert"]))
+                    HP_MODEL_SIZE = hp.HParam("model_size", hp.Discrete(["base", "large"]))
                     HP_LEARNING_RATE = hp.HParam("learning_rate", hp.RealInterval(1e-5, 1e-1))
+                    HP_BATCH_SIZE = hp.HParam("global_batch_size", hp.IntInterval(1, 64))
+                    HP_PRE_LAYER_NORM = hp.HParam("pre_layer_norm", hp.Discrete([True, False]))
+                    HP_HIDDEN_DROPOUT = hp.HParam("hidden_dropout")
+                    hparams = [
+                        HP_MODEL_TYPE,
+                        HP_MODEL_SIZE,
+                        HP_BATCH_SIZE,
+                        HP_LEARNING_RATE,
+                        HP_PRE_LAYER_NORM,
+                        HP_HIDDEN_DROPOUT,
+                    ]
 
-                    METRIC_LOSS = "my_metric"
+                    HP_F1 = hp.Metric("squad_f1")
+                    HP_EXACT = hp.Metric("squad_exact")
+                    HP_MLM = hp.Metric("val_mlm_acc")
+                    HP_SOP = hp.Metric("val_sop_acc")
+                    HP_TRAIN_LOSS = hp.Metric("train_loss")
+                    HP_VAL_LOSS = hp.Metric("val_loss")
+                    metrics = [HP_TRAIN_LOSS, HP_VAL_LOSS, HP_F1, HP_EXACT, HP_MLM, HP_SOP]
+
                     hp.hparams_config(
-                        hparams=[HP_MODEL_TYPE, HP_LEARNING_RATE],
-                        metrics=[hp.Metric(METRIC_LOSS, display_name="my_metric")],
+                        hparams=hparams, metrics=metrics,
                     )
                     hp.hparams(
-                        {HP_MODEL_TYPE: args.model_type, HP_LEARNING_RATE: args.learning_rate,}
+                        {
+                            HP_MODEL_TYPE: args.model_type,
+                            HP_MODEL_SIZE: args.model_size,
+                            HP_LEARNING_RATE: args.learning_rate,
+                            HP_BATCH_SIZE: args.batch_size * hvd.size(),
+                            HP_PRE_LAYER_NORM: args.pre_layer_norm == "true",
+                            HP_HIDDEN_DROPOUT: args.hidden_dropout_prob,
+                        },
+                        trial_id=run_name,
                     )
-                    tf.summary.scalar(METRIC_LOSS, 0.23, step=1)
+
             # Log to TensorBoard
             with summary_writer.as_default():
                 tf.summary.scalar("weight_norm", weight_norm, step=i)
