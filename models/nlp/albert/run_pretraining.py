@@ -176,6 +176,7 @@ def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_los
     # Placing before also gives a 20% speedup when training BERT-large, probably because the
     # gradient operations can be fused by XLA.
     (grads, grad_norm) = tf.clip_by_global_norm(grads, clip_norm=max_grad_norm)
+
     weight_norm = tf.math.sqrt(
         tf.math.reduce_sum([tf.norm(var, ord=2) ** 2 for var in model.trainable_variables])
     )
@@ -357,7 +358,6 @@ def main():
 
     # Settings init
     parse_bool = lambda arg: arg == "true"
-    max_predictions_per_seq = 20
     checkpoint_frequency = 5000
     validate_frequency = 2000
     histogram_frequency = 100
@@ -411,6 +411,7 @@ def main():
             f"-{args.optimizer}opt"
             f"-{args.total_steps}steps"
             f"-{args.max_seq_length}seq"
+            f"-{args.max_predictions_per_seq}preds"
             f"-{'preln' if pre_layer_norm else 'postln'}"
             f"{loss_str}"
             f"-{args.hidden_dropout_prob}dropout"
@@ -484,8 +485,13 @@ def main():
             # We do not set the weights yet, we have to do a first step to initialize the optimizer.
 
     # Train filenames are [1, 2047], Val filenames are [0]. Note the different subdirectories
-    train_glob = f"{args.fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{args.max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
-    validation_glob = f"{args.fsx_prefix}/albert_pretraining/tfrecords/validation/max_seq_len_{args.max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
+    # Move to same folder structure and remove if/else
+    if args.model_type == "albert":
+        train_glob = f"{args.fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{args.max_seq_length}_max_predictions_per_seq_{args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
+        validation_glob = f"{args.fsx_prefix}/albert_pretraining/tfrecords/validation/max_seq_len_{args.max_seq_length}_max_predictions_per_seq_{args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
+    if args.model_type == "bert":
+        train_glob = f"{args.fsx_prefix}/bert_pretraining/max_seq_len_{args.max_seq_length}_max_predictions_per_seq_{args.max_predictions_per_seq}_masked_lm_prob_15/training/*.tfrecord"
+        validation_glob = f"{args.fsx_prefix}/bert_pretraining/max_seq_len_{args.max_seq_length}_max_predictions_per_seq_{args.max_predictions_per_seq}_masked_lm_prob_15/validation/*.tfrecord"
 
     train_filenames = glob.glob(train_glob)
     validation_filenames = glob.glob(validation_glob)
@@ -493,7 +499,7 @@ def main():
     train_dataset = get_mlm_dataset(
         filenames=train_filenames,
         max_seq_length=args.max_seq_length,
-        max_predictions_per_seq=max_predictions_per_seq,
+        max_predictions_per_seq=args.max_predictions_per_seq,
         batch_size=args.batch_size,
     )  # Of shape [batch_size, ...]
     # Batch of batches, helpful for gradient accumulation. Shape [grad_steps, batch_size, ...]
@@ -506,7 +512,7 @@ def main():
         validation_dataset = get_mlm_dataset(
             filenames=validation_filenames,
             max_seq_length=args.max_seq_length,
-            max_predictions_per_seq=max_predictions_per_seq,
+            max_predictions_per_seq=args.max_predictions_per_seq,
             batch_size=args.batch_size,
         )
         # validation_dataset = validation_dataset.batch(1)
@@ -559,8 +565,8 @@ def main():
 
         if hvd.rank() == 0:
             do_log = i % args.log_frequency == 0
-            do_checkpoint = (i % checkpoint_frequency == 0) or is_final_step
-            do_validation = (i % validate_frequency == 0) or is_final_step
+            do_checkpoint = ((i > 0) and (i % checkpoint_frequency == 0)) or is_final_step
+            do_validation = ((i > 0) and (i % validate_frequency == 0)) or is_final_step
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, MLM: {mlm_loss:.3f}, SOP: {sop_loss:.3f}, MLM_acc: {mlm_acc:.3f}, SOP_acc: {sop_acc:.3f}"

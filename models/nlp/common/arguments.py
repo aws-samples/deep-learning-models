@@ -36,6 +36,7 @@ class TrainingArguments:
         },
     )
     max_seq_length: int = field(default=512, metadata={"choices": [128, 512]})
+    max_prediction_per_seq: int = field(default=20, metadata={"choices": [20, 80]})
     warmup_steps: int = field(default=3125)
     total_steps: int = field(default=125000)
     learning_rate: float = field(default=0.00176)
