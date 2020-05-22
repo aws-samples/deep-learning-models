@@ -186,7 +186,7 @@ def print_eval_metrics(results, step) -> None:
         f"HasAnsEM: {results['HasAns_exact']:.3f}, HasAnsF1: {results['HasAns_f1']:.3f}, "
         f"NoAnsEM: {results['NoAns_exact']:.3f}, NoAnsF1: {results['NoAns_f1']:.3f}\n"
     )
-    print(description)
+    logger.info(description)
 
 
 def tensorboard_eval_metrics(summary_writer, results: Dict, step: int) -> None:
@@ -343,7 +343,7 @@ def run_squad_and_get_results(
     )
 
     if hvd.rank() == 0:
-        print("Starting finetuning")
+        logger.info("Starting finetuning")
         pbar = tqdm.tqdm(total_steps)
         summary_writer = None  # Only create a writer if we make it through a successful step
         val_dataset = get_dataset(
@@ -383,7 +383,7 @@ def run_squad_and_get_results(
             pbar.set_description(description)
 
             if do_validate:
-                print("Running validation")
+                logger.info("Running validation")
                 (
                     val_loss,
                     val_acc,
@@ -396,8 +396,8 @@ def run_squad_and_get_results(
                     f"Step {step} validation - Loss: {val_loss:.3f}, Acc: {val_acc:.3f}, "
                     f"EM: {val_exact_match:.3f}, F1: {val_f1:.3f}"
                 )
-                print(description)
-                print("Running evaluation")
+                logger.info(description)
+                logger.info("Running evaluation")
                 if dummy_eval:
                     results = {
                         "exact": 0.8169797018445212,
@@ -424,7 +424,7 @@ def run_squad_and_get_results(
                 checkpoint_path = (
                     f"{fsx_prefix}/checkpoints/albert-squad/{run_name}-step{step}.ckpt"
                 )
-                print(f"Saving checkpoint at {checkpoint_path}")
+                logger.info(f"Saving checkpoint at {checkpoint_path}")
                 model.save_weights(checkpoint_path)
 
             if summary_writer is None:
@@ -457,7 +457,7 @@ def run_squad_and_get_results(
     # Can we return a value only on a single rank?
     if hvd.rank() == 0:
         pbar.close()
-        print(f"Finished finetuning, job name {run_name}")
+        logger.info(f"Finished finetuning, job name {run_name}")
         return results
 
 
@@ -467,6 +467,13 @@ def main():
     args = parser.parse_args()
     tf.random.set_seed(args.seed)
     tf.autograph.set_verbosity(0)
+
+    level = logging.INFO
+    format = "%(asctime)-15s %(name)-12s: %(levelname)-8s %(message)s"
+    handlers = [
+        TqdmLoggingHandler(),
+    ]
+    logging.basicConfig(level=level, format=format, handlers=handlers)
 
     # Horovod init
     hvd.init()
@@ -515,7 +522,7 @@ def main():
         config=AutoConfig.from_pretrained(model_desc),
     )
     if hvd.rank() == 0:
-        print(results)
+        logger.info(results)
 
 
 if __name__ == "__main__":

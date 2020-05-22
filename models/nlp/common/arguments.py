@@ -3,67 +3,94 @@ been abstracted into this file. It also makes the training scripts much shorter.
 """
 
 import argparse
+import dataclasses
+import json
+import logging
 import os
+from dataclasses import dataclass, field
+from typing import Any, Dict
+
+logger = logging.getLogger(__name__)
 
 
-def populate_pretraining_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--model_dir", help="Unused, but passed by SageMaker")
-    parser.add_argument("--model_type", default="albert", choices=["albert", "bert"])
-    parser.add_argument("--model_size", default="base", choices=["base", "large"])
-    parser.add_argument("--batch_size", type=int, default=32, help="per GPU")
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=2)
-    parser.add_argument("--max_seq_length", type=int, default=512, choices=[128, 512])
-    parser.add_argument("--warmup_steps", type=int, default=3125)
-    parser.add_argument("--total_steps", type=int, default=125000)
-    parser.add_argument("--learning_rate", type=float, default=0.00176)
-    parser.add_argument("--end_learning_rate", type=float, default=3e-5)
-    parser.add_argument("--learning_rate_decay_power", type=float, default=1.0)
-    parser.add_argument("--hidden_dropout_prob", type=float, default=0.0)
-    parser.add_argument("--max_grad_norm", type=float, default=1.0)
-    parser.add_argument("--optimizer", default="lamb", choices=["lamb", "adam"])
-    parser.add_argument("--name", default="", help="Additional info to append to metadata")
-    parser.add_argument("--log_frequency", type=int, default=1000)
-    parser.add_argument(
-        "--load_from", default="scratch", choices=["scratch", "checkpoint", "huggingface"],
+@dataclass
+class TrainingArguments:
+    """
+    TrainingArguments is the subset of the arguments we use in our example scripts
+    **which relate to the training loop itself**.
+
+    Using `HfArgumentParser` we can turn this class
+    into argparse arguments to be able to specify them on
+    the command line.
+    """
+
+    model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
+    model_type: str = field(default="albert", metadata={"choices": ["albert", "bert"]})
+    model_size: str = field(default="base", metadata={"choices": ["base", "large"]})
+    # TODO: Change this to per_gpu_train_batch_size
+    batch_size: int = field(default=32)
+    gradient_accumulation_steps: int = field(
+        default=1,
+        metadata={
+            "help": "Number of updates steps to accumulate before performing a backward/update pass."
+        },
     )
-    parser.add_argument(
-        "--checkpoint_path",
+    max_seq_length: int = field(default=512, metadata={"choices": [128, 512]})
+    warmup_steps: int = field(default=3125)
+    total_steps: int = field(default=125000)
+    learning_rate: float = field(default=0.00176)
+    end_learning_rate: float = field(default=3e-5)
+    learning_rate_decay_power: float = field(default=1.0)
+    hidden_dropout_prob: float = field(default=0.0)
+    max_grad_norm: float = field(default=1.0)
+    optimizer: str = field(default="lamb", metadata={"choices": ["lamb", "adam"]})
+    name: str = field(default="", metadata={"help": "Additional info to append to metadata"})
+    log_frequency: int = field(default=1000)
+    load_from: str = field(
+        default="scratch", metadata={"choices": ["scratch", "checkpoint", "huggingface"]}
+    )
+    checkpoint_path: str = field(
         default=None,
-        help="For example, `/fsx/checkpoints/albert/2020..step125000`. No .ckpt on the end.",
+        metadata={
+            "help": "For example, `/fsx/checkpoints/albert/2020..step125000`. No .ckpt on the end."
+        },
     )
-    parser.add_argument(
-        "--fsx_prefix",
+    fsx_prefix: str = field(
         default="/fsx",
-        choices=["/fsx", "/opt/ml/input/data/training"],
-        help="Change to /opt/ml/input/data/training on SageMaker",
+        metadata={
+            "choices": ["/fsx", "/opt/ml/input/data/training"],
+            "help": "Change to /opt/ml/input/data/training on SageMaker",
+        },
     )
-    # SageMaker does not work with 'store_const' args, since it parses into a dictionary
-    # We will treat any value not equal to None as True, and use --skip_xla=true
-    parser.add_argument(
-        "--skip_xla",
-        choices=["true"],
-        help="For debugging. Faster startup time, slower runtime, more GPU vRAM.",
+    skip_xla: str = field(default=None, metadata={"choices": ["true"]})
+    eager: str = field(default=None, metadata={"choices": ["true"]})
+    skip_sop: str = field(default=None, metadata={"choices": ["true"]})
+    skip_mlm: str = field(default=None, metadata={"choices": ["true"]})
+    pre_layer_norm: str = field(
+        default=None,
+        metadata={
+            "choices": ["true"],
+            "help": "Place layer normalization before the attention & FFN, rather than after adding the residual connection. https://openreview.net/pdf?id=B1x8anVFPr",
+        },
     )
-    parser.add_argument(
-        "--eager",
-        choices=["true"],
-        help="For debugging. Faster launch, slower runtime, more GPU vRAM.",
-    )
-    parser.add_argument(
-        "--skip_sop", choices=["true"], help="Only use MLM loss, and exclude the SOP loss.",
-    )
-    parser.add_argument(
-        "--skip_mlm", choices=["true"], help="Only use SOP loss, and exclude the MLM loss.",
-    )
-    parser.add_argument(
-        "--pre_layer_norm",
-        choices=["true"],
-        help="Place layer normalization before the attention & FFN, rather than after adding the residual connection. https://openreview.net/pdf?id=B1x8anVFPr",
-    )
-    parser.add_argument("--extra_squad_steps", type=str)
-    parser.add_argument("--fast_squad", choices=["true"])
-    parser.add_argument("--dummy_eval", choices=["true"])
-    parser.add_argument("--seed", type=int, default=42)
+    extra_squad_steps: str = field(default=None)
+    fast_squad: str = field(default=None, metadata={"choices": ["true"]})
+    dummy_eval: str = field(default=None, metadata={"choices": ["true"]})
+    seed: int = field(default=42)
+
+    def to_json_string(self):
+        """
+        Serializes this instance to a JSON string.
+        """
+        return json.dumps(dataclasses.asdict(self), indent=2)
+
+    def to_sanitized_dict(self) -> Dict[str, Any]:
+        """
+        Sanitized serialization to use with TensorBoard’s hparams
+        """
+        d = dataclasses.asdict(self)
+        valid_types = [bool, int, float, str]
+        return {k: v if type(v) in valid_types else str(v) for k, v in d.items()}
 
 
 def populate_squad_parser(parser: argparse.ArgumentParser) -> None:

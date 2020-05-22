@@ -23,7 +23,6 @@ A training run of 125k steps is 125k/(1.72 * 3600) ~= 20 hours for base trained 
 """
 
 
-import argparse
 import datetime
 import glob
 import logging
@@ -33,16 +32,18 @@ from typing import List, Tuple
 import numpy as np
 import tensorflow as tf
 import tqdm
+from tensorboard.plugins.hparams import api as hp
 from tensorflow_addons.optimizers import LAMB, AdamW
 from transformers import (
     AutoConfig,
     GradientAccumulator,
+    HfArgumentParser,
     TFAlbertModel,
     TFAutoModelForPreTraining,
     TFBertForPreTraining,
 )
 
-from common.arguments import populate_pretraining_parser
+from common.arguments import TrainingArguments
 from common.datasets import get_mlm_dataset
 from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
 from common.utils import TqdmLoggingHandler, gather_indexes, rewrap_tf_function
@@ -345,9 +346,12 @@ def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str]:
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    populate_pretraining_parser(parser)
-    args = parser.parse_args()
+    # parser = argparse.ArgumentParser()
+    # populate_pretraining_parser(parser)
+    # args = parser.parse_args()
+    parser = HfArgumentParser(TrainingArguments)
+    (args,) = parser.parse_args_into_dataclasses()
+
     tf.random.set_seed(args.seed)
     tf.autograph.set_verbosity(0)
 
@@ -597,6 +601,19 @@ def main():
                 summary_writer = tf.summary.create_file_writer(
                     f"{args.fsx_prefix}/logs/albert/{run_name}"
                 )
+                with summary_writer.as_default():
+                    HP_MODEL_TYPE = hp.HParam("model_type", hp.Discrete(["albert", "bert"]))
+                    HP_LEARNING_RATE = hp.HParam("learning_rate", hp.RealInterval(1e-5, 1e-1))
+
+                    METRIC_LOSS = "my_metric"
+                    hp.hparams_config(
+                        hparams=[HP_MODEL_TYPE, HP_LEARNING_RATE],
+                        metrics=[hp.Metric(METRIC_LOSS, display_name="my_metric")],
+                    )
+                    hp.hparams(
+                        {HP_MODEL_TYPE: args.model_type, HP_LEARNING_RATE: args.learning_rate,}
+                    )
+                    tf.summary.scalar(METRIC_LOSS, 0.23, step=1)
             # Log to TensorBoard
             with summary_writer.as_default():
                 tf.summary.scalar("weight_norm", weight_norm, step=i)
