@@ -10,8 +10,8 @@ ENV CUDNN_VERSION=7.6.5.32-1+cuda10.1
 ENV NCCL_VERSION=2.4.8-1+cuda10.1
 ENV MXNET_VERSION=1.6.0
 
-# Python 2.7 or 3.6 is supported by Ubuntu Bionic out of the box
-ARG python=3.6
+# Python 3.6 is supported by Ubuntu Bionic out of the box
+ARG python=3.7
 ENV PYTHON_VERSION=${python}
 
 # Set default shell to /bin/bash
@@ -33,13 +33,11 @@ RUN apt-get update && apt-get install -y --allow-downgrades --allow-change-held-
         libpng-dev \
         python${PYTHON_VERSION} \
         python${PYTHON_VERSION}-dev \
+        python${PYTHON_VERSION}-distutils \
         librdmacm1 \
         libibverbs1 \
         ibverbs-providers
 
-RUN if [[ "${PYTHON_VERSION}" == "3.6" ]]; then \
-        apt-get install -y python${PYTHON_VERSION}-distutils; \
-    fi
 RUN ln -s /usr/bin/python${PYTHON_VERSION} /usr/bin/python
 
 RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
@@ -93,15 +91,20 @@ WORKDIR "/examples"
 
 ###### Modifications to horovod Dockerfile below
 
+# tensorflow_addons is tightly coupled to TF version. TF 2.1 = 0.9.1, TF 2.2 = 0.10.0
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
         scikit-learn \
         gputil \
         requests \
         tensorflow-addons==0.9.1
-# TODO: Why does installing torch break TF XLA support?
 
 ENV HDF5_USE_FILE_LOCKING "FALSE"
 
 WORKDIR /fsx
 CMD ["/bin/bash"]
+
+# When you enter this file, you'll need to run two commands manually:
+# pip install -e /fsx/transformers
+# export PYTHONPATH="${PATH}:/fsx/deep-learning-models/models/nlp"
+# These are done in the MPIJob launch script when using Kubernetes, but not for a shell.

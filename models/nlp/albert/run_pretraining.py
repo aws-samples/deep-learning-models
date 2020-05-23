@@ -23,7 +23,6 @@ A training run of 125k steps is 125k/(1.72 * 3600) ~= 20 hours for base trained 
 """
 
 
-import argparse
 import datetime
 import glob
 import logging
@@ -33,20 +32,27 @@ from typing import List, Tuple
 import numpy as np
 import tensorflow as tf
 import tqdm
+from tensorboard.plugins.hparams import api as hp
 from tensorflow_addons.optimizers import LAMB, AdamW
 from transformers import (
     AutoConfig,
     GradientAccumulator,
+    HfArgumentParser,
     TFAlbertModel,
     TFAutoModelForPreTraining,
     TFBertForPreTraining,
 )
 
-from arguments import populate_pretraining_parser
-from datasets import get_mlm_dataset
-from learning_rate_schedules import LinearWarmupPolyDecaySchedule
+from common.arguments import (
+    DataTrainingArguments,
+    LoggingArguments,
+    ModelArguments,
+    TrainingArguments,
+)
+from common.datasets import get_mlm_dataset
+from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
+from common.utils import TqdmLoggingHandler, gather_indexes, rewrap_tf_function
 from run_squad import get_squad_results_while_pretraining
-from utils import TqdmLoggingHandler, gather_indexes, rewrap_tf_function
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
@@ -60,7 +66,7 @@ def get_squad_steps(extra_steps_str: str) -> List[int]:
     # fmt: off
     default_squad_steps = [
         k * 1000
-        for k in [5, 10, 20,40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300, 320, 340, 360, 380, 400]
+        for k in [5, 10, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300, 320, 340, 360, 380, 400]
     ]
     # fmt: on
     return extra_squad_steps + default_squad_steps
@@ -175,6 +181,7 @@ def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_los
     # Placing before also gives a 20% speedup when training BERT-large, probably because the
     # gradient operations can be fused by XLA.
     (grads, grad_norm) = tf.clip_by_global_norm(grads, clip_norm=max_grad_norm)
+
     weight_norm = tf.math.sqrt(
         tf.math.reduce_sum([tf.norm(var, ord=2) ** 2 for var in model.trainable_variables])
     )
@@ -345,31 +352,29 @@ def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str]:
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    populate_pretraining_parser(parser)
-    args = parser.parse_args()
-    tf.random.set_seed(args.seed)
+    parser = HfArgumentParser(
+        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
+    )
+    model_args, data_args, train_args, log_args = parser.parse_args_into_dataclasses()
+
+    tf.random.set_seed(train_args.seed)
     tf.autograph.set_verbosity(0)
 
     # Settings init
     parse_bool = lambda arg: arg == "true"
-    max_predictions_per_seq = 20
-    checkpoint_frequency = 5000
-    validate_frequency = 2000
-    histogram_frequency = 100
-    do_gradient_accumulation = args.gradient_accumulation_steps > 1
-    do_xla = not parse_bool(args.skip_xla)
-    do_eager = parse_bool(args.eager)
-    skip_sop = parse_bool(args.skip_sop)
-    skip_mlm = parse_bool(args.skip_mlm)
-    pre_layer_norm = parse_bool(args.pre_layer_norm)
-    fast_squad = parse_bool(args.fast_squad)
-    dummy_eval = parse_bool(args.dummy_eval)
-    squad_steps = get_squad_steps(args.extra_squad_steps)
-    is_sagemaker = args.fsx_prefix.startswith("/opt/ml")
+    do_gradient_accumulation = train_args.gradient_accumulation_steps > 1
+    do_xla = not parse_bool(train_args.skip_xla)
+    do_eager = parse_bool(train_args.eager)
+    skip_sop = parse_bool(train_args.skip_sop)
+    skip_mlm = parse_bool(train_args.skip_mlm)
+    pre_layer_norm = parse_bool(model_args.pre_layer_norm)
+    fast_squad = parse_bool(log_args.fast_squad)
+    dummy_eval = parse_bool(log_args.dummy_eval)
+    squad_steps = get_squad_steps(log_args.extra_squad_steps)
+    is_sagemaker = data_args.fsx_prefix.startswith("/opt/ml")
     disable_tqdm = is_sagemaker
     global max_grad_norm
-    max_grad_norm = args.max_grad_norm
+    max_grad_norm = train_args.max_grad_norm
 
     # Horovod init
     hvd.init()
@@ -394,32 +399,33 @@ def main():
             loss_str = ""
 
         metadata = (
-            f"{args.model_type}"
-            f"-{args.model_size}"
-            f"-{args.load_from}"
+            f"{model_args.model_type}"
+            f"-{model_args.model_size}"
+            f"-{model_args.load_from}"
             f"-{hvd.size()}gpus"
-            f"-{args.batch_size}batch"
-            f"-{args.gradient_accumulation_steps}accum"
-            f"-{args.learning_rate}maxlr"
-            f"-{args.end_learning_rate}endlr"
-            f"-{args.learning_rate_decay_power}power"
-            f"-{args.max_grad_norm}maxgrad"
-            f"-{args.optimizer}opt"
-            f"-{args.total_steps}steps"
-            f"-{args.max_seq_length}seq"
+            f"-{train_args.batch_size}batch"
+            f"-{train_args.gradient_accumulation_steps}accum"
+            f"-{train_args.learning_rate}maxlr"
+            f"-{train_args.end_learning_rate}endlr"
+            f"-{train_args.learning_rate_decay_power}power"
+            f"-{train_args.max_grad_norm}maxgrad"
+            f"-{train_args.optimizer}opt"
+            f"-{train_args.total_steps}steps"
+            f"-{data_args.max_seq_length}seq"
+            f"-{data_args.max_predictions_per_seq}preds"
             f"-{'preln' if pre_layer_norm else 'postln'}"
             f"{loss_str}"
-            f"-{args.hidden_dropout_prob}dropout"
-            f"-{args.seed}seed"
+            f"-{model_args.hidden_dropout_prob}dropout"
+            f"-{train_args.seed}seed"
         )
-        run_name = f"{current_time}-{platform}-{metadata}-{args.name if args.name else 'unnamed'}"
+        run_name = f"{current_time}-{platform}-{metadata}-{train_args.name if train_args.name else 'unnamed'}"
 
         # Logging should only happen on a single process
         # https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time
         level = logging.INFO
         format = "%(asctime)-15s %(name)-12s: %(levelname)-8s %(message)s"
         handlers = [
-            logging.FileHandler(f"{args.fsx_prefix}/logs/albert/{run_name}.log"),
+            logging.FileHandler(f"{data_args.fsx_prefix}/logs/albert/{run_name}.log"),
             TqdmLoggingHandler(),
         ]
         logging.basicConfig(level=level, format=format, handlers=handlers)
@@ -429,25 +435,25 @@ def main():
 
     wrap_global_functions(do_gradient_accumulation)
 
-    if args.model_type == "albert":
-        model_desc = f"albert-{args.model_size}-v2"
-    elif args.model_type == "bert":
-        model_desc = f"bert-{args.model_size}-uncased"
+    if model_args.model_type == "albert":
+        model_desc = f"albert-{model_args.model_size}-v2"
+    elif model_args.model_type == "bert":
+        model_desc = f"bert-{model_args.model_size}-uncased"
 
     config = AutoConfig.from_pretrained(model_desc)
     config.pre_layer_norm = pre_layer_norm
-    config.hidden_dropout_prob = args.hidden_dropout_prob
+    config.hidden_dropout_prob = model_args.hidden_dropout_prob
     model = TFAutoModelForPreTraining.from_config(config)
 
     # Create optimizer and enable AMP loss scaling.
     schedule = LinearWarmupPolyDecaySchedule(
-        max_learning_rate=args.learning_rate,
-        end_learning_rate=args.end_learning_rate,
-        warmup_steps=args.warmup_steps,
-        total_steps=args.total_steps,
-        power=args.learning_rate_decay_power,
+        max_learning_rate=train_args.learning_rate,
+        end_learning_rate=train_args.end_learning_rate,
+        warmup_steps=train_args.warmup_steps,
+        total_steps=train_args.total_steps,
+        power=train_args.learning_rate_decay_power,
     )
-    if args.optimizer == "lamb":
+    if train_args.optimizer == "lamb":
         opt = LAMB(
             learning_rate=schedule,
             weight_decay_rate=0.01,
@@ -456,22 +462,24 @@ def main():
             epsilon=1e-6,
             exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"],
         )
-    elif args.optimizer == "adam":
+    elif train_args.optimizer == "adam":
         opt = AdamW(weight_decay=0.0, learning_rate=schedule)
     opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale="dynamic")
     gradient_accumulator = GradientAccumulator()
 
     loaded_opt_weights = None
-    if args.load_from == "scratch":
+    if model_args.load_from == "scratch":
         pass
-    elif args.load_from.startswith("huggingface"):
-        assert args.model_type == "albert", "Only loading pretrained albert models is supported"
-        huggingface_name = f"albert-{args.model_size}-v2"
-        if args.load_from == "huggingface":
+    elif model_args.load_from.startswith("huggingface"):
+        assert (
+            model_args.model_type == "albert"
+        ), "Only loading pretrained albert models is supported"
+        huggingface_name = f"albert-{model_args.model_size}-v2"
+        if model_args.load_from == "huggingface":
             albert = TFAlbertModel.from_pretrained(huggingface_name, config=config)
             model.albert = albert
     else:
-        model_ckpt, opt_ckpt = get_checkpoint_paths_from_prefix(args.checkpoint_path)
+        model_ckpt, opt_ckpt = get_checkpoint_paths_from_prefix(model_args.checkpoint_path)
 
         model = TFAutoModelForPreTraining.from_config(config)
         if hvd.rank() == 0:
@@ -480,20 +488,25 @@ def main():
             # We do not set the weights yet, we have to do a first step to initialize the optimizer.
 
     # Train filenames are [1, 2047], Val filenames are [0]. Note the different subdirectories
-    train_glob = f"{args.fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{args.max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
-    validation_glob = f"{args.fsx_prefix}/albert_pretraining/tfrecords/validation/max_seq_len_{args.max_seq_length}_max_predictions_per_seq_{max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
+    # Move to same folder structure and remove if/else
+    if model_args.model_type == "albert":
+        train_glob = f"{data_args.fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
+        validation_glob = f"{data_args.fsx_prefix}/albert_pretraining/tfrecords/validation/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
+    if model_args.model_type == "bert":
+        train_glob = f"{data_args.fsx_prefix}/bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/training/*.tfrecord"
+        validation_glob = f"{data_args.fsx_prefix}/bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/validation/*.tfrecord"
 
     train_filenames = glob.glob(train_glob)
     validation_filenames = glob.glob(validation_glob)
 
     train_dataset = get_mlm_dataset(
         filenames=train_filenames,
-        max_seq_length=args.max_seq_length,
-        max_predictions_per_seq=max_predictions_per_seq,
-        batch_size=args.batch_size,
+        max_seq_length=data_args.max_seq_length,
+        max_predictions_per_seq=data_args.max_predictions_per_seq,
+        batch_size=train_args.batch_size,
     )  # Of shape [batch_size, ...]
     # Batch of batches, helpful for gradient accumulation. Shape [grad_steps, batch_size, ...]
-    train_dataset = train_dataset.batch(args.gradient_accumulation_steps)
+    train_dataset = train_dataset.batch(train_args.gradient_accumulation_steps)
     # One iteration with 10 dupes, 8 nodes seems to be 60-70k steps.
     train_dataset = train_dataset.prefetch(buffer_size=8)
 
@@ -501,14 +514,14 @@ def main():
     if hvd.rank() == 0:
         validation_dataset = get_mlm_dataset(
             filenames=validation_filenames,
-            max_seq_length=args.max_seq_length,
-            max_predictions_per_seq=max_predictions_per_seq,
-            batch_size=args.batch_size,
+            max_seq_length=data_args.max_seq_length,
+            max_predictions_per_seq=data_args.max_predictions_per_seq,
+            batch_size=train_args.batch_size,
         )
         # validation_dataset = validation_dataset.batch(1)
         validation_dataset = validation_dataset.prefetch(buffer_size=8)
 
-        pbar = tqdm.tqdm(args.total_steps, disable=disable_tqdm)
+        pbar = tqdm.tqdm(train_args.total_steps, disable=disable_tqdm)
         summary_writer = None  # Only create a writer if we make it through a successful step
         logger.info(f"Starting training, job name {run_name}")
 
@@ -522,7 +535,7 @@ def main():
             opt=opt,
             gradient_accumulator=gradient_accumulator,
             batch=batch,
-            gradient_accumulation_steps=args.gradient_accumulation_steps,
+            gradient_accumulation_steps=train_args.gradient_accumulation_steps,
             skip_sop=skip_sop,
             skip_mlm=skip_mlm,
         )
@@ -535,17 +548,17 @@ def main():
             hvd.broadcast_variables(opt.variables(), root_rank=0)
             i = opt.get_weights()[0] - 1
 
-        is_final_step = i >= args.total_steps - 1
+        is_final_step = i >= train_args.total_steps - 1
         do_squad = i in squad_steps or is_final_step
         # Squad requires all the ranks to train, but results are only returned on rank 0
         if do_squad:
             squad_results = get_squad_results_while_pretraining(
                 model=model,
-                model_size=args.model_size,
-                fsx_prefix=args.fsx_prefix,
+                model_size=model_args.model_size,
+                fsx_prefix=data_args.fsx_prefix,
                 step=i,
-                fast=args.fast_squad,
-                dummy_eval=args.dummy_eval,
+                fast=log_args.fast_squad,
+                dummy_eval=log_args.dummy_eval,
             )
             if hvd.rank() == 0:
                 squad_exact, squad_f1 = squad_results["exact"], squad_results["f1"]
@@ -554,9 +567,9 @@ def main():
             wrap_global_functions(do_gradient_accumulation)
 
         if hvd.rank() == 0:
-            do_log = i % args.log_frequency == 0
-            do_checkpoint = (i % checkpoint_frequency == 0) or is_final_step
-            do_validation = (i % validate_frequency == 0) or is_final_step
+            do_log = i % log_args.log_frequency == 0
+            do_checkpoint = ((i > 0) and (i % log_args.checkpoint_frequency == 0)) or is_final_step
+            do_validation = ((i > 0) and (i % log_args.validation_frequency == 0)) or is_final_step
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, MLM: {mlm_loss:.3f}, SOP: {sop_loss:.3f}, MLM_acc: {mlm_acc:.3f}, SOP_acc: {sop_acc:.3f}"
@@ -566,12 +579,12 @@ def main():
                 if i == 0:
                     logger.info(f"First step: {elapsed_time:.3f} secs")
                 else:
-                    it_per_sec = args.log_frequency / elapsed_time
+                    it_per_sec = log_args.log_frequency / elapsed_time
                     logger.info(f"Train step {i} -- {description} -- It/s: {it_per_sec:.2f}")
                     start_time = time.perf_counter()
 
             if do_checkpoint:
-                checkpoint_prefix = f"{args.fsx_prefix}/checkpoints/albert/{run_name}-step{i}"
+                checkpoint_prefix = f"{data_args.fsx_prefix}/checkpoints/albert/{run_name}-step{i}"
                 model_ckpt = f"{checkpoint_prefix}.ckpt"
                 opt_ckpt = f"{checkpoint_prefix}-opt.npy"
                 logger.info(f"Saving model at {model_ckpt}, optimizer at {opt_ckpt}")
@@ -595,8 +608,47 @@ def main():
             # Create summary_writer after the first step
             if summary_writer is None:
                 summary_writer = tf.summary.create_file_writer(
-                    f"{args.fsx_prefix}/logs/albert/{run_name}"
+                    f"{data_args.fsx_prefix}/logs/albert/{run_name}"
                 )
+                with summary_writer.as_default():
+                    HP_MODEL_TYPE = hp.HParam("model_type", hp.Discrete(["albert", "bert"]))
+                    HP_MODEL_SIZE = hp.HParam("model_size", hp.Discrete(["base", "large"]))
+                    HP_LEARNING_RATE = hp.HParam("learning_rate", hp.RealInterval(1e-5, 1e-1))
+                    HP_BATCH_SIZE = hp.HParam("global_batch_size", hp.IntInterval(1, 64))
+                    HP_PRE_LAYER_NORM = hp.HParam("pre_layer_norm", hp.Discrete([True, False]))
+                    HP_HIDDEN_DROPOUT = hp.HParam("hidden_dropout")
+                    hparams = [
+                        HP_MODEL_TYPE,
+                        HP_MODEL_SIZE,
+                        HP_BATCH_SIZE,
+                        HP_LEARNING_RATE,
+                        HP_PRE_LAYER_NORM,
+                        HP_HIDDEN_DROPOUT,
+                    ]
+
+                    HP_F1 = hp.Metric("squad_f1")
+                    HP_EXACT = hp.Metric("squad_exact")
+                    HP_MLM = hp.Metric("val_mlm_acc")
+                    HP_SOP = hp.Metric("val_sop_acc")
+                    HP_TRAIN_LOSS = hp.Metric("train_loss")
+                    HP_VAL_LOSS = hp.Metric("val_loss")
+                    metrics = [HP_TRAIN_LOSS, HP_VAL_LOSS, HP_F1, HP_EXACT, HP_MLM, HP_SOP]
+
+                    hp.hparams_config(
+                        hparams=hparams, metrics=metrics,
+                    )
+                    hp.hparams(
+                        {
+                            HP_MODEL_TYPE: model_args.model_type,
+                            HP_MODEL_SIZE: model_args.model_size,
+                            HP_LEARNING_RATE: train_args.learning_rate,
+                            HP_BATCH_SIZE: train_args.batch_size * hvd.size(),
+                            HP_PRE_LAYER_NORM: model_args.pre_layer_norm == "true",
+                            HP_HIDDEN_DROPOUT: model_args.hidden_dropout_prob,
+                        },
+                        trial_id=run_name,
+                    )
+
             # Log to TensorBoard
             with summary_writer.as_default():
                 tf.summary.scalar("weight_norm", weight_norm, step=i)

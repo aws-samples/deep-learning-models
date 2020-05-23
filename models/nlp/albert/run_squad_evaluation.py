@@ -14,11 +14,16 @@ from transformers.data.processors.squad import (
     SquadV2Processor,
 )
 
-from utils import get_dataset, get_tokenizer
+from common.utils import get_dataset, get_tokenizer
 
 
 def get_evaluation_metrics(
-    model, data_dir: str, filename: str, batch_size: int = 32, num_batches: int = None,
+    model,
+    data_dir: str,
+    filename: str,
+    batch_size: int = 32,
+    num_batches: int = None,
+    disable_tqdm: bool = False,
 ) -> Dict[str, "Number"]:
     """
     Return an OrderedDict in the format:
@@ -72,6 +77,7 @@ def get_evaluation_metrics(
         features=features,
         batch_size=batch_size,
         num_batches=num_batches,
+        disable_tqdm=disable_tqdm,
     )
 
     write_prediction_files = False
@@ -110,11 +116,12 @@ def get_squad_results(
     features: List[SquadFeatures],
     batch_size: int,
     num_batches: int,
+    disable_tqdm: bool,
 ) -> List[SquadResult]:
     results = []
 
     total_steps = math.ceil(len(features) / batch_size)
-    pbar = tqdm.tqdm(total=total_steps)
+    pbar = tqdm.tqdm(total=total_steps, disable=disable_tqdm)
     pbar.set_description(f"Evaluating with batch size {batch_size}")
 
     if num_batches:
@@ -169,6 +176,10 @@ if __name__ == "__main__":
     val_filename = "dev-v2.0.json"
 
     results = get_evaluation_metrics(
-        model=model, data_dir=data_dir, filename=val_filename, batch_size=args.batch_size
+        model=model,
+        data_dir=data_dir,
+        filename=val_filename,
+        batch_size=args.batch_size,
+        disable_tqdm=False,
     )
     print(dict(results))

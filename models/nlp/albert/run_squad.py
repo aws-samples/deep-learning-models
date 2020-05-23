@@ -10,7 +10,6 @@ Multi-gpu single-node throws an error, probably OOM.
 """
 
 
-import argparse
 import datetime
 import logging
 import math
@@ -24,6 +23,7 @@ import tqdm
 from transformers import (
     AlbertTokenizer,
     AutoConfig,
+    HfArgumentParser,
     PretrainedConfig,
     PreTrainedTokenizer,
     TFAutoModelForQuestionAnswering,
@@ -37,11 +37,16 @@ from transformers.data.processors.squad import (
     SquadV2Processor,
 )
 
-from arguments import populate_squad_parser
-from learning_rate_schedules import LinearWarmupPolyDecaySchedule
-from models import load_qa_from_pretrained
+from common.arguments import (
+    DataTrainingArguments,
+    LoggingArguments,
+    ModelArguments,
+    TrainingArguments,
+)
+from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
+from common.models import load_qa_from_pretrained
+from common.utils import TqdmLoggingHandler, f1_score, get_dataset, get_tokenizer
 from run_squad_evaluation import get_evaluation_metrics
-from utils import f1_score, get_dataset, get_tokenizer
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
@@ -186,7 +191,7 @@ def print_eval_metrics(results, step) -> None:
         f"HasAnsEM: {results['HasAns_exact']:.3f}, HasAnsF1: {results['HasAns_f1']:.3f}, "
         f"NoAnsEM: {results['NoAns_exact']:.3f}, NoAnsF1: {results['NoAns_f1']:.3f}\n"
     )
-    print(description)
+    logger.info(description)
 
 
 def tensorboard_eval_metrics(summary_writer, results: Dict, step: int) -> None:
@@ -246,7 +251,6 @@ def get_squad_results_while_pretraining(
             pre_layer_norm=cloned_model.config.pre_layer_norm,
             model_size=model_size,
             load_from=cloned_model,
-            load_step=None,
             batch_size=per_gpu_batch_size,  # This will be less than 3, so no OOM errors
             checkpoint_frequency=None,
             validate_frequency=None,
@@ -268,7 +272,6 @@ def run_squad_and_get_results(
     pre_layer_norm: bool,
     model_size: str,
     load_from: Union[str, tf.keras.Model],
-    load_step: int,
     batch_size: int,
     checkpoint_frequency: Optional[int],
     validate_frequency: Optional[int],
@@ -281,6 +284,8 @@ def run_squad_and_get_results(
 ) -> Dict:
     checkpoint_frequency = checkpoint_frequency or 1000000
     validate_frequency = validate_frequency or 1000000
+    is_sagemaker = fsx_prefix.startswith("/opt/ml")
+    disable_tqdm = is_sagemaker
 
     if isinstance(load_from, tf.keras.Model):
         config = load_from.config
@@ -343,8 +348,8 @@ def run_squad_and_get_results(
     )
 
     if hvd.rank() == 0:
-        print("Starting finetuning")
-        pbar = tqdm.tqdm(total_steps)
+        logger.info("Starting finetuning")
+        pbar = tqdm.tqdm(total_steps, disable=disable_tqdm)
         summary_writer = None  # Only create a writer if we make it through a successful step
         val_dataset = get_dataset(
             tokenizer=tokenizer,
@@ -383,7 +388,7 @@ def run_squad_and_get_results(
             pbar.set_description(description)
 
             if do_validate:
-                print("Running validation")
+                logger.info("Running validation")
                 (
                     val_loss,
                     val_acc,
@@ -396,8 +401,8 @@ def run_squad_and_get_results(
                     f"Step {step} validation - Loss: {val_loss:.3f}, Acc: {val_acc:.3f}, "
                     f"EM: {val_exact_match:.3f}, F1: {val_f1:.3f}"
                 )
-                print(description)
-                print("Running evaluation")
+                logger.info(description)
+                logger.info("Running evaluation")
                 if dummy_eval:
                     results = {
                         "exact": 0.8169797018445212,
@@ -424,7 +429,7 @@ def run_squad_and_get_results(
                 checkpoint_path = (
                     f"{fsx_prefix}/checkpoints/albert-squad/{run_name}-step{step}.ckpt"
                 )
-                print(f"Saving checkpoint at {checkpoint_path}")
+                logger.info(f"Saving checkpoint at {checkpoint_path}")
                 model.save_weights(checkpoint_path)
 
             if summary_writer is None:
@@ -457,16 +462,25 @@ def run_squad_and_get_results(
     # Can we return a value only on a single rank?
     if hvd.rank() == 0:
         pbar.close()
-        print(f"Finished finetuning, job name {run_name}")
+        logger.info(f"Finished finetuning, job name {run_name}")
         return results
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    populate_squad_parser(parser)
-    args = parser.parse_args()
-    tf.random.set_seed(args.seed)
+    parser = HfArgumentParser(
+        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
+    )
+    model_args, data_args, train_args, log_args = parser.parse_args_into_dataclasses()
+
+    tf.random.set_seed(train_args.seed)
     tf.autograph.set_verbosity(0)
+
+    level = logging.INFO
+    format = "%(asctime)-15s %(name)-12s: %(levelname)-8s %(message)s"
+    handlers = [
+        TqdmLoggingHandler(),
+    ]
+    logging.basicConfig(level=level, format=format, handlers=handlers)
 
     # Horovod init
     hvd.init()
@@ -477,45 +491,44 @@ def main():
         tf.config.set_visible_devices(gpus[hvd.local_rank()], "GPU")
     # XLA, AMP, AutoGraph
     parse_bool = lambda arg: arg == "true"
-    tf.config.optimizer.set_jit(not parse_bool(args.skip_xla))
-    tf.config.experimental_run_functions_eagerly(parse_bool(args.eager))
+    tf.config.optimizer.set_jit(not parse_bool(train_args.skip_xla))
+    tf.config.experimental_run_functions_eagerly(parse_bool(train_args.eager))
 
     if hvd.rank() == 0:
         # Run name should only be used on one process to avoid race conditions
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        platform = "eks" if args.fsx_prefix == "/fsx" else "sm"
-        if args.load_from.startswith("amazon"):
-            load_name = f"{args.load_from}{args.load_step}"
+        platform = "eks" if data_args.fsx_prefix == "/fsx" else "sm"
+        if model_args.load_from.startswith("amazon"):
+            load_name = f"{model_args.load_from}"
         else:
-            load_name = args.load_from
-        run_name = f"{current_time}-{platform}-{args.model_size}-{args.dataset}-{load_name}-{hvd.size()}gpus-{args.batch_size}batch-{args.learning_rate}lr-{args.name}"
+            load_name = model_args.load_from
+        run_name = f"{current_time}-{platform}-{model_args.model_size}-{data_args.task_name}-{load_name}-{hvd.size()}gpus-{train_args.batch_size}batch-{train_args.learning_rate}lr-{train_args.name}"
     else:
         # We only use run_name on rank 0, but need all ranks to pass a value in function args
         run_name = None
 
-    if args.model_type == "albert":
-        model_desc = f"albert-{args.model_size}-v2"
+    if model_args.model_type == "albert":
+        model_desc = f"albert-{model_args.model_size}-v2"
     else:
-        model_desc = f"bert-{args.model_size}-uncased"
+        model_desc = f"bert-{model_args.model_size}-uncased"
 
     results = run_squad_and_get_results(
         run_name=run_name,
-        fsx_prefix=args.fsx_prefix,
-        pre_layer_norm=parse_bool(args.pre_layer_norm),
-        model_size=args.model_size,
-        load_from=args.load_from,
-        load_step=args.load_step,
-        batch_size=args.batch_size,
-        checkpoint_frequency=args.checkpoint_frequency,
-        validate_frequency=args.validate_frequency,
-        learning_rate=args.learning_rate,
-        warmup_steps=args.warmup_steps,
-        total_steps=args.total_steps,
-        dataset=args.dataset,
+        fsx_prefix=data_args.fsx_prefix,
+        pre_layer_norm=parse_bool(model_args.pre_layer_norm),
+        model_size=model_args.model_size,
+        load_from=model_args.load_from,
+        batch_size=train_args.batch_size,
+        checkpoint_frequency=log_args.checkpoint_frequency,
+        validate_frequency=log_args.validation_frequency,
+        learning_rate=train_args.learning_rate,
+        warmup_steps=train_args.warmup_steps,
+        total_steps=train_args.total_steps,
+        dataset=data_args.task_name,
         config=AutoConfig.from_pretrained(model_desc),
     )
     if hvd.rank() == 0:
-        print(results)
+        logger.info(results)
 
 
 if __name__ == "__main__":
