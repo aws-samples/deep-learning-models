@@ -284,6 +284,8 @@ def run_squad_and_get_results(
 ) -> Dict:
     checkpoint_frequency = checkpoint_frequency or 1000000
     validate_frequency = validate_frequency or 1000000
+    is_sagemaker = fsx_prefix.startswith("/opt/ml")
+    disable_tqdm = is_sagemaker
 
     if isinstance(load_from, tf.keras.Model):
         config = load_from.config
@@ -347,7 +349,7 @@ def run_squad_and_get_results(
 
     if hvd.rank() == 0:
         logger.info("Starting finetuning")
-        pbar = tqdm.tqdm(total_steps)
+        pbar = tqdm.tqdm(total_steps, disable=disable_tqdm)
         summary_writer = None  # Only create a writer if we make it through a successful step
         val_dataset = get_dataset(
             tokenizer=tokenizer,
@@ -489,7 +491,7 @@ def main():
         tf.config.set_visible_devices(gpus[hvd.local_rank()], "GPU")
     # XLA, AMP, AutoGraph
     parse_bool = lambda arg: arg == "true"
-    tf.config.optimizer.set_jit(not parse_bool(args.skip_xla))
+    tf.config.optimizer.set_jit(not parse_bool(train_args.skip_xla))
     tf.config.experimental_run_functions_eagerly(parse_bool(train_args.eager))
 
     if hvd.rank() == 0:
@@ -505,7 +507,7 @@ def main():
         # We only use run_name on rank 0, but need all ranks to pass a value in function args
         run_name = None
 
-    if args.model_type == "albert":
+    if model_args.model_type == "albert":
         model_desc = f"albert-{model_args.model_size}-v2"
     else:
         model_desc = f"bert-{model_args.model_size}-uncased"

@@ -27,3 +27,4 @@ RUN pip install --no-cache-dir \
 
 RUN pip install git+git://github.com/jarednielsen/transformers.git@tfsquad
 ENV PYTHONPATH "${PYTHONPATH}:/fsx/deep-learning-models/models/nlp"
+ENV PYTHONPATH "${PYTHONPATH}:/opt/ml/input/data/training/deep-learning-models/models/nlp"

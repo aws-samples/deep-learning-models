@@ -47,7 +47,7 @@ export PYTHONPATH=$PYTHONPATH:/path/to/deep-learning-models/models/nlp
 python launch_sagemaker.py \
     --source_dir=. \
     --entry_point=run_pretraining.py \
-    --sm_job_name=albert-pretraining \
+    --sm_job_name=albert-pretrain \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=1 \
     --load_from=scratch \

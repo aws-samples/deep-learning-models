@@ -352,9 +352,6 @@ def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str]:
 
 
 def main():
-    # parser = argparse.ArgumentParser()
-    # populate_pretraining_parser(parser)
-    # args = parser.parse_args()
     parser = HfArgumentParser(
         (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
     )
