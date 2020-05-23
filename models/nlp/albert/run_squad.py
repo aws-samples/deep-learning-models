@@ -10,7 +10,6 @@ Multi-gpu single-node throws an error, probably OOM.
 """
 
 
-import argparse
 import datetime
 import logging
 import math
@@ -24,6 +23,7 @@ import tqdm
 from transformers import (
     AlbertTokenizer,
     AutoConfig,
+    HfArgumentParser,
     PretrainedConfig,
     PreTrainedTokenizer,
     TFAutoModelForQuestionAnswering,
@@ -37,10 +37,15 @@ from transformers.data.processors.squad import (
     SquadV2Processor,
 )
 
-from common.arguments import populate_squad_parser
+from common.arguments import (
+    DataTrainingArguments,
+    LoggingArguments,
+    ModelArguments,
+    TrainingArguments,
+)
 from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
 from common.models import load_qa_from_pretrained
-from common.utils import f1_score, get_dataset, get_tokenizer
+from common.utils import TqdmLoggingHandler, f1_score, get_dataset, get_tokenizer
 from run_squad_evaluation import get_evaluation_metrics
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
@@ -246,7 +251,6 @@ def get_squad_results_while_pretraining(
             pre_layer_norm=cloned_model.config.pre_layer_norm,
             model_size=model_size,
             load_from=cloned_model,
-            load_step=None,
             batch_size=per_gpu_batch_size,  # This will be less than 3, so no OOM errors
             checkpoint_frequency=None,
             validate_frequency=None,
@@ -268,7 +272,6 @@ def run_squad_and_get_results(
     pre_layer_norm: bool,
     model_size: str,
     load_from: Union[str, tf.keras.Model],
-    load_step: int,
     batch_size: int,
     checkpoint_frequency: Optional[int],
     validate_frequency: Optional[int],
@@ -462,10 +465,12 @@ def run_squad_and_get_results(
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    populate_squad_parser(parser)
-    args = parser.parse_args()
-    tf.random.set_seed(args.seed)
+    parser = HfArgumentParser(
+        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
+    )
+    model_args, data_args, train_args, log_args = parser.parse_args_into_dataclasses()
+
+    tf.random.set_seed(train_args.seed)
     tf.autograph.set_verbosity(0)
 
     level = logging.INFO
@@ -485,40 +490,39 @@ def main():
     # XLA, AMP, AutoGraph
     parse_bool = lambda arg: arg == "true"
     tf.config.optimizer.set_jit(not parse_bool(args.skip_xla))
-    tf.config.experimental_run_functions_eagerly(parse_bool(args.eager))
+    tf.config.experimental_run_functions_eagerly(parse_bool(train_args.eager))
 
     if hvd.rank() == 0:
         # Run name should only be used on one process to avoid race conditions
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        platform = "eks" if args.fsx_prefix == "/fsx" else "sm"
-        if args.load_from.startswith("amazon"):
-            load_name = f"{args.load_from}{args.load_step}"
+        platform = "eks" if data_args.fsx_prefix == "/fsx" else "sm"
+        if model_args.load_from.startswith("amazon"):
+            load_name = f"{model_args.load_from}"
         else:
-            load_name = args.load_from
-        run_name = f"{current_time}-{platform}-{args.model_size}-{args.dataset}-{load_name}-{hvd.size()}gpus-{args.batch_size}batch-{args.learning_rate}lr-{args.name}"
+            load_name = model_args.load_from
+        run_name = f"{current_time}-{platform}-{model_args.model_size}-{data_args.task_name}-{load_name}-{hvd.size()}gpus-{train_args.batch_size}batch-{train_args.learning_rate}lr-{train_args.name}"
     else:
         # We only use run_name on rank 0, but need all ranks to pass a value in function args
         run_name = None
 
     if args.model_type == "albert":
-        model_desc = f"albert-{args.model_size}-v2"
+        model_desc = f"albert-{model_args.model_size}-v2"
     else:
-        model_desc = f"bert-{args.model_size}-uncased"
+        model_desc = f"bert-{model_args.model_size}-uncased"
 
     results = run_squad_and_get_results(
         run_name=run_name,
-        fsx_prefix=args.fsx_prefix,
-        pre_layer_norm=parse_bool(args.pre_layer_norm),
-        model_size=args.model_size,
-        load_from=args.load_from,
-        load_step=args.load_step,
-        batch_size=args.batch_size,
-        checkpoint_frequency=args.checkpoint_frequency,
-        validate_frequency=args.validate_frequency,
-        learning_rate=args.learning_rate,
-        warmup_steps=args.warmup_steps,
-        total_steps=args.total_steps,
-        dataset=args.dataset,
+        fsx_prefix=data_args.fsx_prefix,
+        pre_layer_norm=parse_bool(model_args.pre_layer_norm),
+        model_size=model_args.model_size,
+        load_from=model_args.load_from,
+        batch_size=train_args.batch_size,
+        checkpoint_frequency=log_args.checkpoint_frequency,
+        validate_frequency=log_args.validation_frequency,
+        learning_rate=train_args.learning_rate,
+        warmup_steps=train_args.warmup_steps,
+        total_steps=train_args.total_steps,
+        dataset=data_args.task_name,
         config=AutoConfig.from_pretrained(model_desc),
     )
     if hvd.rank() == 0:

@@ -20,6 +20,8 @@ Language models help AWS customers to improve search results, text classificatio
 3. Create an Amazon Elastic Container Registry (ECR) repository. Then build a Docker image from `docker/ngc_sagemaker.Dockerfile` and push it to ECR.
 
 ```bash
+export ACCOUNT_ID=
+export REPO=
 export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:ngc_tf210_sagemaker
 docker build -t ${IMAGE} -f docker/ngc_sagemaker.Dockerfile .
 $(aws ecr get-login --no-include-email)
@@ -42,8 +44,10 @@ export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
 # Add the main folder to your PYTHONPATH
 export PYTHONPATH=$PYTHONPATH:/path/to/deep-learning-models/models/nlp
 
-python sagemaker_pretraining.py \
+python launch_sagemaker.py \
     --source_dir=. \
+    --entry_point=run_pretraining.py \
+    --sm_job_name=albert-pretraining \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=1 \
     --load_from=scratch \
@@ -57,6 +61,31 @@ python sagemaker_pretraining.py \
     --optimizer=lamb \
     --log_frequency=10 \
     --name=myfirstjob
+```
+
+6. Launch a SageMaker finetuning job.
+
+```bash
+python launch_sagemaker.py \
+    --source_dir=. \
+    --entry_point=run_squad.py \
+    --sm_job_name=albert-squad \
+    --instance_type=ml.p3dn.24xlarge \
+    --instance_count=1 \
+    --load_from=scratch \
+    --model_type=albert \
+    --model_size=base \
+    --batch_size=6 \
+    --total_steps=8144 \
+    --warmup_steps=814 \
+    --learning_rate=3e-5 \
+    --task_name=squadv2
+```
+
+7. Enter the Docker container to debug and edit code.
+
+```bash
+docker run -it -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
 ```
 
 <!-- ### Training results

@@ -43,12 +43,12 @@ def pop_sagemaker_args(args_dict: Dict) -> Tuple:
 
 
 def launch_sagemaker_job(
+    hyperparameters: Dict[str, Any],
     job_name: str,
     source_dir: str,
     entry_point: str,
     instance_type: str,
     instance_count: int,
-    hyperparameters: Dict[str, Any],
     role: str,
     image_name: str,
     fsx_id: str,
