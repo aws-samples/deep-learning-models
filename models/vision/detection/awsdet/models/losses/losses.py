@@ -33,8 +33,8 @@ def focal_loss(y_preds, y_true, alpha=0.25, gamma=2.0, avg_factor=1.0, num_class
     """
     assert gamma >= 0.0
     # print('target min max', tf.reduce_min(y_true), tf.reduce_max(y_true))
-    pred_sigmoid = tf.nn.sigmoid(y_preds)
-    oh_target = tf.one_hot(y_true-1, depth=num_classes)
+    pred_sigmoid = tf.keras.layers.Activation(tf.nn.sigmoid, dtype=tf.float32)(y_preds)
+    oh_target = tf.one_hot(y_true-1, depth=num_classes, dtype=tf.float32)
     positive_mask = tf.math.equal(oh_target, 1)
     avg_factor = tf.math.maximum(1.0, tf.cast(avg_factor, tf.float32))
     # print(tf.shape(oh_target), tf.shape(y_preds))

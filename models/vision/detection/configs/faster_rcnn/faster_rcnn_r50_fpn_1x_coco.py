@@ -134,7 +134,7 @@ log_config = dict(
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'
-work_dir = './work_dirs/faster_rcnn_r50_fpn_1x_amp_bn'
+work_dir = './work_dirs/faster_rcnn_r50_fpn_1x_coco'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

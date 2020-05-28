@@ -107,10 +107,10 @@ class RPNHead(AnchorHead):
     def forward_single(self, feat):
         shared = self.rpn_conv_shared(feat)
         x = self.rpn_class_raw(shared)
-        rpn_class_logits = layers.Activation('linear', dtype='float32')(x) # for AMP
+        rpn_class_logits = layers.Activation('linear', dtype=tf.float32)(x) # for AMP
         rpn_probs = layers.Activation('softmax', dtype='float32', name='rpn_probs')(rpn_class_logits)
         x = self.rpn_delta_pred(shared)
-        rpn_deltas = layers.Activation('linear', dtype='float32')(x)
+        rpn_deltas = layers.Activation('linear', dtype=tf.float32)(x)
         return rpn_class_logits, rpn_probs, rpn_deltas
 
 

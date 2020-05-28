@@ -205,6 +205,9 @@ class RetinaHead(AnchorHead):
             selected = tf.where(level_targets > BG_CLASS)
             deltas_selected = tf.gather_nd(tf.reshape(pred_deltas[level], [num_images, -1, 4]), selected)
             target_deltas_selected = tf.gather_nd(level_deltas, selected)
+            # for AMP
+            deltas_selected = tf.cast(deltas_selected, tf.float32)
+            target_deltas_selected = tf.cast(target_deltas_selected, tf.float32)
             bbox_loss = self.bbox_loss(deltas_selected, target_deltas_selected, avg_factor=num_pos / num_images)
             bbox_losses.append(bbox_loss)
             prev_num_anchors = anchor_end_idx
@@ -231,7 +234,7 @@ class RetinaHead(AnchorHead):
         mlvl_proposals = []
         num_levels = len(scores_list)
         for idx in range(num_levels):
-            probs = tf.nn.sigmoid(scores_list[idx])
+            probs = tf.keras.layers.Activation(tf.nn.sigmoid, dtype=tf.float32)(scores_list[idx])
             deltas = deltas_list[idx]
             anchors = anchors_list[idx]
             probs = tf.reshape(probs, [-1, self.num_classes])
