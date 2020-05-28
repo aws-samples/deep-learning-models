@@ -72,11 +72,7 @@ def parse_losses(losses, local_batch_size):
 
 
 @tf.function(experimental_relax_shapes=True)
-def batch_processor(model, data, train_mode, loss_weights = {'rpn_class_loss': 1., 
-                                                             'rpn_bbox_loss': 1., 
-                                                             'rcnn_class_loss': 1., 
-                                                             'rcnn_bbox_loss': 1.,
-                                                             'reg_loss': 1.}):
+def batch_processor(model, data, train_mode, loss_weights=None):
     """Process a data batch.
 
     This method is required as an argument of Runner, which defines how to
@@ -88,6 +84,7 @@ def batch_processor(model, data, train_mode, loss_weights = {'rpn_class_loss': 1
         data: Tuple of padded batch data - batch_imgs, batch_metas, batch_bboxes, batch_labels
         train_mode (bool): Training mode or not. It may be useless for some
             models.
+        loss_weights: dictionary of weights that can be assigned in multiloss scenario, for example, {'rpn_class_loss': 1., 'rpn_bbox_loss': 1.,...} 
 
     Returns:
         dict: A dict containing losses and log vars.
@@ -98,7 +95,8 @@ def batch_processor(model, data, train_mode, loss_weights = {'rpn_class_loss': 1
         reg_losses = tf.add_n(model.losses)
         local_batch_size = data[0].shape[0]
         losses['reg_loss'] = reg_losses
-        losses = {i:losses[i]*j for i,j in loss_weights.items()}
+        if not loss_weights is None:
+            losses = {i:losses[i]*j for i,j in loss_weights.items()}
         loss, log_vars = parse_losses(losses, local_batch_size)
         outputs = dict(loss=loss,
                        log_vars=log_vars,

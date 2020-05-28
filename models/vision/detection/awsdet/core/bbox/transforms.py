@@ -21,20 +21,13 @@ def bbox2delta(box, gt_box, target_means, target_stds):
     box = tf.cast(box, tf.float32)
     gt_box = tf.cast(gt_box, tf.float32)
 
-    # target_means = tf.constant(target_means, dtype=tf.float16)
-    # target_stds = tf.constant(target_stds, dtype=tf.float16)
-
-    # box = tf.cast(box, tf.float16)
-    # gt_box = tf.cast(gt_box, tf.float16)
-
-
-    height = box[..., 2] - box[..., 0] + 1.0
-    width = box[..., 3] - box[..., 1] + 1.0
+    height = box[..., 2] - box[..., 0] 
+    width = box[..., 3] - box[..., 1]
     center_y = (box[..., 0] + box[..., 2]) * 0.5
     center_x = (box[..., 1] + box[..., 3]) * 0.5
 
-    gt_height = gt_box[..., 2] - gt_box[..., 0] + 1.0
-    gt_width = gt_box[..., 3] - gt_box[..., 1] + 1.0
+    gt_height = gt_box[..., 2] - gt_box[..., 0] 
+    gt_width = gt_box[..., 3] - gt_box[..., 1] 
     gt_center_y = (gt_box[..., 0] + gt_box[..., 2]) * 0.5
     gt_center_x = (gt_box[..., 1] +  gt_box[..., 3]) * 0.5
 

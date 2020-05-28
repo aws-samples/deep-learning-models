@@ -6,7 +6,7 @@ from tensorflow import keras
 
 
 @tf.function(experimental_relax_shapes=True)
-def smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_weights, sigma=1.0, dim=[1], scale_factor=2**16):
+def smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_weights, sigma=1.0, dim=[1]):
     sigma_2 = sigma ** 2
     box_diff = bbox_pred - bbox_targets
     in_box_diff = bbox_inside_weights * box_diff
@@ -19,7 +19,53 @@ def smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_we
     return loss_box
 
 
-def rpn_class_loss(logits, labels, rpn_deltas=256.0, weight=1.0, label_smoothing=0.0):
+def focal_loss(y_preds, y_true, alpha=0.25, gamma=2.0, avg_factor=1.0, num_classes=80):
+    """
+    Args:
+        y_preds: [batch size * num_anchors, num_classes]
+        y_true: [batch size * num_anchors, ]
+        alpha: class balance factor (binary classification)
+        gamma: focus strength
+        avg_factor: value to divide the loss sum by (equals num_pos_anchors for RetinaNet)
+        num_classes:
+    Return:
+        Scalar loss normalized by number of anchors that got assigned to GT (TODO: generalize this take normalization factor as an argument)
+    """
+    assert gamma >= 0.0
+    # print('target min max', tf.reduce_min(y_true), tf.reduce_max(y_true))
+    pred_sigmoid = tf.nn.sigmoid(y_preds)
+    oh_target = tf.one_hot(y_true-1, depth=num_classes)
+    positive_mask = tf.math.equal(oh_target, 1)
+    avg_factor = tf.math.maximum(1.0, tf.cast(avg_factor, tf.float32))
+    # print(tf.shape(oh_target), tf.shape(y_preds))
+    ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=oh_target, logits=y_preds)
+    # print('ce', ce)
+    pt = tf.where(positive_mask, pred_sigmoid, 1.0 - pred_sigmoid)
+    loss = tf.math.pow(1.0 - pt, gamma) * ce
+    weighted_loss = tf.where(positive_mask, alpha * loss, (1.0 - alpha) * loss)
+    # print('loss', weighted_loss)
+    batch_loss_sum = tf.reduce_sum(weighted_loss)
+    # print('batch loss sum', batch_loss_sum, avg_factor)
+    return batch_loss_sum / avg_factor
+
+
+def retinanet_bbox_loss(deltas, target_deltas, avg_factor=1.0):
+    '''Return the Retinanet bounding box loss    
+    Args
+    ---
+        deltas: [batch * anchors, (dy, dx, log(dh), log(dw))]
+        target_deltas: [batch * anchors, (dy, dx, log(dh), log(dw))]
+        inside_weights: [batch * anchors, 4] weights for inside targets
+        outside_weights: [batch * anchors, 4] weights for outside targets        
+    '''
+    #print('bbox loss', tf.shape(deltas), tf.shape(target_deltas), avg_factor)
+    loss = tf.math.abs(deltas - target_deltas)
+    avg_factor = tf.math.maximum(1.0, tf.cast(avg_factor, tf.float32))
+    return tf.reduce_sum(loss) / avg_factor
+    return loss
+
+
+def rpn_class_loss(logits, labels, avg_factor=256.0, weight=1.0, label_smoothing=0.0):
     """
     :param weight:
     :param logits: [batch size * num_anchors, 2]
@@ -27,11 +73,9 @@ def rpn_class_loss(logits, labels, rpn_deltas=256.0, weight=1.0, label_smoothing
     :return:
     """
     onehot_labels = tf.one_hot(tf.cast(labels, tf.int32), depth=2)
-    batch_loss_sum = tf.reduce_sum(tf.compat.v1.losses.softmax_cross_entropy(
-            logits=logits,
-            onehot_labels=onehot_labels, label_smoothing=label_smoothing,
-            weights=weight, reduction=tf.compat.v1.losses.Reduction.NONE)) / rpn_deltas # 256 targets per example
-    return batch_loss_sum
+    batch_loss_sum = tf.reduce_sum(
+                        tf.nn.softmax_cross_entropy_with_logits(onehot_labels, logits))
+    return batch_loss_sum / avg_factor
 
 
 def rpn_bbox_loss(rpn_deltas, target_deltas, rpn_inside_weights, rpn_outside_weights):
@@ -51,7 +95,7 @@ def rpn_bbox_loss(rpn_deltas, target_deltas, rpn_inside_weights, rpn_outside_wei
     return loss
 
 
-def rcnn_class_loss(logits, labels, roi_deltas=512.0, weight=1.0, label_smoothing=0.0):
+def rcnn_class_loss(logits, labels, avg_factor=512.0, weight=1.0, label_smoothing=0.0):
     """
     :param weight:
     :param logits: [batch size * num_anchors, 2]
@@ -59,11 +103,10 @@ def rcnn_class_loss(logits, labels, roi_deltas=512.0, weight=1.0, label_smoothin
     :return:
     """
     onehot_labels = tf.one_hot(tf.cast(labels, tf.int32), depth=81)
-    batch_loss_sum = tf.reduce_sum(tf.compat.v1.losses.softmax_cross_entropy(
-            logits=logits,
-            onehot_labels=onehot_labels, label_smoothing=label_smoothing,
-            weights=weight, reduction=tf.compat.v1.losses.Reduction.NONE)) / roi_deltas # 512 targets per example
-    return batch_loss_sum
+    batch_loss_sum = tf.reduce_sum(
+                        tf.nn.softmax_cross_entropy_with_logits(onehot_labels, logits))
+    return batch_loss_sum / avg_factor
+
 
 def rcnn_bbox_loss(roi_deltas, target_deltas, roi_inside_weights, roi_outside_weights):
     '''Return the RCNN ROI box loss    

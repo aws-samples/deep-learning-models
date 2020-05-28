@@ -1,4 +1,6 @@
-# Copyright (c) Open-MMLab. All rights reserved.
+# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+# -*- coding: utf-8 -*-
 import logging
 import os.path as osp
 import time
@@ -290,7 +292,8 @@ class Runner(object):
             self.outputs = outputs
             self.call_hook('after_train_iter')
             self._iter += 1
-            if i > 0 and i % 1000 == 0:
+            debug_on_train_every_iter = 1000
+            if i > 0 and i % debug_on_train_every_iter == 0:
                 self.run_eval_step(data_batch)
             if i+1 >= self.num_examples: # for case where num_examples is deliberately made small to test
                 self._inner_iter = 0
