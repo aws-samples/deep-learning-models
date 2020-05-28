@@ -9,7 +9,8 @@ echo "NUM_GPU: ${NUM_GPU}"
 echo "TRAIN_CFG: ${TRAIN_CFG}"
 echo ""
 
-cd /deep-learning-models/models/vision/detection
+#cd /deep-learning-models/models/vision/detection
+cd /workspace/shared_workspace/models/vision/detection
 export PYTHONPATH=${PYTHONPATH}:${PWD}
 
 mpirun -np ${NUM_GPU} \
@@ -28,7 +29,7 @@ mpirun -np ${NUM_GPU} \
 -x HOROVOD_FUSION_THRESHOLD=67108864 \
 --output-filename /logs/mpirun_logs \
 python tools/train.py ${TRAIN_CFG} \
---validate \
+--validation
 --autoscale-lr \
 --amp
 
