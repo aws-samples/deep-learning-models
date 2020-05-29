@@ -22,17 +22,17 @@ large:
 A training run of 125k steps is 125k/(1.72 * 3600) ~= 20 hours for base trained on 512seq.
 """
 
-
 import datetime
 import glob
 import logging
 import time
+from dataclasses import asdict
 from typing import List, Tuple
 
 import numpy as np
 import tensorflow as tf
 import tqdm
-from tensorboard.plugins.hparams import api as hp
+import wandb
 from tensorflow_addons.optimizers import LAMB, AdamW
 from transformers import (
     AutoConfig,
@@ -590,68 +590,54 @@ def main():
 
             # Create summary_writer after the first step
             if summary_writer is None:
+                config = {
+                    **asdict(model_args),
+                    **asdict(data_args),
+                    **asdict(train_args),
+                    **asdict(log_args),
+                }
+                wandb.init(config=config, project=model_args.model_type)
                 summary_writer = tf.summary.create_file_writer(
                     f"{data_args.fsx_prefix}/logs/albert/{run_name}"
                 )
-                with summary_writer.as_default():
-                    HP_MODEL_TYPE = hp.HParam("model_type", hp.Discrete(["albert", "bert"]))
-                    HP_MODEL_SIZE = hp.HParam("model_size", hp.Discrete(["base", "large"]))
-                    HP_LEARNING_RATE = hp.HParam("learning_rate", hp.RealInterval(1e-5, 1e-1))
-                    HP_BATCH_SIZE = hp.HParam("global_batch_size", hp.IntInterval(1, 64))
-                    HP_PRE_LAYER_NORM = hp.HParam("pre_layer_norm", hp.Discrete([True, False]))
-                    HP_HIDDEN_DROPOUT = hp.HParam("hidden_dropout")
-                    hparams = [
-                        HP_MODEL_TYPE,
-                        HP_MODEL_SIZE,
-                        HP_BATCH_SIZE,
-                        HP_LEARNING_RATE,
-                        HP_PRE_LAYER_NORM,
-                        HP_HIDDEN_DROPOUT,
-                    ]
 
-                    HP_F1 = hp.Metric("squad_f1")
-                    HP_EXACT = hp.Metric("squad_exact")
-                    HP_MLM = hp.Metric("val_mlm_acc")
-                    HP_SOP = hp.Metric("val_sop_acc")
-                    HP_TRAIN_LOSS = hp.Metric("train_loss")
-                    HP_VAL_LOSS = hp.Metric("val_loss")
-                    metrics = [HP_TRAIN_LOSS, HP_VAL_LOSS, HP_F1, HP_EXACT, HP_MLM, HP_SOP]
-
-                    hp.hparams_config(
-                        hparams=hparams, metrics=metrics,
-                    )
-                    hp.hparams(
-                        {
-                            HP_MODEL_TYPE: model_args.model_type,
-                            HP_MODEL_SIZE: model_args.model_size,
-                            HP_LEARNING_RATE: train_args.learning_rate,
-                            HP_BATCH_SIZE: train_args.batch_size * hvd.size(),
-                            HP_PRE_LAYER_NORM: model_args.pre_layer_norm == "true",
-                            HP_HIDDEN_DROPOUT: model_args.hidden_dropout_prob,
-                        },
-                        trial_id=run_name,
-                    )
-
-            # Log to TensorBoard
+            train_metrics = {
+                "train/weight_norm": weight_norm,
+                "train/grad_norm": grad_norm,
+                "train/loss_scale": loss_scale,
+                "train/learning_rate": learning_rate,
+                "train/loss": loss,
+                "train/mlm_loss": mlm_loss,
+                "train/mlm_acc": mlm_acc,
+                "train/sop_loss": sop_loss,
+                "train/sop_acc": sop_acc,
+            }
+            if do_validation:
+                val_metrics = {
+                    "val/loss": val_loss,
+                    "val/mlm_loss": val_mlm_loss,
+                    "val/mlm_acc": val_mlm_acc,
+                    "val/sop_loss": val_sop_loss,
+                    "val/sop_acc": val_sop_acc,
+                }
+            if do_squad:
+                squad_metrics = {
+                    "squad/f1": squad_f1,
+                    "squad/exact": squad_exact,
+                }
+            # Log to TensorBoard and Weights & Biases (possibly SageMaker Experiments in future)
             with summary_writer.as_default():
-                tf.summary.scalar("weight_norm", weight_norm, step=i)
-                tf.summary.scalar("loss_scale", loss_scale, step=i)
-                tf.summary.scalar("learning_rate", learning_rate, step=i)
-                tf.summary.scalar("train_loss", loss, step=i)
-                tf.summary.scalar("train_mlm_loss", mlm_loss, step=i)
-                tf.summary.scalar("train_mlm_acc", mlm_acc, step=i)
-                tf.summary.scalar("train_sop_loss", sop_loss, step=i)
-                tf.summary.scalar("train_sop_acc", sop_acc, step=i)
-                tf.summary.scalar("grad_norm", grad_norm, step=i)
+                wandb.log({"step": i, **train_metrics})
+                for name, val in train_metrics.items():
+                    tf.summary.scalar(name, val, step=i)
                 if do_validation:
-                    tf.summary.scalar("val_loss", val_loss, step=i)
-                    tf.summary.scalar("val_mlm_loss", val_mlm_loss, step=i)
-                    tf.summary.scalar("val_mlm_acc", val_mlm_acc, step=i)
-                    tf.summary.scalar("val_sop_loss", val_sop_loss, step=i)
-                    tf.summary.scalar("val_sop_acc", val_sop_acc, step=i)
+                    wandb.log({"step": i, **val_metrics})
+                    for name, val in val_metrics.items():
+                        tf.summary.scalar(name, val, step=i)
                 if do_squad:
-                    tf.summary.scalar("squad_f1", squad_f1, step=i)
-                    tf.summary.scalar("squad_exact", squad_exact, step=i)
+                    wandb.log({"step": i, **squad_metrics})
+                    for name, val in squad_metrics.items():
+                        tf.summary.scalar(name, val, step=i)
 
         i += 1
         if is_final_step:

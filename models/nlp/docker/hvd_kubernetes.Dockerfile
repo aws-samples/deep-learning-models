@@ -97,6 +97,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
         scikit-learn \
         gputil \
         requests \
+        wandb \
         tensorflow-addons==0.9.1
 
 ENV HDF5_USE_FILE_LOCKING "FALSE"
