@@ -173,6 +173,7 @@ class RetinaHead(AnchorHead):
         (target_matches_list, target_deltas_list, inside_weights_list, 
                 outside_weights_list, num_pos, _) = self.anchor_target.get_targets(anchor_list, 
                         valid_flag_list, gt_bboxes, img_metas, gt_labels)
+
         BG_CLASS = 0
         level_targets_list = []
         level_deltas_list = []
@@ -190,8 +191,6 @@ class RetinaHead(AnchorHead):
             for img_idx in range(num_images):
                 img_matches_for_level = target_matches_list[img_idx][anchor_start_idx:anchor_end_idx]
                 img_deltas_for_level = target_deltas_list[img_idx][anchor_start_idx:anchor_end_idx]
-                img_if_for_level = inside_weights_list[img_idx][anchor_start_idx:anchor_end_idx]
-                img_of_for_level = outside_weights_list[img_idx][anchor_start_idx:anchor_end_idx]
                 tmp_matches_list.append(tf.expand_dims(img_matches_for_level, axis=0))
                 tmp_deltas_list.append(tf.expand_dims(img_deltas_for_level, axis=0))
             level_targets = tf.concat(tmp_matches_list, axis=0)

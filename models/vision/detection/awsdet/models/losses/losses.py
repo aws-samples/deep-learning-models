@@ -58,11 +58,9 @@ def retinanet_bbox_loss(deltas, target_deltas, avg_factor=1.0):
         inside_weights: [batch * anchors, 4] weights for inside targets
         outside_weights: [batch * anchors, 4] weights for outside targets        
     '''
-    #print('bbox loss', tf.shape(deltas), tf.shape(target_deltas), avg_factor)
     loss = tf.math.abs(deltas - target_deltas)
     avg_factor = tf.math.maximum(1.0, tf.cast(avg_factor, tf.float32))
-    return tf.reduce_sum(loss) / avg_factor
-    return loss
+    return tf.cast(tf.reduce_sum(loss) / avg_factor, tf.float32)
 
 
 def rpn_class_loss(logits, labels, avg_factor=256.0, weight=1.0, label_smoothing=0.0):
@@ -75,7 +73,7 @@ def rpn_class_loss(logits, labels, avg_factor=256.0, weight=1.0, label_smoothing
     onehot_labels = tf.one_hot(tf.cast(labels, tf.int32), depth=2)
     batch_loss_sum = tf.reduce_sum(
                         tf.nn.softmax_cross_entropy_with_logits(onehot_labels, logits))
-    return batch_loss_sum / avg_factor
+    return tf.cast(batch_loss_sum / avg_factor, tf.float32)
 
 
 def rpn_bbox_loss(rpn_deltas, target_deltas, rpn_inside_weights, rpn_outside_weights):
@@ -105,7 +103,7 @@ def rcnn_class_loss(logits, labels, avg_factor=512.0, weight=1.0, label_smoothin
     onehot_labels = tf.one_hot(tf.cast(labels, tf.int32), depth=81)
     batch_loss_sum = tf.reduce_sum(
                         tf.nn.softmax_cross_entropy_with_logits(onehot_labels, logits))
-    return batch_loss_sum / avg_factor
+    return tf.cast(batch_loss_sum / avg_factor, tf.float32)
 
 
 def rcnn_bbox_loss(roi_deltas, target_deltas, roi_inside_weights, roi_outside_weights):
