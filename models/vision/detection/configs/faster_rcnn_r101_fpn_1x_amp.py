@@ -63,7 +63,7 @@ test_cfg = dict(
 )
 # dataset settings
 dataset_type = 'CocoDataset'
-data_root = '/workspace/shared_workspace/data'
+data_root = '/deep-learning-models/models/vision/detection/data'
 data = dict(
     imgs_per_gpu=4,
     train=dict(
