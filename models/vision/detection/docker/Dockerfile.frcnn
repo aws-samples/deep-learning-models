@@ -217,12 +217,12 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 RUN apt update && apt install -y python3-opencv libopenblas-base \
 	libomp-dev build-essential
     
-RUN ${PIP} install tensorflow_addons \
+RUN ${PIP} install tensorflow_addons==0.8.3 \
                 s3fs \
 		ipykernel \
                 imgaug \
                 tqdm \
-                tensorflow_datasets \
+                tensorflow_datasets==2.1.0 \
                 scikit-image \
                 cython \
                 addict \

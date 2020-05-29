@@ -104,22 +104,26 @@ model = dict(
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1',
-        weights_path=weights_file,
-        weight_decay=1e-5,
+        weights_path='weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
+        weight_decay=1e-5
     ),
     neck=dict(
         type='FPN',
+        in_channels=[('C2', 256), ('C3', 512), ('C4', 1024), ('C5', 2048)],
+        out_channels=256,
+        num_outs=5,
         interpolation_method='bilinear',
         weight_decay=1e-5,
     ),
     rpn_head=dict(
         type='RPNHead',
-        anchor_scales=[32, 64, 128, 256, 512],
+        anchor_scales=[8.],
         anchor_ratios=[0.5, 1.0, 2.0],
-        anchor_feature_strides=[4, 8, 16, 32, 64],
+        anchor_strides=[4, 8, 16, 32, 64],
         target_means=[.0, .0, .0, .0],
         target_stds= [1.0, 1.0, 1.0, 1.0],
-        num_rpn_deltas=256,
+        feat_channels=512,
+        num_samples=256,
         positive_fraction=0.5,
         pos_iou_thr=0.7,
         neg_iou_thr=0.3,
@@ -128,7 +132,6 @@ model = dict(
         num_pre_nms_test=12000,
         num_post_nms_test=2000,
         weight_decay=1e-5,
-        padded_img_shape=(1333, 1333),
     ),
     bbox_roi_extractor=dict(
         type='PyramidROIAlign',
@@ -137,20 +140,18 @@ model = dict(
         use_tf_crop_and_resize=True,
     ),
     bbox_head=dict(
-        type='BBoxHead',
-        num_classes=81,
-        pool_size=[7, 7],
-        target_means=[0., 0., 0., 0.],
-        target_stds=[0.1, 0.1, 0.2, 0.2],
-        min_confidence=0.001,
-        nms_threshold=0.7,
-        max_instances=100,
-        weight_decay=1e-5,
-        use_conv=True,
-        label_smoothing=0.0,
-        use_bn=False,
-        soft_nms_sigma=0.5, # 0.0 = hard nms
-    )
+    type='BBoxHead',
+    num_classes=81,
+    pool_size=[7, 7],
+    target_means=[0., 0., 0., 0.],
+    target_stds=[0.1, 0.1, 0.2, 0.2],
+    min_confidence=0.001, 
+    nms_threshold=0.7,
+    max_instances=100,
+    weight_decay=1e-5,
+    use_conv=True,
+    use_bn=False,
+    soft_nms_sigma=0.5)
 )
 
 ########################################################################################################################

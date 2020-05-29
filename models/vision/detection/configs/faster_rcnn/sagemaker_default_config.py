@@ -168,16 +168,21 @@ model = dict(
     ),
     neck=dict(
         type='FPN',
+        in_channels=[('C2', 256), ('C3', 512), ('C4', 1024), ('C5', 2048)],
+        out_channels=256,
+        num_outs=5,
+        interpolation_method='bilinear',
         weight_decay=1e-5,
-        ),
+    ),
     rpn_head=dict(
         type='RPNHead',
-        anchor_scales=[32, 64, 128, 256, 512],
+        anchor_scales=[8.],
         anchor_ratios=[0.5, 1.0, 2.0],
-        anchor_feature_strides=[4, 8, 16, 32, 64],
+        anchor_strides=[4, 8, 16, 32, 64],
         target_means=[.0, .0, .0, .0],
-        target_stds= [1.0, 1.0, 2.0, 2.0], #[1.0, 1.0, 1.0, 1.0],
-        num_rpn_deltas=256,
+        target_stds= [1.0, 1.0, 1.0, 1.0],
+        feat_channels=512,
+        num_samples=256,
         positive_fraction=0.5,
         pos_iou_thr=0.7,
         neg_iou_thr=0.3,
@@ -186,79 +191,33 @@ model = dict(
         num_pre_nms_test=12000,
         num_post_nms_test=2000,
         weight_decay=1e-5,
-        padded_img_shape=(1216, 1216)
     ),
     bbox_roi_extractor=dict(
-    type='PyramidROIAlign',
-    pool_shape=[7, 7]),
+        type='PyramidROIAlign',
+        pool_shape=[7, 7],
+        pool_type='avg',
+        use_tf_crop_and_resize=True,
+    ),
     bbox_head=dict(
     type='BBoxHead',
     num_classes=81,
     pool_size=[7, 7],
     target_means=[0., 0., 0., 0.],
     target_stds=[0.1, 0.1, 0.2, 0.2],
-    min_confidence=0.001,
-    nms_threshold=0.5,
+    min_confidence=0.001, 
+    nms_threshold=0.7,
     max_instances=100,
     weight_decay=1e-5,
-    use_conv=True)
+    use_conv=True,
+    use_bn=False,
+    soft_nms_sigma=0.5)
 )
 
 ########################################################################################################################
 # Training and Test Settings
 ########################################################################################################################
-
 train_cfg = dict(
-    freeze_patterns=('^conv[12]',), # '_bn$'), # freeze upto stage 1 (conv2 block)
     weight_decay=1e-5,
-    rpn=dict(
-        assigner=dict(
-            type='MaxIoUAssigner',
-            pos_iou_thr=0.7,
-            neg_iou_thr=0.3,
-            min_pos_iou=0.3,
-            ignore_iof_thr=-1),
-        sampler=dict(
-            type='RandomSampler',
-            num=256,
-            pos_fraction=0.5,
-            neg_pos_ub=-1,
-            add_gt_as_proposals=False),
-        allowed_border=0,
-        pos_weight=-1,
-        debug=False),
-    rpn_proposal=dict(
-        nms_across_levels=False,
-        nms_pre=2000,
-        nms_post=2000,
-        max_num=2000,
-        nms_thr=0.7,
-        min_bbox_size=0),
-    rcnn=dict(
-        assigner=dict(
-            type='MaxIoUAssigner',
-            pos_iou_thr=0.5,
-            neg_iou_thr=0.5,
-            min_pos_iou=0.5,
-            ignore_iof_thr=-1),
-        sampler=dict(
-            type='RandomSampler',
-            num=512,
-            pos_fraction=0.25,
-            neg_pos_ub=-1,
-            add_gt_as_proposals=True),
-        pos_weight=-1,
-        debug=False))
+)
 test_cfg = dict(
-    rpn=dict(
-        nms_across_levels=False,
-        nms_pre=1000,
-        nms_post=1000,
-        max_num=1000,
-        nms_thr=0.7,
-        min_bbox_size=0),
-    rcnn=dict(
-        score_thr=0.05, nms=dict(type='nms', iou_thr=0.5), max_per_img=100)
-    # soft-nms is also supported for rcnn testing
-    # e.g., nms=dict(type='soft_nms', iou_thr=0.5, min_score=0.05)
 )
