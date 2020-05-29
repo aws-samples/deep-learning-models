@@ -7,6 +7,7 @@ import tqdm
 from transformers import (
     AlbertTokenizer,
     AutoConfig,
+    BertTokenizer,
     BertTokenizerFast,
     PretrainedConfig,
     PreTrainedTokenizer,
@@ -146,6 +147,6 @@ def create_tokenizer(model_type: str) -> PreTrainedTokenizer:
     if model_type == "albert":
         return AlbertTokenizer.from_pretrained("albert-base-v2")
     elif model_type == "bert":
-        return BertTokenizerFast.from_pretrained("bert-base-uncased")
+        return BertTokenizer.from_pretrained("bert-base-uncased")
     else:
         raise ValueError(f"model_type={model_type} must be one of ['albert', 'bert']")
