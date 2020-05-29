@@ -125,7 +125,7 @@ def sop_loss_fn(
 def train_batch(
     *,
     model,
-    opt,
+    optimizer,
     gradient_accumulator,
     input_dict,
     label_positions,
@@ -156,7 +156,7 @@ def train_batch(
                 prediction_logits=sop_logits, next_sentence_labels=next_sentence_labels
             )
         loss = tf.cast(mlm_loss, dtype=tf.float32) + tf.cast(sop_loss, dtype=tf.float32)
-        scaled_loss = opt.get_scaled_loss(loss)
+        scaled_loss = optimizer.get_scaled_loss(loss)
 
     # TODO: On iteration 0, loss=11 and loss_scale()=32768, so scaled_loss=inf.
     # But scaled_grads is not inf, how? tape.gradient() must not be using direct backprop calc
@@ -165,9 +165,9 @@ def train_batch(
     return loss, mlm_loss, mlm_acc, sop_loss, sop_acc
 
 
-def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_loss, sop_acc):
+def allreduce(model, optimizer, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_loss, sop_acc):
     scaled_grads = gradient_accumulator.gradients
-    grads = opt.get_unscaled_gradients(scaled_grads)
+    grads = optimizer.get_unscaled_gradients(scaled_grads)
     # This, which is equivalent to sparse_as_dense=True, gives a mild 2% speedup from 0.62 it/s to 0.63 it/s
     # on BERT-large multinode.
     grads = [
@@ -192,7 +192,7 @@ def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_los
         for grad in grads
     ]
 
-    opt.apply_gradients(
+    optimizer.apply_gradients(
         [
             (tf.cast(grad, var.dtype), var)
             for (grad, var) in zip(grads, model.trainable_variables)
@@ -216,7 +216,7 @@ def allreduce(model, opt, gradient_accumulator, loss, mlm_loss, mlm_acc, sop_los
 # on the CPU. If there's a way to accumulate gradients on the GPU without getting OOM, let's find it!
 def train_step(
     model,
-    opt,
+    optimizer,
     gradient_accumulator,
     batch,
     gradient_accumulation_steps: int,
@@ -235,7 +235,7 @@ def train_step(
     for step in range(gradient_accumulation_steps):
         loss, mlm_loss, mlm_acc, sop_loss, sop_acc = train_batch(
             model=model,
-            opt=opt,
+            optimizer=optimizer,
             gradient_accumulator=gradient_accumulator,
             input_dict={
                 "input_ids": batch["input_ids"][step],
@@ -263,7 +263,7 @@ def train_step(
 
     return_tuple = allreduce(
         model=model,
-        opt=opt,
+        optimizer=optimizer,
         gradient_accumulator=gradient_accumulator,
         loss=total_loss,
         mlm_loss=total_mlm_loss,
@@ -348,8 +348,8 @@ def wrap_global_functions(do_gradient_accumulation: bool):
 
 
 def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str]:
-    """ Returns the model_ckpt path and opt_ckpt path. """
-    return f"{prefix}.ckpt", f"{prefix}-opt.npy"
+    """ Returns the model_ckpt path and optimizer_ckpt path. """
+    return f"{prefix}.ckpt", f"{prefix}-optimizer.npy"
 
 
 def main():
@@ -445,7 +445,7 @@ def main():
         power=train_args.learning_rate_decay_power,
     )
     if train_args.optimizer == "lamb":
-        opt = LAMB(
+        optimizer = LAMB(
             learning_rate=schedule,
             weight_decay_rate=0.01,
             beta_1=0.9,
@@ -454,19 +454,21 @@ def main():
             exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"],
         )
     elif train_args.optimizer == "adam":
-        opt = AdamW(weight_decay=0.0, learning_rate=schedule)
-    opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale="dynamic")
+        optimizer = AdamW(weight_decay=0.0, learning_rate=schedule)
+    optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(
+        optimizer, loss_scale="dynamic"
+    )
     gradient_accumulator = GradientAccumulator()
 
-    loaded_opt_weights = None
+    loaded_optimizer_weights = None
 
     model = create_model(model_class=TFAutoModelForPreTraining, model_args=model_args)
     tokenizer = create_tokenizer(model_args.model_type)
     if model_args.load_from == "checkpoint":
-        model_ckpt, opt_ckpt = get_checkpoint_paths_from_prefix(model_args.checkpoint_path)
+        model_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(model_args.checkpoint_path)
         if hvd.rank() == 0:
             model.load_weights(model_ckpt)
-            loaded_opt_weights = np.load(opt_ckpt, allow_pickle=True)
+            loaded_optimizer_weights = np.load(optimizer_ckpt, allow_pickle=True)
             # We do not set the weights yet, we have to do a first step to initialize the optimizer.
 
     # Train filenames are [1, 2047], Val filenames are [0]. Note the different subdirectories
@@ -511,10 +513,10 @@ def main():
     start_time = time.perf_counter()
     for batch in train_dataset:
         learning_rate = schedule(step=tf.constant(i, dtype=tf.float32))
-        loss_scale = opt.loss_scale()
+        loss_scale = optimizer.loss_scale()
         loss, mlm_loss, mlm_acc, sop_loss, sop_acc, grad_norm, weight_norm = train_step(
             model=model,
-            opt=opt,
+            optimizer=optimizer,
             gradient_accumulator=gradient_accumulator,
             batch=batch,
             gradient_accumulation_steps=train_args.gradient_accumulation_steps,
@@ -524,11 +526,11 @@ def main():
 
         # Don't want to wrap broadcast_variables() in a tf.function, can lead to asynchronous errors
         if i == 0:
-            if hvd.rank() == 0 and loaded_opt_weights is not None:
-                opt.set_weights(loaded_opt_weights)
+            if hvd.rank() == 0 and loaded_optimizer_weights is not None:
+                optimizer.set_weights(loaded_optimizer_weights)
             hvd.broadcast_variables(model.variables, root_rank=0)
-            hvd.broadcast_variables(opt.variables(), root_rank=0)
-            i = opt.get_weights()[0] - 1
+            hvd.broadcast_variables(optimizer.variables(), root_rank=0)
+            i = optimizer.get_weights()[0] - 1
 
         is_final_step = i >= train_args.total_steps - 1
         do_squad = i in squad_steps or is_final_step
@@ -569,14 +571,14 @@ def main():
             if do_checkpoint:
                 checkpoint_prefix = f"{data_args.fsx_prefix}/checkpoints/albert/{run_name}-step{i}"
                 model_ckpt = f"{checkpoint_prefix}.ckpt"
-                opt_ckpt = f"{checkpoint_prefix}-opt.npy"
-                logger.info(f"Saving model at {model_ckpt}, optimizer at {opt_ckpt}")
+                optimizer_ckpt = f"{checkpoint_prefix}-optimizer.npy"
+                logger.info(f"Saving model at {model_ckpt}, optimizer at {optimizer_ckpt}")
                 model.save_weights(model_ckpt)
                 # model.load_weights(model_ckpt)
 
-                opt_weights = opt.get_weights()
-                np.save(opt_ckpt, opt_weights)
-                # opt.set_weights(opt_weights)
+                optimizer_weights = optimizer.get_weights()
+                np.save(optimizer_ckpt, optimizer_weights)
+                # optimizer.set_weights(optimizer_weights)
 
             if do_validation:
                 val_loss, val_mlm_loss, val_mlm_acc, val_sop_loss, val_sop_acc = run_validation(
@@ -595,6 +597,7 @@ def main():
                     **asdict(data_args),
                     **asdict(train_args),
                     **asdict(log_args),
+                    "global_batch_size": model_args.batch_size * hvd.size(),
                 }
                 wandb.init(config=config, project=model_args.model_type)
                 summary_writer = tf.summary.create_file_writer(
