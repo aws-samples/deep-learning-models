@@ -1,11 +1,9 @@
-import argparse
 import collections
 import math
 from typing import Dict, List
 
 import tensorflow as tf
 import tqdm
-from transformers import AutoConfig, TFAutoModelForQuestionAnswering
 from transformers.data.metrics.squad_metrics import compute_predictions_logits, squad_evaluate
 from transformers.data.processors.squad import (
     SquadExample,
@@ -14,11 +12,12 @@ from transformers.data.processors.squad import (
     SquadV2Processor,
 )
 
-from common.utils import get_dataset, get_tokenizer
+from common.utils import get_dataset
 
 
 def get_evaluation_metrics(
     model,
+    tokenizer,
     data_dir: str,
     filename: str,
     batch_size: int = 32,
@@ -45,7 +44,6 @@ def get_evaluation_metrics(
     """
     # These are not used in inference, only for scoring in `compute_predictions_logits()`.
     processor = SquadV2Processor()
-    tokenizer = get_tokenizer()
     examples: List[SquadExample] = processor.get_dev_examples(data_dir, filename=filename)
     features: List[SquadFeatures] = get_dataset(
         tokenizer=tokenizer,
@@ -151,35 +149,3 @@ def get_squad_results(
     pbar.close()
 
     return results
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--checkpoint", type=str, default=None)
-    parser.add_argument("--pre_layer_norm", type=str, choices=["true"])
-    args = parser.parse_args()
-
-    # Load finetuned model from checkpoint
-    config = AutoConfig.from_pretrained("albert-base-v2")
-    config.pre_layer_norm = args.pre_layer_norm == "true"
-    model = TFAutoModelForQuestionAnswering.from_config(config)
-
-    # XLA, AMP, tf.function
-    tf.config.optimizer.set_jit(True)
-    tf.config.optimizer.set_experimental_options({"auto_mixed_precision": True})
-    model.call = tf.function(model.call)
-
-    # Get validation dataset
-    data_dir = "/fsx/squad_data"
-    train_filename = "train-v2.0.json"
-    val_filename = "dev-v2.0.json"
-
-    results = get_evaluation_metrics(
-        model=model,
-        data_dir=data_dir,
-        filename=val_filename,
-        batch_size=args.batch_size,
-        disable_tqdm=False,
-    )
-    print(dict(results))

@@ -41,6 +41,15 @@ class ModelArguments:
     )
     hidden_dropout_prob: float = field(default=0.0)
 
+    @property
+    def model_desc(self) -> str:
+        if self.model_type == "albert":
+            return f"albert-{self.model_size}-v2"
+        elif self.model_type == "bert":
+            return f"bert-{self.model_size}-uncased"
+        else:
+            assert False
+
 
 @dataclass
 class DataTrainingArguments:

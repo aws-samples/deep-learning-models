@@ -22,7 +22,7 @@ class LinearWarmupPolyDecaySchedule(tf.keras.optimizers.schedules.LearningRateSc
                 * (cooldown_pct_left ** self.power)
             ) + self.end_learning_rate
 
-    def get_config(self):
+    def create_config(self):
         return {
             "max_learning_rate": self.max_learning_rate,
             "end_learning_rate": self.end_learning_rate,

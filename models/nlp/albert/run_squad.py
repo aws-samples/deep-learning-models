@@ -15,13 +15,12 @@ import logging
 import math
 import os
 from tempfile import TemporaryDirectory
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import tensorflow as tf
 import tensorflow_addons as tfa
 import tqdm
 from transformers import (
-    AlbertTokenizer,
     AutoConfig,
     HfArgumentParser,
     PretrainedConfig,
@@ -45,7 +44,7 @@ from common.arguments import (
 )
 from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
 from common.models import load_qa_from_pretrained
-from common.utils import TqdmLoggingHandler, f1_score, get_dataset, get_tokenizer
+from common.utils import TqdmLoggingHandler, create_tokenizer, f1_score, get_dataset
 from run_squad_evaluation import get_evaluation_metrics
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
@@ -217,6 +216,7 @@ def hvd_barrier():
 
 def get_squad_results_while_pretraining(
     model: tf.keras.Model,
+    tokenizer: PreTrainedTokenizer,
     model_size: str,
     fsx_prefix: str,
     step: int,
@@ -231,8 +231,12 @@ def get_squad_results_while_pretraining(
         path = os.path.join(dirname, "model")
         model.save_weights(path)
         hvd_barrier()
+        # Convert model into a clone
         cloned_model = type(model)(config=model.config)
         cloned_model.load_weights(path).expect_partial()
+        qa_model = load_qa_from_pretrained(model=cloned_model)
+        qa_model.call = wrap_tf_function_idempotent(qa_model.call)
+        #
         hvd_barrier()
         per_gpu_batch_size = min(3, int(math.ceil(48 / hvd.size())))
         if fast:
@@ -246,11 +250,10 @@ def get_squad_results_while_pretraining(
 
         squad_run_name = f"pretrain{step}-"
         squad_results = run_squad_and_get_results(
+            model=qa_model,
+            tokenizer=tokenizer,
             run_name=squad_run_name,
             fsx_prefix=fsx_prefix,
-            pre_layer_norm=cloned_model.config.pre_layer_norm,
-            model_size=model_size,
-            load_from=cloned_model,
             batch_size=per_gpu_batch_size,  # This will be less than 3, so no OOM errors
             checkpoint_frequency=None,
             validate_frequency=None,
@@ -267,11 +270,10 @@ def get_squad_results_while_pretraining(
 
 
 def run_squad_and_get_results(
+    model: tf.keras.Model,  # Must be QuestionAnswering model, not PreTraining
+    tokenizer: PreTrainedTokenizer,
     run_name: str,
     fsx_prefix: str,
-    pre_layer_norm: bool,
-    model_size: str,
-    load_from: Union[str, tf.keras.Model],
     batch_size: int,
     checkpoint_frequency: Optional[int],
     validate_frequency: Optional[int],
@@ -280,30 +282,11 @@ def run_squad_and_get_results(
     total_steps: int,
     dataset: str,
     dummy_eval: bool = False,
-    config: Optional[PretrainedConfig] = None,
 ) -> Dict:
     checkpoint_frequency = checkpoint_frequency or 1000000
     validate_frequency = validate_frequency or 1000000
     is_sagemaker = fsx_prefix.startswith("/opt/ml")
     disable_tqdm = is_sagemaker
-
-    if isinstance(load_from, tf.keras.Model):
-        config = load_from.config
-    assert config is not None, "config may not be None"
-
-    # Instantiate QuestionAnswering model
-    if isinstance(load_from, TFPreTrainedModel):
-        model = load_qa_from_pretrained(model=load_from)
-    elif load_from == "scratch":
-        model = TFAutoModelForQuestionAnswering.from_config(config)
-    elif load_from == "huggingface":
-        model = load_qa_from_pretrained(name=f"albert-{model_size}-v2")
-    else:
-        raise ValueError(
-            f"'load_from' is '{load_from}'; must be in ['scratch', 'huggingface', 'amazon']"
-        )
-
-    tokenizer = get_tokenizer()
 
     schedule = LinearWarmupPolyDecaySchedule(
         max_learning_rate=learning_rate,
@@ -315,8 +298,6 @@ def run_squad_and_get_results(
     optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(
         optimizer, loss_scale="dynamic"
     )  # AMP
-
-    model.call = wrap_tf_function_idempotent(model.call)
 
     if dataset == "squadv1":
         train_filename = "train-v1.1.json"
@@ -380,8 +361,8 @@ def run_squad_and_get_results(
 
         is_final_step = step >= total_steps - 1
         if hvd.rank() == 0:
-            do_checkpoint = (step % checkpoint_frequency == 0) or is_final_step
-            do_validate = (step % validate_frequency == 0) or is_final_step
+            do_checkpoint = ((step > 0) and (step % checkpoint_frequency == 0)) or is_final_step
+            do_validate = ((step > 0) and (step % validate_frequency == 0)) or is_final_step
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, Acc: {acc:.3f}, EM: {exact_match:.3f}, F1: {f1:.3f}"
@@ -421,7 +402,11 @@ def run_squad_and_get_results(
                     }
                 else:
                     results: Dict = get_evaluation_metrics(
-                        model=model, data_dir=data_dir, filename=val_filename, batch_size=32,
+                        model=model,
+                        tokenizer=tokenizer,
+                        data_dir=data_dir,
+                        filename=val_filename,
+                        batch_size=32,
                     )
                 print_eval_metrics(results=results, step=step)
 
@@ -507,17 +492,15 @@ def main():
         # We only use run_name on rank 0, but need all ranks to pass a value in function args
         run_name = None
 
-    if model_args.model_type == "albert":
-        model_desc = f"albert-{model_args.model_size}-v2"
-    else:
-        model_desc = f"bert-{model_args.model_size}-uncased"
+    model = TFAutoModelForQuestionAnswering.from_pretrained(model_args.model_desc)
+    model.call = wrap_tf_function_idempotent(model.call)
+    tokenizer = create_tokenizer(model_args.model_type)
 
     results = run_squad_and_get_results(
+        model=model,
+        tokenizer=tokenizer,
         run_name=run_name,
         fsx_prefix=data_args.fsx_prefix,
-        pre_layer_norm=parse_bool(model_args.pre_layer_norm),
-        model_size=model_args.model_size,
-        load_from=model_args.load_from,
         batch_size=train_args.batch_size,
         checkpoint_frequency=log_args.checkpoint_frequency,
         validate_frequency=log_args.validation_frequency,
@@ -525,7 +508,6 @@ def main():
         warmup_steps=train_args.warmup_steps,
         total_steps=train_args.total_steps,
         dataset=data_args.task_name,
-        config=AutoConfig.from_pretrained(model_desc),
     )
     if hvd.rank() == 0:
         logger.info(results)

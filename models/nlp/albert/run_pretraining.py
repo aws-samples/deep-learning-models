@@ -51,7 +51,8 @@ from common.arguments import (
 )
 from common.datasets import get_mlm_dataset
 from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
-from common.utils import TqdmLoggingHandler, gather_indexes, rewrap_tf_function
+from common.models import create_model
+from common.utils import TqdmLoggingHandler, create_tokenizer, gather_indexes, rewrap_tf_function
 from run_squad import get_squad_results_while_pretraining
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
@@ -435,16 +436,6 @@ def main():
 
     wrap_global_functions(do_gradient_accumulation)
 
-    if model_args.model_type == "albert":
-        model_desc = f"albert-{model_args.model_size}-v2"
-    elif model_args.model_type == "bert":
-        model_desc = f"bert-{model_args.model_size}-uncased"
-
-    config = AutoConfig.from_pretrained(model_desc)
-    config.pre_layer_norm = pre_layer_norm
-    config.hidden_dropout_prob = model_args.hidden_dropout_prob
-    model = TFAutoModelForPreTraining.from_config(config)
-
     # Create optimizer and enable AMP loss scaling.
     schedule = LinearWarmupPolyDecaySchedule(
         max_learning_rate=train_args.learning_rate,
@@ -468,20 +459,11 @@ def main():
     gradient_accumulator = GradientAccumulator()
 
     loaded_opt_weights = None
-    if model_args.load_from == "scratch":
-        pass
-    elif model_args.load_from.startswith("huggingface"):
-        assert (
-            model_args.model_type == "albert"
-        ), "Only loading pretrained albert models is supported"
-        huggingface_name = f"albert-{model_args.model_size}-v2"
-        if model_args.load_from == "huggingface":
-            albert = TFAlbertModel.from_pretrained(huggingface_name, config=config)
-            model.albert = albert
-    else:
-        model_ckpt, opt_ckpt = get_checkpoint_paths_from_prefix(model_args.checkpoint_path)
 
-        model = TFAutoModelForPreTraining.from_config(config)
+    model = create_model(model_class=TFAutoModelForPreTraining, model_args=model_args)
+    tokenizer = create_tokenizer(model_args.model_type)
+    if model_args.load_from == "checkpoint":
+        model_ckpt, opt_ckpt = get_checkpoint_paths_from_prefix(model_args.checkpoint_path)
         if hvd.rank() == 0:
             model.load_weights(model_ckpt)
             loaded_opt_weights = np.load(opt_ckpt, allow_pickle=True)
@@ -554,6 +536,7 @@ def main():
         if do_squad:
             squad_results = get_squad_results_while_pretraining(
                 model=model,
+                tokenizer=tokenizer,
                 model_size=model_args.model_size,
                 fsx_prefix=data_args.fsx_prefix,
                 step=i,

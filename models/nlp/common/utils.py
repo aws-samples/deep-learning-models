@@ -4,7 +4,13 @@ from typing import List
 
 import tensorflow as tf
 import tqdm
-from transformers import AlbertTokenizer, PreTrainedTokenizer
+from transformers import (
+    AlbertTokenizer,
+    AutoConfig,
+    BertTokenizerFast,
+    PretrainedConfig,
+    PreTrainedTokenizer,
+)
 from transformers.data.processors.squad import (
     SquadExample,
     SquadFeatures,
@@ -13,6 +19,8 @@ from transformers.data.processors.squad import (
     SquadV2Processor,
     squad_convert_examples_to_features,
 )
+
+from common.arguments import ModelArguments
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
@@ -127,5 +135,17 @@ def get_dataset(
         return dataset
 
 
-def get_tokenizer():
-    return AlbertTokenizer.from_pretrained("albert-base-v2")
+def create_config(model_args: ModelArguments) -> PretrainedConfig:
+    config = AutoConfig.from_pretrained(model_args.model_desc)
+    config.pre_layer_norm = model_args.pre_layer_norm
+    config.hidden_dropout_prob = model_args.hidden_dropout_prob
+    return config
+
+
+def create_tokenizer(model_type: str) -> PreTrainedTokenizer:
+    if model_type == "albert":
+        return AlbertTokenizer.from_pretrained("albert-base-v2")
+    elif model_type == "bert":
+        return BertTokenizerFast.from_pretrained("bert-base-uncased")
+    else:
+        raise ValueError(f"model_type={model_type} must be one of ['albert', 'bert']")
