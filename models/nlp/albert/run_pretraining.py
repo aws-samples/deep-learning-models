@@ -356,7 +356,15 @@ def main():
     parser = HfArgumentParser(
         (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
     )
-    model_args, data_args, train_args, log_args = parser.parse_args_into_dataclasses()
+    (
+        model_args,
+        data_args,
+        train_args,
+        log_args,
+        remaining_strings,
+    ) = parser.parse_args_into_dataclasses(return_remaining_strings=True)
+    # SageMaker may have some extra strings. TODO: Test this on SM.
+    assert len(remaining_strings) == 0, f"The args {remaining_strings} could not be parsed."
 
     tf.random.set_seed(train_args.seed)
     tf.autograph.set_verbosity(0)
@@ -404,7 +412,7 @@ def main():
             f"-{model_args.model_size}"
             f"-{model_args.load_from}"
             f"-{hvd.size()}gpus"
-            f"-{train_args.batch_size}batch"
+            f"-{train_args.per_gpu_batch_size * hvd.size()}globalbatch"
             f"-{train_args.gradient_accumulation_steps}accum"
             f"-{train_args.learning_rate}maxlr"
             f"-{train_args.end_learning_rate}endlr"
@@ -487,9 +495,9 @@ def main():
         filenames=train_filenames,
         max_seq_length=data_args.max_seq_length,
         max_predictions_per_seq=data_args.max_predictions_per_seq,
-        batch_size=train_args.batch_size,
-    )  # Of shape [batch_size, ...]
-    # Batch of batches, helpful for gradient accumulation. Shape [grad_steps, batch_size, ...]
+        per_gpu_batch_size=train_args.per_gpu_batch_size,
+    )  # Of shape [per_gpu_batch_size, ...]
+    # Batch of batches, helpful for gradient accumulation. Shape [grad_steps, per_gpu_batch_size, ...]
     train_dataset = train_dataset.batch(train_args.gradient_accumulation_steps)
     # One iteration with 10 dupes, 8 nodes seems to be 60-70k steps.
     train_dataset = train_dataset.prefetch(buffer_size=8)
@@ -500,7 +508,7 @@ def main():
             filenames=validation_filenames,
             max_seq_length=data_args.max_seq_length,
             max_predictions_per_seq=data_args.max_predictions_per_seq,
-            batch_size=train_args.batch_size,
+            per_gpu_batch_size=train_args.per_gpu_batch_size,
         )
         # validation_dataset = validation_dataset.batch(1)
         validation_dataset = validation_dataset.prefetch(buffer_size=8)
@@ -592,17 +600,17 @@ def main():
 
             # Create summary_writer after the first step
             if summary_writer is None:
+                summary_writer = tf.summary.create_file_writer(
+                    f"{data_args.fsx_prefix}/logs/albert/{run_name}"
+                )
                 config = {
                     **asdict(model_args),
                     **asdict(data_args),
                     **asdict(train_args),
                     **asdict(log_args),
-                    "global_batch_size": model_args.batch_size * hvd.size(),
+                    "global_batch_size": train_args.per_gpu_batch_size * hvd.size(),
                 }
                 wandb.init(config=config, project=model_args.model_type)
-                summary_writer = tf.summary.create_file_writer(
-                    f"{data_args.fsx_prefix}/logs/albert/{run_name}"
-                )
 
             train_metrics = {
                 "train/weight_norm": weight_norm,

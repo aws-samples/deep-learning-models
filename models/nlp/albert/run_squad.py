@@ -254,7 +254,7 @@ def get_squad_results_while_pretraining(
             tokenizer=tokenizer,
             run_name=squad_run_name,
             fsx_prefix=fsx_prefix,
-            batch_size=per_gpu_batch_size,  # This will be less than 3, so no OOM errors
+            per_gpu_batch_size=per_gpu_batch_size,  # This will be less than 3, so no OOM errors
             checkpoint_frequency=None,
             validate_frequency=None,
             learning_rate=3e-5,
@@ -274,7 +274,7 @@ def run_squad_and_get_results(
     tokenizer: PreTrainedTokenizer,
     run_name: str,
     fsx_prefix: str,
-    batch_size: int,
+    per_gpu_batch_size: int,
     checkpoint_frequency: Optional[int],
     validate_frequency: Optional[int],
     learning_rate: float,
@@ -321,7 +321,7 @@ def run_squad_and_get_results(
         processor=processor,
         data_dir=data_dir,
         filename=train_filename,
-        batch_size=batch_size,
+        per_gpu_batch_size=per_gpu_batch_size,
         shard=True,
         shuffle=True,
         repeat=True,
@@ -337,7 +337,7 @@ def run_squad_and_get_results(
             processor=processor,
             data_dir=data_dir,
             filename=val_filename,
-            batch_size=batch_size,
+            per_gpu_batch_size=per_gpu_batch_size,
             shard=False,
             shuffle=True,
             drop_remainder=False,
@@ -406,7 +406,7 @@ def run_squad_and_get_results(
                         tokenizer=tokenizer,
                         data_dir=data_dir,
                         filename=val_filename,
-                        batch_size=32,
+                        per_gpu_batch_size=32,
                     )
                 print_eval_metrics(results=results, step=step)
 
@@ -487,7 +487,7 @@ def main():
             load_name = f"{model_args.load_from}"
         else:
             load_name = model_args.load_from
-        run_name = f"{current_time}-{platform}-{model_args.model_size}-{data_args.task_name}-{load_name}-{hvd.size()}gpus-{train_args.batch_size}batch-{train_args.learning_rate}lr-{train_args.name}"
+        run_name = f"{current_time}-{platform}-{model_args.model_size}-{data_args.task_name}-{load_name}-{hvd.size()}gpus-{train_args.per_gpu_batch_size}batch-{train_args.learning_rate}lr-{train_args.name}"
     else:
         # We only use run_name on rank 0, but need all ranks to pass a value in function args
         run_name = None
@@ -501,7 +501,7 @@ def main():
         tokenizer=tokenizer,
         run_name=run_name,
         fsx_prefix=data_args.fsx_prefix,
-        batch_size=train_args.batch_size,
+        per_gpu_batch_size=train_args.per_gpu_batch_size,
         checkpoint_frequency=log_args.checkpoint_frequency,
         validate_frequency=log_args.validation_frequency,
         learning_rate=train_args.learning_rate,

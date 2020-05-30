@@ -60,15 +60,15 @@ def f1_score(precision: tf.Tensor, recall: tf.Tensor) -> tf.Tensor:
 def gather_indexes(sequence_tensor: "[batch,seq_length,width]", positions) -> tf.Tensor:
     """Gathers the vectors at the specific positions over a 3D minibatch."""
     sequence_shape = sequence_tensor.shape.as_list()
-    batch_size = sequence_shape[0]
+    per_gpu_batch_size = sequence_shape[0]
     seq_length = sequence_shape[1]
     width = sequence_shape[2]
 
-    flat_offsets = tf.reshape(tf.range(0, batch_size, dtype=tf.int64) * seq_length, [-1, 1])
+    flat_offsets = tf.reshape(tf.range(0, per_gpu_batch_size, dtype=tf.int64) * seq_length, [-1, 1])
     flat_positions = tf.reshape(positions + flat_offsets, [-1])
-    flat_sequence_tensor = tf.reshape(sequence_tensor, [batch_size * seq_length, width])
+    flat_sequence_tensor = tf.reshape(sequence_tensor, [per_gpu_batch_size * seq_length, width])
     output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
-    output_tensor = tf.reshape(output_tensor, [batch_size, -1, width])
+    output_tensor = tf.reshape(output_tensor, [per_gpu_batch_size, -1, width])
     return output_tensor
 
 
@@ -76,14 +76,14 @@ def gather_indexes_2d(sequence_tensor: "[batch,seq_length]", positions) -> tf.Te
     """ Gathers the vectors at the specific positions over a 2D minibatch."""
     # TODO: Merge this with gather_indexes()
     sequence_shape = sequence_tensor.shape.as_list()
-    batch_size = sequence_shape[0]
+    per_gpu_batch_size = sequence_shape[0]
     seq_length = sequence_shape[1]
 
-    flat_offsets = tf.reshape(tf.range(0, batch_size, dtype=tf.int64) * seq_length, [-1, 1])
+    flat_offsets = tf.reshape(tf.range(0, per_gpu_batch_size, dtype=tf.int64) * seq_length, [-1, 1])
     flat_positions = tf.reshape(positions + flat_offsets, [-1])
-    flat_sequence_tensor = tf.reshape(sequence_tensor, [batch_size * seq_length])
+    flat_sequence_tensor = tf.reshape(sequence_tensor, [per_gpu_batch_size * seq_length])
     output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
-    output_tensor = tf.reshape(output_tensor, [batch_size, -1])
+    output_tensor = tf.reshape(output_tensor, [per_gpu_batch_size, -1])
     return output_tensor
 
 
@@ -93,7 +93,7 @@ def get_dataset(
     processor: SquadProcessor,
     data_dir: str,
     filename: str,
-    batch_size: int,
+    per_gpu_batch_size: int,
     shard: bool,
     drop_remainder: bool,
     shuffle: bool = True,
@@ -130,7 +130,7 @@ def get_dataset(
             dataset = dataset.shuffle(buffer_size=1000, reshuffle_each_iteration=True)
         if repeat:
             dataset = dataset.repeat()
-        dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
+        dataset = dataset.batch(per_gpu_batch_size, drop_remainder=drop_remainder)
         if shuffle:
             dataset = dataset.shuffle(buffer_size=1000, reshuffle_each_iteration=True)
         return dataset

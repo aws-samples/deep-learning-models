@@ -22,6 +22,7 @@ RUN mkdir -p /root/.ssh/ && \
 RUN pip install --no-cache-dir \
     mpi4py \
     sagemaker-containers \
+    wandb \
     tensorflow-addons==0.9.1
 # TODO: Why does installing torch break TF XLA support?
 

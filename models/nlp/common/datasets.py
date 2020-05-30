@@ -5,19 +5,21 @@ import numpy as np
 import tensorflow as tf
 
 
-def get_synthetic_mlm_dataset(batch_size: int) -> tf.data.Dataset:
+def get_synthetic_mlm_dataset(per_gpu_batch_size: int) -> tf.data.Dataset:
     """ Returns a dataset that includes batching, but not gradient accumulation. """
 
-    def gen(batch_size):
-        seq_shape = [batch_size, 512]
-        preds_shape = [batch_size, 20]
+    def gen(per_gpu_batch_size):
+        seq_shape = [per_gpu_batch_size, 512]
+        preds_shape = [per_gpu_batch_size, 20]
         input_ids = tf.constant(np.random.randint(10, size=seq_shape), dtype=tf.int64)
         attention_mask = tf.constant(np.random.randint(2, size=seq_shape), dtype=tf.int64)
         token_type_ids = tf.constant(np.random.randint(2, size=seq_shape), dtype=tf.int64)
         masked_lm_positions = tf.constant(np.random.randint(10, size=preds_shape), dtype=tf.int64)
         masked_lm_ids = tf.constant(np.random.randint(2, size=preds_shape), dtype=tf.int64)
         masked_lm_weights = tf.constant(np.random.randint(2, size=preds_shape), dtype=tf.float32)
-        next_sentence_labels = tf.constant(np.random.randint(2, size=[batch_size]), dtype=tf.int64)
+        next_sentence_labels = tf.constant(
+            np.random.randint(2, size=[per_gpu_batch_size]), dtype=tf.int64
+        )
 
         input_dict = {
             "input_ids": input_ids,
@@ -42,7 +44,7 @@ def get_synthetic_mlm_dataset(batch_size: int) -> tf.data.Dataset:
             "masked_lm_weights": tf.float32,
             "next_sentence_labels": tf.int64,
         },
-        args=(batch_size,),
+        args=(per_gpu_batch_size,),
     )
     dataset = dataset.repeat()
 
@@ -54,7 +56,7 @@ def get_mlm_dataset(
     filenames: List[str],
     max_seq_length: int,
     max_predictions_per_seq: int,
-    batch_size: int,
+    per_gpu_batch_size: int,
     buffer_size: int = 1000,
 ) -> tf.data.Dataset:
     """ Reads the dataset from TFRecords and returns it.
@@ -108,7 +110,7 @@ def get_mlm_dataset(
     # Map and batch will be automatically fused together, see https://www.tensorflow.org/api_docs/python/tf/data/experimental/map_and_batch
     dataset = dataset.map(_parse_function, num_parallel_calls=num_cpu_threads)
     dataset = dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
-    dataset = dataset.batch(batch_size, drop_remainder=True)
+    dataset = dataset.batch(per_gpu_batch_size, drop_remainder=True)
     # Shuffle the batches and prefetch some batches
     dataset = dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
 

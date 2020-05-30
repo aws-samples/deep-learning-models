@@ -78,8 +78,8 @@ class TrainingArguments:
 
     # model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
     seed: int = field(default=42)
-    # TODO: Change this to per_gpu_train_batch_size
-    batch_size: int = field(default=32)
+    # TODO: Change this to per_gpu_train_per_gpu_batch_size
+    per_gpu_batch_size: int = field(default=32)
     gradient_accumulation_steps: int = field(
         default=1,
         metadata={

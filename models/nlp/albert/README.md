@@ -53,7 +53,7 @@ python launch_sagemaker.py \
     --load_from=scratch \
     --model_type=albert \
     --model_size=base \
-    --batch_size=32 \
+    --per_gpu_batch_size=32 \
     --gradient_accumulation_steps=2 \
     --warmup_steps=3125 \
     --total_steps=125000 \
@@ -75,7 +75,7 @@ python launch_sagemaker.py \
     --load_from=scratch \
     --model_type=albert \
     --model_size=base \
-    --batch_size=6 \
+    --per_gpu_batch_size=6 \
     --total_steps=8144 \
     --warmup_steps=814 \
     --learning_rate=3e-5 \

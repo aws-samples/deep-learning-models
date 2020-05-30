@@ -20,7 +20,7 @@ def get_evaluation_metrics(
     tokenizer,
     data_dir: str,
     filename: str,
-    batch_size: int = 32,
+    per_gpu_batch_size: int = 32,
     num_batches: int = None,
     disable_tqdm: bool = False,
 ) -> Dict[str, "Number"]:
@@ -50,7 +50,7 @@ def get_evaluation_metrics(
         processor=processor,
         data_dir=data_dir,
         filename=filename,
-        batch_size=batch_size,
+        per_gpu_batch_size=per_gpu_batch_size,
         shard=False,
         shuffle=False,
         drop_remainder=False,
@@ -63,7 +63,7 @@ def get_evaluation_metrics(
         processor=processor,
         data_dir=data_dir,
         filename=filename,
-        batch_size=batch_size,
+        per_gpu_batch_size=per_gpu_batch_size,
         shard=False,
         shuffle=False,
         drop_remainder=False,
@@ -73,7 +73,7 @@ def get_evaluation_metrics(
         model=model,
         dataset=dataset,
         features=features,
-        batch_size=batch_size,
+        per_gpu_batch_size=per_gpu_batch_size,
         num_batches=num_batches,
         disable_tqdm=disable_tqdm,
     )
@@ -112,15 +112,15 @@ def get_squad_results(
     model,
     dataset: tf.data.Dataset,
     features: List[SquadFeatures],
-    batch_size: int,
+    per_gpu_batch_size: int,
     num_batches: int,
     disable_tqdm: bool,
 ) -> List[SquadResult]:
     results = []
 
-    total_steps = math.ceil(len(features) / batch_size)
+    total_steps = math.ceil(len(features) / per_gpu_batch_size)
     pbar = tqdm.tqdm(total=total_steps, disable=disable_tqdm)
-    pbar.set_description(f"Evaluating with batch size {batch_size}")
+    pbar.set_description(f"Evaluating with batch size {per_gpu_batch_size}")
 
     if num_batches:
         dataset = dataset.take(num_batches)
@@ -134,8 +134,8 @@ def get_squad_results(
         outputs = model(input_dict, training=False)
         start_logits, end_logits = outputs[0], outputs[1]
 
-        batch_size = len(batch[1]["start_position"])
-        for i in range(batch_size):
+        per_gpu_batch_size = len(batch[1]["start_position"])
+        for i in range(per_gpu_batch_size):
             feature_index = batch[0]["feature_index"][i].numpy().item()
             unique_id = int(features[feature_index].unique_id)
             result = SquadResult(
