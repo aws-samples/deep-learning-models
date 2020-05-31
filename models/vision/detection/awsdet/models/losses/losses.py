@@ -29,23 +29,20 @@ def focal_loss(y_preds, y_true, alpha=0.25, gamma=2.0, avg_factor=1.0, num_class
         avg_factor: value to divide the loss sum by (equals num_pos_anchors for RetinaNet)
         num_classes:
     Return:
-        Scalar loss normalized by number of anchors that got assigned to GT (TODO: generalize this take normalization factor as an argument)
+        Scalar loss normalized by number of anchors that got assigned to GT 
     """
     assert gamma >= 0.0
-    # print('target min max', tf.reduce_min(y_true), tf.reduce_max(y_true))
     pred_sigmoid = tf.keras.layers.Activation(tf.nn.sigmoid, dtype=tf.float32)(y_preds)
     oh_target = tf.one_hot(y_true-1, depth=num_classes, dtype=tf.float32)
+    label_smoothing = 0.1
     positive_mask = tf.math.equal(oh_target, 1)
+    oh_target = oh_target * (1 - label_smoothing) + 0.5 * label_smoothing
     avg_factor = tf.math.maximum(1.0, tf.cast(avg_factor, tf.float32))
-    # print(tf.shape(oh_target), tf.shape(y_preds))
     ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=oh_target, logits=y_preds)
-    # print('ce', ce)
     pt = tf.where(positive_mask, pred_sigmoid, 1.0 - pred_sigmoid)
     loss = tf.math.pow(1.0 - pt, gamma) * ce
     weighted_loss = tf.where(positive_mask, alpha * loss, (1.0 - alpha) * loss)
-    # print('loss', weighted_loss)
     batch_loss_sum = tf.reduce_sum(weighted_loss)
-    # print('batch loss sum', batch_loss_sum, avg_factor)
     return batch_loss_sum / avg_factor
 
 

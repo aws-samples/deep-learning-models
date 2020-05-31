@@ -10,7 +10,7 @@ model = dict(
         type='KerasBackbone',
         model_name='ResNet50V1',
         weights_path='weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
-        weight_decay=1e-5
+        weight_decay=5e-5
     ),
     neck=dict(
         type='FPN',
@@ -20,7 +20,7 @@ model = dict(
         add_extra_convs=True,
         num_outs=5,
         interpolation_method='bilinear',
-        weight_decay=1e-5,
+        weight_decay=5e-5,
     ),
     bbox_head=dict(
         type='RetinaHead',
@@ -35,17 +35,17 @@ model = dict(
         target_stds=[1., 1., 1., 1.],
         pos_iou_thr=0.5,
         neg_iou_thr=0.4,
-        num_pre_nms=1000,
+        num_pre_nms=2000,
         min_confidence=0.05, 
         nms_threshold=0.5,
         max_instances=100,
         soft_nms_sigma=0.5,
-        weight_decay=1e-5
+        weight_decay=5e-5
     ),
 )
 # model training and testing settings
 train_cfg = dict(
-    weight_decay=1e-5,
+    weight_decay=5e-5,
 )
 test_cfg = dict(
 )

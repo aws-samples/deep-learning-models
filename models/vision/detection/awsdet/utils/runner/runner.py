@@ -247,8 +247,8 @@ class Runner(object):
             for var, grad in zip(var_list, grads)
         ]
         # all_are_finite = tf.reduce_all([tf.reduce_all(tf.math.is_finite(g)) for g in grads])
-        clipped_grads, global_norm = tf.clip_by_global_norm(grads, 15.0)
-        # tf.print(global_norm, all_are_finite)
+        clipped_grads, global_norm = tf.clip_by_global_norm(grads, 10.0) # 15.0)
+        # if self.rank == 0: tf.print(global_norm, all_are_finite)
         self.optimizer.apply_gradients(zip(clipped_grads, var_list))
         return outputs
 
