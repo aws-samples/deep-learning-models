@@ -445,9 +445,6 @@ def main():
         )
 
     lr_schedule = get_schedule(train_args.learning_rate)
-    # TODO: Get weight decay schedule working. See https://www.tensorflow.org/addons/api_docs/python/tfa/optimizers/AdamW
-    # This causes the model to diverge if learning rate is too low.
-    # wd_schedule = get_schedule(train_args.weight_decay)
     wd_schedule = 0.01
     if train_args.optimizer == "lamb":
         # LAMB made available in v0.7.0 of tfa, which only works with TF 2.1+.
@@ -460,12 +457,23 @@ def main():
             exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"],
         )
     elif train_args.optimizer == "adamw":
+        # Track issue status in https://github.com/tensorflow/addons/issues/1903
+        raise ValueError(
+            "This does not work currently, due to the lack of an `exclude_from_weight_decay`"
+            " argument in the tfa.optimizers.AdamW implementation. It also does not work without"
+            "an explicit weight decay schedule that matches the learning rate schedule."
+        )
+        # TODO: Get weight decay schedule working. See https://www.tensorflow.org/addons/api_docs/python/tfa/optimizers/AdamW
+        # This causes the model to diverge if learning rate is too low.
+        # It appears that ALBERT has a fixed weight decay: https://github.com/google-research/albert/blob/master/optimization.py#L78
+        # wd_schedule = get_schedule(train_args.weight_decay)
         optimizer = tfa.optimizers.AdamW(
             weight_decay=wd_schedule,
             learning_rate=lr_schedule,
             beta_1=train_args.beta_1,
             beta_2=train_args.beta_2,
             epsilon=train_args.epsilon,
+            # exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"], # TODO: Implement this
         )
 
     optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(
@@ -487,9 +495,19 @@ def main():
     # Train filenames are [1, 2047], Val filenames are [0]. Note the different subdirectories
     # Move to same folder structure and remove if/else
     if model_args.model_type == "albert":
+        possible_tuples = set([(128, 20), (512, 20)])
+        current_tuple = (data_args.max_seq_length, data_args.max_predictions_per_seq)
+        assert (
+            current_tuple in possible_tuples
+        ), f"Incorrect data: {current_tuple} not in {possible_tuples}"
         train_glob = f"{data_args.fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
         validation_glob = f"{data_args.fsx_prefix}/albert_pretraining/tfrecords/validation/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
     if model_args.model_type == "bert":
+        possible_tuples = set([(128, 20), (512, 80)])
+        current_tuple = (data_args.max_seq_length, data_args.max_predictions_per_seq)
+        assert (
+            current_tuple in possible_tuples
+        ), f"Incorrect data: {current_tuple} not in {possible_tuples}"
         train_glob = f"{data_args.fsx_prefix}/bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/training/*.tfrecord"
         validation_glob = f"{data_args.fsx_prefix}/bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/validation/*.tfrecord"
 

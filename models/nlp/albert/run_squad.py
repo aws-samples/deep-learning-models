@@ -257,6 +257,7 @@ def get_squad_results_while_pretraining(
             per_gpu_batch_size=per_gpu_batch_size,  # This will be less than 3, so no OOM errors
             checkpoint_frequency=None,
             validate_frequency=None,
+            evaluate_frequency=None,
             learning_rate=3e-5,
             warmup_steps=warmup_steps,
             total_steps=total_steps,
@@ -279,6 +280,7 @@ def run_squad_and_get_results(
     per_gpu_batch_size: int,
     checkpoint_frequency: Optional[int],
     validate_frequency: Optional[int],
+    evaluate_frequency: Optional[int],
     learning_rate: float,
     warmup_steps: int,
     total_steps: int,
@@ -287,6 +289,7 @@ def run_squad_and_get_results(
 ) -> Dict:
     checkpoint_frequency = checkpoint_frequency or 1000000
     validate_frequency = validate_frequency or 1000000
+    evaluate_frequency = evaluate_frequency or 1000000
     is_sagemaker = fsx_prefix.startswith("/opt/ml")
     disable_tqdm = is_sagemaker
 
@@ -366,6 +369,7 @@ def run_squad_and_get_results(
         if hvd.rank() == 0:
             do_checkpoint = ((step > 0) and (step % checkpoint_frequency == 0)) or is_final_step
             do_validate = ((step > 0) and (step % validate_frequency == 0)) or is_final_step
+            do_evaluate = ((step > 0) and (step % evaluate_frequency == 0)) or is_final_step
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, Acc: {acc:.3f}, EM: {exact_match:.3f}, F1: {f1:.3f}"
@@ -386,6 +390,8 @@ def run_squad_and_get_results(
                     f"EM: {val_exact_match:.3f}, F1: {val_f1:.3f}"
                 )
                 logger.info(description)
+
+            if do_evaluate:
                 logger.info("Running evaluation")
                 if dummy_eval:
                     results = {
@@ -508,6 +514,7 @@ def main():
         per_gpu_batch_size=train_args.per_gpu_batch_size,
         checkpoint_frequency=log_args.checkpoint_frequency,
         validate_frequency=log_args.validation_frequency,
+        evaluate_frequency=log_args.evaluate_frequency,
         learning_rate=train_args.learning_rate,
         warmup_steps=train_args.warmup_steps,
         total_steps=train_args.total_steps,
