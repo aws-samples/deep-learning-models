@@ -46,6 +46,7 @@ def rewrap_tf_function(func, experimental_compile=None):
     # If func is already a tf.function, un-wrap it and re-wrap it.
     # Necessary to avoid TF's global cache bugs when changing models.
     if hasattr(func, "python_function"):
+        # printing func._list_all_concrete_functions_for_serialization() here is always an empty list
         return tf.function(func.python_function, experimental_compile=experimental_compile)
     else:
         return tf.function(func, experimental_compile=experimental_compile)

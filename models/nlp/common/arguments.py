@@ -120,7 +120,7 @@ class LoggingArguments:
     log_frequency: int = field(default=1000)
     validation_frequency: int = field(default=2000)
     checkpoint_frequency: int = field(default=5000)
-    extra_squad_steps: str = field(default=None)
+    squad_frequency: int = field(default=40000)
     fast_squad: str = field(default=None, metadata={"choices": ["true"]})
     dummy_eval: str = field(default=None, metadata={"choices": ["true"]})
 

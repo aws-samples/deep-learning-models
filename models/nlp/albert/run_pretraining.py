@@ -23,11 +23,12 @@ A training run of 125k steps is 125k/(1.72 * 3600) ~= 20 hours for base trained 
 """
 
 import datetime
+import gc
 import glob
 import logging
 import time
 from dataclasses import asdict
-from typing import List, Tuple
+from typing import Tuple
 
 import numpy as np
 import tensorflow as tf
@@ -59,18 +60,6 @@ from run_squad import get_squad_results_while_pretraining
 import horovod.tensorflow as hvd  # isort:skip
 
 logger = logging.getLogger(__name__)
-
-
-def get_squad_steps(extra_steps_str: str) -> List[int]:
-    """ Parse a comma-separated string of integers, append it to list of default steps. """
-    extra_squad_steps = [int(val) for val in extra_steps_str.split(",")] if extra_steps_str else []
-    # fmt: off
-    default_squad_steps = [
-        k * 1000
-        for k in [5, 10, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300, 320, 340, 360, 380, 400]
-    ]
-    # fmt: on
-    return extra_squad_steps + default_squad_steps
 
 
 def mlm_loss_fn(
@@ -379,7 +368,6 @@ def main():
     pre_layer_norm = parse_bool(model_args.pre_layer_norm)
     fast_squad = parse_bool(log_args.fast_squad)
     dummy_eval = parse_bool(log_args.dummy_eval)
-    squad_steps = get_squad_steps(log_args.extra_squad_steps)
     is_sagemaker = data_args.fsx_prefix.startswith("/opt/ml")
     disable_tqdm = is_sagemaker
     global max_grad_norm
@@ -541,9 +529,24 @@ def main():
             i = optimizer.get_weights()[0] - 1
 
         is_final_step = i >= train_args.total_steps - 1
-        do_squad = i in squad_steps or is_final_step
+        do_squad = ((i > 0) and (i % log_args.squad_frequency == 0)) or is_final_step
         # Squad requires all the ranks to train, but results are only returned on rank 0
         if do_squad:
+            # proc = multiprocessing.Process(
+            #     target=get_squad_results_while_pretraining,
+            #     kwargs={
+            #         "model": model,
+            #         "tokenizer": tokenizer,
+            #         "model_size": model_args.model_size,
+            #         "fsx_prefix": data_args.fsx_prefix,
+            #         "step": i,
+            #         "fast": log_args.fast_squad,
+            #         "dummy_eval": log_args.dummy_eval,
+            #     },
+            # )
+            # proc.start()
+            # proc.join()
+            # breakpoint()
             squad_results = get_squad_results_while_pretraining(
                 model=model,
                 tokenizer=tokenizer,
@@ -558,6 +561,7 @@ def main():
                 logger.info(f"SQuAD step {i} -- F1: {squad_f1:.3f}, Exact: {squad_exact:.3f}")
             # Re-wrap autograph so it doesn't get arg mismatches
             wrap_global_functions(do_gradient_accumulation)
+            gc.collect()
 
         if hvd.rank() == 0:
             do_log = i % log_args.log_frequency == 0

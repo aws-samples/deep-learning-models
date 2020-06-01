@@ -44,7 +44,13 @@ from common.arguments import (
 )
 from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
 from common.models import load_qa_from_pretrained
-from common.utils import TqdmLoggingHandler, create_tokenizer, f1_score, get_dataset
+from common.utils import (
+    TqdmLoggingHandler,
+    create_tokenizer,
+    f1_score,
+    get_dataset,
+    rewrap_tf_function,
+)
 from run_squad_evaluation import get_evaluation_metrics
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
@@ -163,10 +169,11 @@ def validation_step(model, batch) -> List[tf.Tensor]:
 
 
 def run_validation(model, val_dataset, num_batches: int = 100) -> List[tf.Tensor]:
-    wrapped_validation_step = tf.function(validation_step)
+    global validation_step
+    validation_step = rewrap_tf_function(validation_step)
     val_loss, val_acc, val_exact_match, val_precision, val_recall = (0, 0, 0, 0, 0)
     for batch in val_dataset.take(num_batches):
-        loss, acc, exact_match, precision, recall = wrapped_validation_step(model, batch)
+        loss, acc, exact_match, precision, recall = validation_step(model, batch)
         val_loss += loss
         val_acc += acc
         val_exact_match += exact_match
@@ -203,13 +210,6 @@ def tensorboard_eval_metrics(summary_writer, results: Dict, step: int) -> None:
     tf.summary.scalar("eval_noans_f1", results["NoAns_f1"], step=step)
 
 
-def wrap_tf_function_idempotent(func):
-    if hasattr(func, "python_function"):
-        return func
-    else:
-        return tf.function(func)
-
-
 def hvd_barrier():
     hvd.allreduce(tf.random.normal([1]))
 
@@ -235,7 +235,7 @@ def get_squad_results_while_pretraining(
         cloned_model = type(model)(config=model.config)
         cloned_model.load_weights(path).expect_partial()
         qa_model = load_qa_from_pretrained(model=cloned_model)
-        qa_model.call = wrap_tf_function_idempotent(qa_model.call)
+        qa_model.call = rewrap_tf_function(qa_model.call)
         #
         hvd_barrier()
         per_gpu_batch_size = min(3, int(math.ceil(48 / hvd.size())))
@@ -263,6 +263,8 @@ def get_squad_results_while_pretraining(
             dataset=dataset,
             dummy_eval=dummy_eval,
         )
+        del cloned_model
+        del qa_model
         hvd_barrier()
 
     if hvd.rank() == 0:
@@ -347,10 +349,11 @@ def run_squad_and_get_results(
     # Wrapping train_step gives an error with optimizer initialization on the second pass
     # of run_squad_and_get_results(). Bug report at https://github.com/tensorflow/tensorflow/issues/38875
     # Discussion at https://github.com/tensorflow/tensorflow/issues/27120
-    wrapped_train_step = tf.function(train_step)
+    global train_step
+    train_step = rewrap_tf_function(train_step)
     for step, batch in enumerate(train_dataset):
         learning_rate = schedule(step=tf.constant(step, dtype=tf.float32))
-        loss, acc, exact_match, f1, precision, recall = wrapped_train_step(
+        loss, acc, exact_match, f1, precision, recall = train_step(
             model=model, optimizer=optimizer, batch=batch
         )
 
@@ -443,6 +446,7 @@ def run_squad_and_get_results(
 
         if is_final_step:
             break
+    del train_dataset
 
     # Can we return a value only on a single rank?
     if hvd.rank() == 0:
@@ -493,7 +497,7 @@ def main():
         run_name = None
 
     model = TFAutoModelForQuestionAnswering.from_pretrained(model_args.model_desc)
-    model.call = wrap_tf_function_idempotent(model.call)
+    model.call = rewrap_tf_function(model.call)
     tokenizer = create_tokenizer(model_args.model_type)
 
     results = run_squad_and_get_results(
