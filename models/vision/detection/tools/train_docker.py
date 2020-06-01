@@ -8,7 +8,7 @@ import numpy as np
 from time import time
 # temp
 import sys
-sys.path.append('.')
+sys.path.append('/workspace/shared_workspace/deep-learning-models/models/vision/detection')
 
 import tensorflow_addons as tfa
 import tensorflow as tf
@@ -25,6 +25,7 @@ from awsdet.apis.train import parse_losses, batch_processor, build_optimizer, ge
 from awsdet.utils.misc import Config
 import horovod.tensorflow as hvd
 from awsdet.utils.runner import sagemaker_runner
+from awsdet.utils.schedulers.schedulers import WarmupScheduler
 import argparse
 
 ##########################################################################################
@@ -44,6 +45,8 @@ def main(cfg):
     ######################################################################################
     # Create Training Data
     ######################################################################################
+    cfg.global_batch_size = cfg.batch_size_per_device * hvd.size()
+    cfg.steps_per_epoch = cfg.coco_images // cfg.global_batch_size
     datasets = build_dataset(cfg.data.train)
     tf_datasets = [build_dataloader(datasets,
                          cfg.batch_size_per_device,
@@ -53,18 +56,52 @@ def main(cfg):
     ######################################################################################
     # Build Model
     ######################################################################################
+    
+    #update any hyperparams that we may have passed in via arguments
+    if cfg.ls > 0.0:
+        cfg.model['bbox_head']['label_smoothing'] = cfg.ls
+    if cfg.use_rcnn_bn:
+        cfg.model['bbox_head']['use_bn'] = cfg.use_rcnn_bn
+    if cfg.use_conv:
+        cfg.model['bbox_head']['use_conv'] = cfg.use_conv
+
+    cfg.schedule = args.schedule
     model = build_detector(cfg.model,
                            train_cfg=cfg.train_cfg,
                            test_cfg=cfg.test_cfg)
     # Pass example through so tensor shapes are defined
-    model.CLASSES = datasets.CLASSES
     _ = model(next(iter(tf_datasets[0][0])))
     model.layers[0].layers[0].load_weights(cfg.weights_path, by_name=False)
+
+    ######################################################################################
+    # Build optimizer and associate scheduler
+    ######################################################################################
+
+    # base learning rate is set for global batch size of 8, with linear scaling for larger batches
+    base_learning_rate = cfg.base_learning_rate
+    scaled_learning_rate = base_learning_rate * cfg.global_batch_size / 8
+    steps_per_epoch = cfg.steps_per_epoch
+    if cfg.schedule == '1x':
+        scheduler = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            [steps_per_epoch * 8, steps_per_epoch * 10],
+            [scaled_learning_rate, scaled_learning_rate*0.1, scaled_learning_rate*0.01])
+    elif cfg.schedule == 'cosine':
+        scheduler = tf.keras.experimental.CosineDecayRestarts(
+            initial_learning_rate=scaled_learning_rate,
+            first_decay_steps=12*steps_per_epoch, t_mul=1, m_mul=1) #0-1-13
+    else:
+        raise NotImplementedError
+    warmup_init_lr = 1.0 / cfg.warmup_init_lr_scale * scaled_learning_rate
+    scheduler = WarmupScheduler(scheduler, warmup_init_lr, cfg.warmup_steps)
+    # FIXME: currently hardcoded to SGD
+    optimizer = tf.keras.optimizers.SGD(scheduler, momentum=0.9, nesterov=False)
+    if cfg.fp16:
+        optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(optimizer, loss_scale='dynamic')
     ######################################################################################
     # Create Model Runner
     ######################################################################################
     runner = sagemaker_runner.Runner(model, batch_processor, name=cfg.model_name, 
-                                     optimizer=cfg.optimizer, work_dir=cfg.work_dir,
+                                     optimizer=optimizer, work_dir=cfg.work_dir,
                                      logger=get_root_logger(cfg.log_level), amp_enabled=cfg.fp16,
                                      loss_weights=cfg.loss_weights)
     runner.timestamp = int(time())
@@ -92,11 +129,34 @@ def parse():
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--configuration", help="Model configuration file")
+    parser.add_argument("--base_learning_rate", help="float")
+    parser.add_argument("--batch_size_per_device", help="integer")
+    parser.add_argument("--fp16", help="boolean")
+    parser.add_argument("--schedule", help="learning rate schedule type")
+    parser.add_argument("--warmup_init_lr_scale", help="float")
+    parser.add_argument("--warmup_steps", help="int")
+    parser.add_argument("--epochs", help="int", default=13, type=int)
+    parser.add_argument("--use_rcnn_bn", help="bool")
+    parser.add_argument("--use_conv", help="bool")
+    parser.add_argument("--ls", help="float")
+    parser.add_argument("--name", help="float")
+
     args = parser.parse_args()
     return args
 
 if __name__=='__main__':
     args = parse()
     cfg = Config.fromfile(args.configuration)
-    cfg.model_name = "demo"
+    cfg.base_learning_rate = float(args.base_learning_rate)
+    cfg.batch_size_per_device = int(args.batch_size_per_device)
+    cfg.fp16 = (args.fp16 == 'True')
+    cfg.ls = float(args.ls)
+    cfg.use_rcnn_bn = (args.use_rcnn_bn == 'True')
+    cfg.use_conv = (args.use_conv == 'True')  
+    cfg.schedule = args.schedule
+    cfg.workers_per_gpu = 1 # unused
+    cfg.warmup_init_lr_scale = float(args.warmup_init_lr_scale)
+    cfg.warmup_steps = int(args.warmup_steps)
+    cfg.training_epochs = args.epochs
+    cfg.model_name = args.name
     main(cfg)
