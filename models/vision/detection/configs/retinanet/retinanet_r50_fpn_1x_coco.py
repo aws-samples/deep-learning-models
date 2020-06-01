@@ -14,7 +14,7 @@ model = dict(
     ),
     neck=dict(
         type='FPN',
-        in_channels=[('C2', 256), ('C3', 512), ('C4', 1333), ('C5', 2048)],
+        in_channels=[('C2', 256), ('C3', 512), ('C4', 1024), ('C5', 2048)],
         out_channels=256,
         start_level=1,
         add_extra_convs=True,
