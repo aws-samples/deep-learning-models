@@ -141,6 +141,7 @@ def create_config(model_args: ModelArguments) -> PretrainedConfig:
     config = AutoConfig.from_pretrained(model_args.model_desc)
     config.pre_layer_norm = model_args.pre_layer_norm
     config.hidden_dropout_prob = model_args.hidden_dropout_prob
+    config.attention_probs_dropout_prob = model_args.attention_probs_dropout_prob
     return config
 
 

@@ -32,9 +32,9 @@ from typing import Tuple
 
 import numpy as np
 import tensorflow as tf
+import tensorflow_addons as tfa
 import tqdm
 import wandb
-from tensorflow_addons.optimizers import LAMB, AdamW
 from transformers import (
     AutoConfig,
     GradientAccumulator,
@@ -433,24 +433,41 @@ def main():
     wrap_global_functions(do_gradient_accumulation)
 
     # Create optimizer and enable AMP loss scaling.
-    schedule = LinearWarmupPolyDecaySchedule(
-        max_learning_rate=train_args.learning_rate,
-        end_learning_rate=train_args.end_learning_rate,
-        warmup_steps=train_args.warmup_steps,
-        total_steps=train_args.total_steps,
-        power=train_args.learning_rate_decay_power,
-    )
+    # This schedule scales from 0 to 1 and then back down again.
+    # Multiply the schedule by learning rate and weight decay.
+    def get_schedule(ratio: float):
+        return LinearWarmupPolyDecaySchedule(
+            max_learning_rate=ratio * 1.0,
+            end_learning_rate=ratio * train_args.end_learning_rate / train_args.learning_rate,
+            warmup_steps=train_args.warmup_steps,
+            total_steps=train_args.total_steps,
+            power=train_args.learning_rate_decay_power,
+        )
+
+    lr_schedule = get_schedule(train_args.learning_rate)
+    # TODO: Get weight decay schedule working. See https://www.tensorflow.org/addons/api_docs/python/tfa/optimizers/AdamW
+    # This causes the model to diverge if learning rate is too low.
+    # wd_schedule = get_schedule(train_args.weight_decay)
+    wd_schedule = 0.01
     if train_args.optimizer == "lamb":
-        optimizer = LAMB(
-            learning_rate=schedule,
-            weight_decay_rate=0.01,
-            beta_1=0.9,
-            beta_2=0.999,
-            epsilon=1e-6,
+        # LAMB made available in v0.7.0 of tfa, which only works with TF 2.1+.
+        optimizer = tfa.optimizers.LAMB(
+            learning_rate=lr_schedule,
+            weight_decay_rate=wd_schedule,
+            beta_1=train_args.beta_1,
+            beta_2=train_args.beta_2,
+            epsilon=train_args.epsilon,
             exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"],
         )
-    elif train_args.optimizer == "adam":
-        optimizer = AdamW(weight_decay=0.0, learning_rate=schedule)
+    elif train_args.optimizer == "adamw":
+        optimizer = tfa.optimizers.AdamW(
+            weight_decay=wd_schedule,
+            learning_rate=lr_schedule,
+            beta_1=train_args.beta_1,
+            beta_2=train_args.beta_2,
+            epsilon=train_args.epsilon,
+        )
+
     optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(
         optimizer, loss_scale="dynamic"
     )
@@ -508,7 +525,8 @@ def main():
     i = 0
     start_time = time.perf_counter()
     for batch in train_dataset:
-        learning_rate = schedule(step=tf.constant(i, dtype=tf.float32))
+        learning_rate = lr_schedule(step=tf.constant(i, dtype=tf.float32))
+        # weight_decay = wd_schedule(step=tf.constant(i, dtype=tf.float32))
         loss_scale = optimizer.loss_scale()
         loss, mlm_loss, mlm_acc, sop_loss, sop_acc, grad_norm, weight_norm = train_step(
             model=model,
@@ -617,10 +635,10 @@ def main():
                 wandb.init(config=config, project=model_args.model_type)
 
             train_metrics = {
-                "train/weight_norm": weight_norm,
-                "train/grad_norm": grad_norm,
-                "train/loss_scale": loss_scale,
-                "train/learning_rate": learning_rate,
+                "weight_norm": weight_norm,
+                "grad_norm": grad_norm,
+                "loss_scale": loss_scale,
+                "learning_rate": learning_rate,
                 "train/loss": loss,
                 "train/mlm_loss": mlm_loss,
                 "train/mlm_acc": mlm_acc,

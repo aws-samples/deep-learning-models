@@ -40,6 +40,7 @@ class ModelArguments:
         },
     )
     hidden_dropout_prob: float = field(default=0.0)
+    attention_probs_dropout_prob: float = field(default=0.0)
 
     @property
     def model_desc(self) -> str:
@@ -86,12 +87,17 @@ class TrainingArguments:
             "help": "Number of updates steps to accumulate before performing a backward/update pass."
         },
     )
-    optimizer: str = field(default="lamb", metadata={"choices": ["lamb", "adam"]})
     warmup_steps: int = field(default=3125)
     total_steps: int = field(default=125000)
+    optimizer: str = field(default="lamb", metadata={"choices": ["lamb", "adamw", "adam"]})
     learning_rate: float = field(default=0.00176)
+    weight_decay: float = field(default=0.01)
     end_learning_rate: float = field(default=3e-5)
     learning_rate_decay_power: float = field(default=1.0)
+    beta_1: float = field(default=0.9)
+    beta_2: float = field(default=0.999)
+    epsilon: float = field(default=1e-6)
+
     max_grad_norm: float = field(default=1.0)
     name: str = field(default="", metadata={"help": "Additional info to append to metadata"})
 
