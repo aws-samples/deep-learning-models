@@ -180,21 +180,21 @@ def _dist_train(model,
     # build runner
     optimizer = build_optimizer(cfg.optimizer)
     if mixed_precision:
-        # broken in TF 2.1
-        # optimizer = tf.keras.mixed_precision.experimental.LossScaleOptimizer(optimizer, 'dynamic')
         optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(optimizer, loss_scale='dynamic')
 
+    optimizer_config = cfg.optimizer_config
+    optimizer_config['amp_enabled'] = mixed_precision
+    gradient_clip = optimizer_config.get('gradient_clip', 15.0) # default is 15.0
 
     runner = Runner(model,
                     batch_processor,
                     optimizer,
                     cfg.work_dir,
                     logger=logger,
-                    amp_enabled=mixed_precision)
-    # workaround to make the .log and .log.json filenames the same
+                    amp_enabled=mixed_precision,
+                    gradient_clip=gradient_clip)
+ 
     runner.timestamp = timestamp
-    optimizer_config = cfg.optimizer_config
-    optimizer_config['amp_enabled'] = mixed_precision
     # register hooks
     runner.register_training_hooks(cfg.lr_config, optimizer_config,
                                    cfg.checkpoint_config, cfg.log_config)
@@ -234,10 +234,6 @@ def _non_dist_train(model,
 
     # build runner
     optimizer = build_optimizer(cfg.optimizer)
-    # broken in TF2.1
-    # if mixed_precision:
-    #     optimizer = tf.keras.mixed_precision.experimental.LossScaleOptimizer(optimizer, 1024.0) # "dynamic")
-
     runner = Runner(model,
                     batch_processor,
                     optimizer,

@@ -19,7 +19,7 @@ def smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_we
     return loss_box
 
 
-def focal_loss(y_preds, y_true, alpha=0.25, gamma=2.0, avg_factor=1.0, num_classes=80):
+def focal_loss(y_preds, y_true, alpha=0.25, gamma=2.0, label_smoothing=0.0, avg_factor=1.0, num_classes=80):
     """
     Args:
         y_preds: [batch size * num_anchors, num_classes]
@@ -34,7 +34,6 @@ def focal_loss(y_preds, y_true, alpha=0.25, gamma=2.0, avg_factor=1.0, num_class
     assert gamma >= 0.0
     pred_sigmoid = tf.keras.layers.Activation(tf.nn.sigmoid, dtype=tf.float32)(y_preds)
     oh_target = tf.one_hot(y_true-1, depth=num_classes, dtype=tf.float32)
-    label_smoothing = 0.1
     positive_mask = tf.math.equal(oh_target, 1)
     oh_target = oh_target * (1 - label_smoothing) + 0.5 * label_smoothing
     avg_factor = tf.math.maximum(1.0, tf.cast(avg_factor, tf.float32))

@@ -27,6 +27,9 @@ class RetinaHead(AnchorHead):
                  target_stds=[1.0, 1.0, 1.0, 1.0],
                  pos_iou_thr=0.5,
                  neg_iou_thr=0.4,
+                 alpha=0.25,
+                 gamma=2.0,
+                 label_smoothing=0.05,
                  num_pre_nms=1000,
                  min_confidence=0.005,
                  nms_threshold=0.5,
@@ -75,7 +78,7 @@ class RetinaHead(AnchorHead):
             pos_iou_thr=pos_iou_thr,
             neg_iou_thr=neg_iou_thr)
         #TODO make losses package common to all models
-        self.class_loss = losses.focal_loss
+        self.class_loss = functools.partial(losses.focal_loss, alpha=alpha, gamma=gamma, label_smoothing=label_smoothing)
         self.bbox_loss = losses.retinanet_bbox_loss
         # Retina head being single stage head is the final box predictor stage, so it needs NMS specific parameters
         self.num_pre_nms = num_pre_nms
@@ -87,7 +90,9 @@ class RetinaHead(AnchorHead):
 
     def _init_layers(self):
         self.cls_convs = []
+        self.cls_conv_bns = []
         self.reg_convs = []
+        self.reg_conv_bns = []
 
         def bias_init_with_prob(prior_prob):
             """ initialize conv/fc bias value according to giving probablity"""
@@ -97,41 +102,48 @@ class RetinaHead(AnchorHead):
         for i in range(self.stacked_convs):
             self.cls_convs.append(
                     layers.Conv2D(self.feat_channels, (3, 3), padding='same',
-                        kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+                        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01, seed=1337),
                         kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
-                        activation='relu', name='cls_conv_{}'.format(i+1)))
+                        activation=None, name='cls_conv_{}'.format(i+1)))
+            self.cls_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.999, name='cls_conv_bn_{}'.format(i+1)))
             self.reg_convs.append(
                     layers.Conv2D(self.feat_channels, (3, 3), padding='same',
-                        kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+                        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01, seed=1337),
                         kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
-                        activation='relu', name='reg_conv_{}'.format(i+1)))
+                        activation=None, name='reg_conv_{}'.format(i+1)))
+            self.reg_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.999, name='reg_conv_bn_{}'.format(i+1)))
+
         self.retina_cls = layers.Conv2D(self.num_anchors * self.num_classes, (3, 3),
-                            padding='same', 
-                            kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+                            padding='same',
+                            kernel_initializer=tf.keras.initializers.RandomNormal(stddev=1e-5, seed=1337),
                             kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                             bias_initializer=tf.constant_initializer(value=bias_init_with_prob(0.01)),
                             name='retina_cls')
         self.retina_reg = layers.Conv2D(self.num_anchors * 4, (3, 3), padding='same',
-                            kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+                            kernel_initializer=tf.keras.initializers.RandomNormal(stddev=1e-5, seed=1337),
                             kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                             name='retina_reg')
 
 
     @tf.function(experimental_relax_shapes=True)
-    def forward_single(self, feat):
+    def forward_single(self, feat, is_training=False):
         cls_feat = feat
         reg_feat = feat
-        for cls_conv in self.cls_convs:
+        for cls_conv, cls_conv_bn in zip(self.cls_convs, self.cls_conv_bns):
             cls_feat = cls_conv(cls_feat)
-        for reg_conv in self.reg_convs:
+            cls_feat = cls_conv_bn(cls_feat, training=is_training)
+            cls_feat = layers.Activation('relu')(cls_feat)
+        for reg_conv, reg_conv_bn in zip(self.reg_convs, self.reg_conv_bns):
             reg_feat = reg_conv(reg_feat)
+            reg_feat = reg_conv_bn(reg_feat, training=is_training)
+            reg_feat = layers.Activation('relu')(reg_feat)
         cls_score = self.retina_cls(cls_feat)
         bbox_pred = self.retina_reg(reg_feat)
         return cls_score, bbox_pred
 
 
     @tf.function(experimental_relax_shapes=True)
-    def call(self, feats):
+    def call(self, feats, is_training=False):
         """
         Args
         ---

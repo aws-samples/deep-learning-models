@@ -45,7 +45,8 @@ class Runner(object):
                  work_dir=None,
                  log_level=logging.INFO,
                  logger=None,
-                 amp_enabled=False):
+                 amp_enabled=False,
+                 gradient_clip=15.0):
         assert callable(batch_processor)
         self.model = model
         if optimizer is not None:
@@ -82,6 +83,7 @@ class Runner(object):
         self._max_epochs = 0
         self._max_iters = 0
         self._amp_enabled = amp_enabled
+        self.gradient_clip = gradient_clip # <= 0.0 disables it
 
     @property
     def model_name(self):
@@ -247,9 +249,11 @@ class Runner(object):
             for var, grad in zip(var_list, grads)
         ]
         # all_are_finite = tf.reduce_all([tf.reduce_all(tf.math.is_finite(g)) for g in grads])
-        clipped_grads, global_norm = tf.clip_by_global_norm(grads, 10.0) # 15.0)
+        if self.gradient_clip > 0.0:
+            clipped_grads, global_norm = tf.clip_by_global_norm(grads, self.gradient_clip)
+            grads = clipped_grads
         # if self.rank == 0: tf.print(global_norm, all_are_finite)
-        self.optimizer.apply_gradients(zip(clipped_grads, var_list))
+        self.optimizer.apply_gradients(zip(grads, var_list))
         return outputs
 
     def run_eval_step(self, data_batch):

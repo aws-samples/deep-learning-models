@@ -51,7 +51,7 @@ class SingleStageDetector(BaseDetector):
         else:
             imgs, img_metas = inputs
         x = self.extract_feat(imgs)
-        cls_scores_list, deltas_list = self.bbox_head(x)
+        cls_scores_list, deltas_list = self.bbox_head(x, is_training=training)
         if training:
 
             class_loss, bbox_loss = self.bbox_head.loss(cls_scores_list, deltas_list, gt_bboxes, gt_labels, img_metas)

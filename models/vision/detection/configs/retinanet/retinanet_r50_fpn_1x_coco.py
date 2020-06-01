@@ -35,9 +35,12 @@ model = dict(
         target_stds=[1., 1., 1., 1.],
         pos_iou_thr=0.5,
         neg_iou_thr=0.4,
-        num_pre_nms=2000,
+        alpha=0.25,
+        gamma=2.0,
+        label_smoothing=0.05,
+        num_pre_nms=1000,
         min_confidence=0.05, 
-        nms_threshold=0.5,
+        nms_threshold=0.75,
         max_instances=100,
         soft_nms_sigma=0.5,
         weight_decay=5e-5
@@ -100,6 +103,7 @@ optimizer = dict(
 # extra options related to optimizers
 optimizer_config = dict(
     amp_enabled=True,
+    gradient_clip=10.0,
 )
 
 # learning policy
