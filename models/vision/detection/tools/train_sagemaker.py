@@ -86,12 +86,13 @@ def main(cfg):
     ######################################################################################
     
     #update any hyperparams that we may have passed in via arguments
-    if cfg.ls > 0.0:
-        cfg.model['bbox_head']['label_smoothing'] = cfg.ls
-    if cfg.use_rcnn_bn:
-        cfg.model['bbox_head']['use_bn'] = cfg.use_rcnn_bn
-    if cfg.use_conv:
-        cfg.model['bbox_head']['use_conv'] = cfg.use_conv
+    if cfg.model_name == "faster_rcnn":
+        if cfg.ls > 0.0:
+            cfg.model['bbox_head']['label_smoothing'] = cfg.ls
+        if cfg.use_rcnn_bn:
+            cfg.model['bbox_head']['use_bn'] = cfg.use_rcnn_bn
+        if cfg.use_conv:
+            cfg.model['bbox_head']['use_conv'] = cfg.use_conv
 
     cfg.schedule = args.schedule
     model = build_detector(cfg.model,
@@ -161,6 +162,7 @@ def parse():
     parser = argparse.ArgumentParser()
     parser.add_argument("--configuration", help="Model configuration file")
     parser.add_argument("--instance_name", help="Sagemaker instance name")
+    parser.add_argument("--model_name", help="Model name, e.g. faster_rcnn, retinanet")    
     parser.add_argument("--instance_count", help="Number of instances")
     parser.add_argument("--instance_type", help="Instance type for a worker")
     parser.add_argument("--num_workers_per_host", help="Number of workers on each instance")
@@ -172,7 +174,6 @@ def parse():
     parser.add_argument("--schedule", help="learning rate schedule type")
     parser.add_argument("--warmup_init_lr_scale", help="float")
     parser.add_argument("--warmup_steps", help="int")
-    parser.add_argument("--epochs", help="int", default=13, type=int)
     parser.add_argument("--use_rcnn_bn", help="bool")
     parser.add_argument("--use_conv", help="bool")
     parser.add_argument("--ls", help="float")
@@ -184,20 +185,21 @@ if __name__=='__main__':
     args = parse()
     cfg = Config.fromfile(args.configuration)
     instance_name = args.instance_name
+    model_name = args.model_name
     s3_path = args.s3_path
     s3_checkpoints, s3_tensorboard = setup_paths(instance_name, s3_path)
     cfg.s3_checkpoints = s3_checkpoints
     cfg.s3_tensorboard = s3_tensorboard
-    cfg.model_name = instance_name
+    cfg.model_name = model_name
     cfg.base_learning_rate = float(args.base_learning_rate)
     cfg.instance_count = int(args.instance_count)
     cfg.batch_size_per_device = int(args.batch_size_per_device)
     cfg.fp16 = (args.fp16 == 'True')
-    cfg.ls = float(args.ls)
-    cfg.use_rcnn_bn = (args.use_rcnn_bn == 'True')
-    cfg.use_conv = (args.use_conv == 'True')           
+    if cfg.model_name == "faster_rcnn":
+        cfg.ls = float(args.ls)
+        cfg.use_rcnn_bn = (args.use_rcnn_bn == 'True')
+        cfg.use_conv = (args.use_conv == 'True')           
     cfg.schedule = args.schedule
-    cfg.training_epochs = args.epochs
     cfg.num_workers_per_host = int(args.num_workers_per_host)
     cfg.workers_per_gpu = 1 # unused
     cfg.warmup_init_lr_scale = float(args.warmup_init_lr_scale)

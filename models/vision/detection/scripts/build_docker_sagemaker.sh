@@ -1,7 +1,7 @@
 ECR_REPO=$1
+ALGO=retinanet
 cd ~/SageMaker/deep-learning-models/models/vision/detection/docker
-ALGO=frcnn-tutorial
-docker build -t ${ECR_REPO}/${ALGO} -f Dockerfile.frcnn .
+docker build -t ${ECR_REPO}/${ALGO} -f Dockerfile.sagemaker .
 
 # login to ECR
 REGION=$(aws configure get region)
