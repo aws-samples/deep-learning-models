@@ -32,9 +32,7 @@ from typing import Tuple
 
 import numpy as np
 import tensorflow as tf
-import tensorflow_addons as tfa
 import tqdm
-import wandb
 from transformers import (
     AutoConfig,
     GradientAccumulator,
@@ -44,6 +42,7 @@ from transformers import (
     TFBertForPreTraining,
 )
 
+from albert.run_squad import get_squad_results_while_pretraining
 from common.arguments import (
     DataTrainingArguments,
     LoggingArguments,
@@ -51,13 +50,34 @@ from common.arguments import (
     TrainingArguments,
 )
 from common.datasets import get_mlm_dataset
-from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
 from common.models import create_model
+from common.optimizers import get_adamw_optimizer, get_lamb_optimizer
 from common.utils import TqdmLoggingHandler, create_tokenizer, gather_indexes, rewrap_tf_function
-from run_squad import get_squad_results_while_pretraining
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
+
+# Should still work if not logged into wandb
+try:
+    import wandb
+
+    _has_wandb = False
+
+    # wandb.ensure_configured()
+    # if wandb.api.api_key is None:
+    #     _has_wandb = False
+    #     wandb.termwarn(
+    #         "W&B installed but not logged in.  Run `wandb login` or set the WANDB_API_KEY env variable."
+    #     )
+    # else:
+    #     _has_wandb = False if os.getenv("WANDB_DISABLED") else True
+except ImportError:
+    _has_wandb = False
+
+
+def is_wandb_available():
+    return _has_wandb
+
 
 logger = logging.getLogger(__name__)
 
@@ -433,48 +453,10 @@ def main():
     wrap_global_functions(do_gradient_accumulation)
 
     # Create optimizer and enable AMP loss scaling.
-    # This schedule scales from 0 to 1 and then back down again.
-    # Multiply the schedule by learning rate and weight decay.
-    def get_schedule(ratio: float):
-        return LinearWarmupPolyDecaySchedule(
-            max_learning_rate=ratio * 1.0,
-            end_learning_rate=ratio * train_args.end_learning_rate / train_args.learning_rate,
-            warmup_steps=train_args.warmup_steps,
-            total_steps=train_args.total_steps,
-            power=train_args.learning_rate_decay_power,
-        )
-
-    lr_schedule = get_schedule(train_args.learning_rate)
-    wd_schedule = 0.01
     if train_args.optimizer == "lamb":
-        # LAMB made available in v0.7.0 of tfa, which only works with TF 2.1+.
-        optimizer = tfa.optimizers.LAMB(
-            learning_rate=lr_schedule,
-            weight_decay_rate=wd_schedule,
-            beta_1=train_args.beta_1,
-            beta_2=train_args.beta_2,
-            epsilon=train_args.epsilon,
-            exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"],
-        )
+        optimizer = get_lamb_optimizer(train_args)
     elif train_args.optimizer == "adamw":
-        # Track issue status in https://github.com/tensorflow/addons/issues/1903
-        raise ValueError(
-            "This does not work currently, due to the lack of an `exclude_from_weight_decay`"
-            " argument in the tfa.optimizers.AdamW implementation. It also does not work without"
-            "an explicit weight decay schedule that matches the learning rate schedule."
-        )
-        # TODO: Get weight decay schedule working. See https://www.tensorflow.org/addons/api_docs/python/tfa/optimizers/AdamW
-        # This causes the model to diverge if learning rate is too low.
-        # It appears that ALBERT has a fixed weight decay: https://github.com/google-research/albert/blob/master/optimization.py#L78
-        # wd_schedule = get_schedule(train_args.weight_decay)
-        optimizer = tfa.optimizers.AdamW(
-            weight_decay=wd_schedule,
-            learning_rate=lr_schedule,
-            beta_1=train_args.beta_1,
-            beta_2=train_args.beta_2,
-            epsilon=train_args.epsilon,
-            # exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"], # TODO: Implement this
-        )
+        optimizer = get_adamw_optimizer(train_args)
 
     optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(
         optimizer, loss_scale="dynamic"
@@ -543,7 +525,7 @@ def main():
     i = 0
     start_time = time.perf_counter()
     for batch in train_dataset:
-        learning_rate = lr_schedule(step=tf.constant(i, dtype=tf.float32))
+        learning_rate = optimizer.learning_rate(step=tf.constant(i, dtype=tf.float32))
         # weight_decay = wd_schedule(step=tf.constant(i, dtype=tf.float32))
         loss_scale = optimizer.loss_scale()
         loss, mlm_loss, mlm_acc, sop_loss, sop_acc, grad_norm, weight_norm = train_step(
@@ -568,21 +550,6 @@ def main():
         do_squad = ((i > 0) and (i % log_args.squad_frequency == 0)) or is_final_step
         # Squad requires all the ranks to train, but results are only returned on rank 0
         if do_squad:
-            # proc = multiprocessing.Process(
-            #     target=get_squad_results_while_pretraining,
-            #     kwargs={
-            #         "model": model,
-            #         "tokenizer": tokenizer,
-            #         "model_size": model_args.model_size,
-            #         "fsx_prefix": data_args.fsx_prefix,
-            #         "step": i,
-            #         "fast": log_args.fast_squad,
-            #         "dummy_eval": log_args.dummy_eval,
-            #     },
-            # )
-            # proc.start()
-            # proc.join()
-            # breakpoint()
             squad_results = get_squad_results_while_pretraining(
                 model=model,
                 tokenizer=tokenizer,
@@ -650,7 +617,10 @@ def main():
                     **asdict(log_args),
                     "global_batch_size": train_args.per_gpu_batch_size * hvd.size(),
                 }
-                wandb.init(config=config, project=model_args.model_type)
+                if is_wandb_available():
+                    wandb.init(config=config, project=model_args.model_type)
+                    wandb.run.save()
+                    wandb_run_name = wandb.run.name
 
             train_metrics = {
                 "weight_norm": weight_norm,
@@ -663,6 +633,7 @@ def main():
                 "train/sop_loss": sop_loss,
                 "train/sop_acc": sop_acc,
             }
+            all_metrics = {**train_metrics}
             if do_validation:
                 val_metrics = {
                     "val/loss": val_loss,
@@ -671,24 +642,21 @@ def main():
                     "val/sop_loss": val_sop_loss,
                     "val/sop_acc": val_sop_acc,
                 }
+                all_metrics = {**all_metrics, **val_metrics}
             if do_squad:
                 squad_metrics = {
                     "squad/f1": squad_f1,
                     "squad/exact": squad_exact,
                 }
-            # Log to TensorBoard and Weights & Biases (possibly SageMaker Experiments in future)
+                all_metrics = {**all_metrics, **squad_metrics}
+
+            # Log to TensorBoard
             with summary_writer.as_default():
-                wandb.log({"step": i, **train_metrics})
-                for name, val in train_metrics.items():
+                for name, val in all_metrics.items():
                     tf.summary.scalar(name, val, step=i)
-                if do_validation:
-                    wandb.log({"step": i, **val_metrics})
-                    for name, val in val_metrics.items():
-                        tf.summary.scalar(name, val, step=i)
-                if do_squad:
-                    wandb.log({"step": i, **squad_metrics})
-                    for name, val in squad_metrics.items():
-                        tf.summary.scalar(name, val, step=i)
+            # Log to Weights & Biases
+            if is_wandb_available():
+                wandb.log({"step": i, **all_metrics})
 
         i += 1
         if is_final_step:

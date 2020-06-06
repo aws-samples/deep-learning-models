@@ -77,7 +77,7 @@ class TrainingArguments:
     the command line.
     """
 
-    # model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
+    model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
     seed: int = field(default=42)
     # TODO: Change this to per_gpu_train_per_gpu_batch_size
     per_gpu_batch_size: int = field(default=32)

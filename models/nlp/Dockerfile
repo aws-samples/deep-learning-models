@@ -1,7 +1,7 @@
 FROM nvidia/cuda:10.1-devel-ubuntu18.04
 
 # TensorFlow version is tightly coupled to CUDA and cuDNN so it should be selected carefully
-ENV HOROVOD_VERSION=0.19.2
+ENV HOROVOD_VERSION=0.19.4
 ENV TENSORFLOW_PIP=tensorflow
 ENV TENSORFLOW_VERSION=2.1.1
 ENV PYTORCH_VERSION=1.4.0
@@ -90,14 +90,11 @@ RUN apt-get install -y --no-install-recommends subversion && \
 WORKDIR "/examples"
 
 ###### Modifications to horovod Dockerfile below
-
 # tensorflow_addons is tightly coupled to TF version. TF 2.1 = 0.9.1, TF 2.2 = 0.10.0
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
-        scikit-learn \
-        gputil \
-        requests \
-        wandb \
+        scikit-learn==0.23.1 \
+        wandb==0.9.0 \
         tensorflow-addons==0.9.1
 
 ENV HDF5_USE_FILE_LOCKING "FALSE"
@@ -105,7 +102,13 @@ ENV HDF5_USE_FILE_LOCKING "FALSE"
 WORKDIR /fsx
 CMD ["/bin/bash"]
 
-# When you enter this file, you'll need to run two commands manually:
+###### Modifications specifically for SageMaker are below
+RUN pip install git+git://github.com/jarednielsen/transformers.git@tfsquad
+RUN pip install --no-cache-dir \
+    mpi4py==3.0.3 \
+    sagemaker-containers==2.8.6
+
+###### Modifications specifically for EC2 connected to FSx for Lustre are below
+# When you use `docker run`, you'll need to run two commands manually:
 # pip install -e /fsx/transformers
-# export PYTHONPATH="${PATH}:/fsx/deep-learning-models/models/nlp"
 # These are done in the MPIJob launch script when using Kubernetes, but not for a shell.

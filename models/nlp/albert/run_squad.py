@@ -36,6 +36,7 @@ from transformers.data.processors.squad import (
     SquadV2Processor,
 )
 
+from albert.run_squad_evaluation import get_evaluation_metrics
 from common.arguments import (
     DataTrainingArguments,
     LoggingArguments,
@@ -51,7 +52,6 @@ from common.utils import (
     get_dataset,
     rewrap_tf_function,
 )
-from run_squad_evaluation import get_evaluation_metrics
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
