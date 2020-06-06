@@ -61,16 +61,15 @@ import horovod.tensorflow as hvd  # isort:skip
 try:
     import wandb
 
-    _has_wandb = False
-
-    # wandb.ensure_configured()
-    # if wandb.api.api_key is None:
-    #     _has_wandb = False
-    #     wandb.termwarn(
-    #         "W&B installed but not logged in.  Run `wandb login` or set the WANDB_API_KEY env variable."
-    #     )
-    # else:
-    #     _has_wandb = False if os.getenv("WANDB_DISABLED") else True
+    # TODO: The ensure_configured() method does not exist within SageMaker. Figure out why.
+    wandb.ensure_configured()
+    if wandb.api.api_key is None:
+        _has_wandb = False
+        wandb.termwarn(
+            "W&B installed but not logged in.  Run `wandb login` or set the WANDB_API_KEY env variable."
+        )
+    else:
+        _has_wandb = False if os.getenv("WANDB_DISABLED") else True
 except ImportError:
     _has_wandb = False
 

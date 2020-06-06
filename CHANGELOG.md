@@ -12,8 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - SageMaker and Kubernetes Dockerfiles have been merged into one.
-- NGC GPUMonitor Dockerfile has been removed.
 - Use the module system rather than $PYTHONPATH, so jobs are launched with `python -m albert.run_pretraining` instead of `python albert/run_pretraining.py`.
+
+### Removed
+- NGC GPUMonitor Dockerfile.
 
 ## [0.2] - 2020-05-22
 ### Added
