@@ -102,25 +102,25 @@ class RetinaHead(AnchorHead):
         for i in range(self.stacked_convs):
             self.cls_convs.append(
                     layers.Conv2D(self.feat_channels, (3, 3), padding='same',
-                        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01, seed=1337),
+                        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
                         kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                         activation=None, name='cls_conv_{}'.format(i+1)))
-            self.cls_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.999, name='cls_conv_bn_{}'.format(i+1)))
+            self.cls_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.997, epsilon=1e-4, name='cls_conv_bn_{}'.format(i+1)))
             self.reg_convs.append(
                     layers.Conv2D(self.feat_channels, (3, 3), padding='same',
-                        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01, seed=1337),
+                        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
                         kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                         activation=None, name='reg_conv_{}'.format(i+1)))
-            self.reg_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.999, name='reg_conv_bn_{}'.format(i+1)))
+            self.reg_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.997, epsilon=1e-4, name='reg_conv_bn_{}'.format(i+1)))
 
         self.retina_cls = layers.Conv2D(self.num_anchors * self.num_classes, (3, 3),
                             padding='same',
-                            kernel_initializer=tf.keras.initializers.RandomNormal(stddev=1e-5, seed=1337),
+                            kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
                             kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                             bias_initializer=tf.constant_initializer(value=bias_init_with_prob(0.01)),
                             name='retina_cls')
         self.retina_reg = layers.Conv2D(self.num_anchors * 4, (3, 3), padding='same',
-                            kernel_initializer=tf.keras.initializers.RandomNormal(stddev=1e-5, seed=1337),
+                            kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
                             kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                             name='retina_reg')
 

@@ -3,7 +3,7 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
 
-@tf.function
+@tf.function(experimental_relax_shapes=True)
 def compute_overlaps(boxes1, boxes2):
     '''Computes IoU overlaps between two sets of boxes.
     boxes1, boxes2: [N, (y1, x1, y2, x2)].

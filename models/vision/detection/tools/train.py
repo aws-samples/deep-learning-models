@@ -22,6 +22,16 @@ from awsdet.models import build_detector
 gpus = tf.config.experimental.list_physical_devices('GPU')
 # tf.config.experimental_run_functions_eagerly(True)
 os.environ['TF_CUDNN_USE_AUTOTUNE']= str(0)
+os.environ['TF_DETERMINISTIC_OPS'] = str(1)
+os.environ['PYTHONHASHSEED']=str(17)
+os.environ['HOROVOD_FUSION_THRESHOLD']=str(0)
+# tf.config.threading.set_intra_op_parallelism_threads(1)
+# tf.config.threading.set_inter_op_parallelism_threads(1)
+
+# reduce TF warning verbosity
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = str(2)
+import logging
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')

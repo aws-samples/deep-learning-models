@@ -19,7 +19,7 @@ model = dict(
         start_level=1,
         add_extra_convs=True,
         num_outs=5,
-        interpolation_method='bilinear',
+        interpolation_method='nearest',
         weight_decay=5e-5,
     ),
     bbox_head=dict(
@@ -40,7 +40,7 @@ model = dict(
         label_smoothing=0.05,
         num_pre_nms=1000,
         min_confidence=0.05, 
-        nms_threshold=0.75,
+        nms_threshold=0.75, # using soft nms
         max_instances=100,
         soft_nms_sigma=0.5,
         weight_decay=5e-5
@@ -96,9 +96,9 @@ evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
     type='SGD',
-    learning_rate=1e-2,
+    learning_rate=5e-3,
     momentum=0.9,
-    nesterov=False,
+    nesterov=True, #False,
 )
 # extra options related to optimizers
 optimizer_config = dict(
@@ -111,7 +111,7 @@ lr_config = dict(
     policy='step',
     warmup='linear',
     warmup_iters=500, 
-    warmup_ratio=1.0 / 3,
+    warmup_ratio=1.0 / 10,
     step=[8, 11])
 checkpoint_config = dict(interval=1, outdir='checkpoints')
 # yapf:disable

@@ -27,8 +27,6 @@ class SingleStageDetector(BaseDetector):
         self.backbone = builder.build_backbone(backbone)
         if neck is not None:
             self.neck = builder.build_neck(neck)
-        # bbox_head.update(train_cfg=train_cfg)
-        # bbox_head.update(test_cfg=test_cfg)
         self.bbox_head = builder.build_head(bbox_head)
         self.cfg = train_cfg
         self.test_cfg = test_cfg

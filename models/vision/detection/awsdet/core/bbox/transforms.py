@@ -56,7 +56,7 @@ def delta2bbox(box, delta, target_means, target_stds):
     target_stds = tf.constant(target_stds, dtype=tf.float32)
     denorm_delta = delta * target_stds + target_means
     dy, dx, dh, dw = denorm_delta[:,0], denorm_delta[:,1], denorm_delta[:,2], denorm_delta[:,3] 
-    max_ratio = np.abs(np.log(16.0/1333.0)) #TODO: make part of config
+    max_ratio = np.abs(np.log(16.0/1000)) #TODO: make part of config
     dw = tf.clip_by_value(dw, clip_value_min=-max_ratio, clip_value_max=max_ratio)
     dh = tf.clip_by_value(dh, clip_value_min=-max_ratio, clip_value_max=max_ratio)
     # Convert to y, x, h, w
