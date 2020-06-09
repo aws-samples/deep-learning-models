@@ -219,7 +219,7 @@ RUN apt update && apt install -y python3-opencv libopenblas-base \
     
 RUN ${PIP} install tensorflow_addons \
                 s3fs \
-		ipykernel \
+                ipykernel \
                 imgaug \
                 tqdm \
                 tensorflow_datasets \
