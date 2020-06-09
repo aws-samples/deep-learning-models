@@ -103,10 +103,10 @@ WORKDIR /fsx
 CMD ["/bin/bash"]
 
 ###### Modifications specifically for SageMaker are below
-RUN pip install git+git://github.com/jarednielsen/transformers.git@tfsquad
 RUN pip install --no-cache-dir \
     mpi4py==3.0.3 \
-    sagemaker-containers==2.8.6
+    sagemaker-containers==2.8.6 \
+    transformers==2.11.0
 
 ###### Modifications specifically for EC2 connected to FSx for Lustre are below
 # When you use `docker run`, you'll need to run two commands manually:

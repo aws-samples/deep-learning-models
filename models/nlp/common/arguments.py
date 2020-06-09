@@ -32,10 +32,12 @@ class ModelArguments:
             "help": "For example, `/fsx/checkpoints/albert/2020..step125000`. No .ckpt on the end."
         },
     )
+    # TODO: Pre-layer norm is not yet supported in transformers. PR is at https://github.com/huggingface/transformers/pull/3929, but maintainers are unresponsive.
+    # The difficulty of keeping a parallel fork means we'll disable this option temporarily.
     pre_layer_norm: str = field(
         default=None,
         metadata={
-            "choices": ["true"],
+            "choices": [],
             "help": "Place layer normalization before the attention & FFN, rather than after adding the residual connection. https://openreview.net/pdf?id=B1x8anVFPr",
         },
     )
