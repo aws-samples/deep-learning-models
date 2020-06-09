@@ -8,7 +8,7 @@ import numpy as np
 from time import time
 # temp
 import sys
-sys.path.append('..')
+sys.path.append('/opt/ml/code/models/vision/detection')
 
 import tensorflow_addons as tfa
 import tensorflow as tf
@@ -21,7 +21,7 @@ from awsdet.utils.schedulers import schedulers
 from awsdet.core import CocoDistEvalmAPHook, CocoDistEvalRecallHook
 from awsdet.utils.runner.hooks.logger import tensorboard, text
 from awsdet.utils.runner.hooks import checkpoint, iter_timer, visualizer
-from awsdet.apis.train import parse_losses, batch_processor, build_optimizer, get_root_logger
+from awsdet.apis.train import parse_losses, batch_processor, build_optimizer, get_root_logger, set_random_seed
 from awsdet.utils.misc import Config
 import horovod.tensorflow as hvd
 from awsdet.utils.runner import sagemaker_runner
@@ -32,6 +32,8 @@ import argparse
 # Setup horovod and tensorflow environment
 ##########################################################################################
 
+os.environ['TF_CUDNN_USE_AUTOTUNE']= str(0)
+
 fp16 = True
 hvd.init()
 tf.config.optimizer.set_experimental_options({"auto_mixed_precision": fp16})
@@ -41,12 +43,38 @@ for gpu in gpus:
 if gpus:
     tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
 
+##########################################################################################
+# Set seed for RNG
+##########################################################################################
+set_random_seed(1337 + hvd.rank(), deterministic=True)
+
+
+##########################################################################################
+# Data is downloaded in tar archive to /opt/ml/inputs/data/coco coco channel
+# First need to untar the coco data
+##########################################################################################
+
+def decompress_data(cfg):
+    if hvd.local_rank()==0:
+        print("Decompressing Data")
+        coco_tar = tarfile.open(pathlib.Path(os.getenv('SM_CHANNEL_COCO')).joinpath('coco.tar').as_posix())
+        coco_tar.extractall(path=os.getenv('SM_CHANNEL_COCO'))
+    # block other ranks form skipping ahead before data is ready
+    barrier = hvd.allreduce(tf.random.normal(shape=[1]))    
+
+def setup_paths(instance_name, s3_path):
+    s3_checkpoints = os.path.join(s3_path, "checkpoints", instance_name)
+    s3_tensorboard = os.path.join(s3_path, "tensorboard", instance_name)
+    return s3_checkpoints, s3_tensorboard
+    
 def main(cfg):
+    decompress_data(cfg)
     ######################################################################################
     # Create Training Data
     ######################################################################################
     cfg.global_batch_size = cfg.batch_size_per_device * hvd.size()
     cfg.steps_per_epoch = cfg.coco_images // cfg.global_batch_size
+
     datasets = build_dataset(cfg.data.train)
     tf_datasets = [build_dataloader(datasets,
                          cfg.batch_size_per_device,
@@ -56,6 +84,7 @@ def main(cfg):
     ######################################################################################
     # Build Model
     ######################################################################################
+    
     #update any hyperparams that we may have passed in via arguments
     if cfg.ls > 0.0:
         cfg.model['bbox_head']['label_smoothing'] = cfg.ls
@@ -96,6 +125,8 @@ def main(cfg):
     optimizer = tf.keras.optimizers.SGD(scheduler, momentum=0.9, nesterov=False)
     if cfg.fp16:
         optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(optimizer, loss_scale='dynamic')
+
+    
     ######################################################################################
     # Create Model Runner
     ######################################################################################
@@ -109,14 +140,15 @@ def main(cfg):
     ######################################################################################
     runner.register_hook(checkpoint.CheckpointHook(interval=cfg.checkpoint_interval, 
                                                    out_dir=cfg.outputs_path, 
-                                                   s3_dir=None))
+                                                   s3_dir=cfg.s3_checkpoints,
+                                                   h5=True))
     runner.register_hook(CocoDistEvalmAPHook(cfg.data.val, interval=cfg.evaluation_interval))
     runner.register_hook(iter_timer.IterTimerHook())
     runner.register_hook(text.TextLoggerHook())
     runner.register_hook(visualizer.Visualizer(cfg.data.val, interval=100, top_k=10))
     runner.register_hook(tensorboard.TensorboardLoggerHook(log_dir=cfg.outputs_path, 
-                                                           interval=10,
-                                                           image_interval=100, s3_dir=None))
+                                                           image_interval=100,
+                                                           s3_dir=cfg.s3_tensorboard))
     ######################################################################################
     # Run Model
     ######################################################################################
@@ -128,33 +160,46 @@ def parse():
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--configuration", help="Model configuration file")
+    parser.add_argument("--instance_name", help="Sagemaker instance name")
+    parser.add_argument("--instance_count", help="Number of instances")
+    parser.add_argument("--instance_type", help="Instance type for a worker")
+    parser.add_argument("--num_workers_per_host", help="Number of workers on each instance")
+    parser.add_argument("--s3_path", help="s3 path")
+    parser.add_argument("--model_dir", help="Location of model on Sagemaker instance")
     parser.add_argument("--base_learning_rate", help="float")
     parser.add_argument("--batch_size_per_device", help="integer")
     parser.add_argument("--fp16", help="boolean")
     parser.add_argument("--schedule", help="learning rate schedule type")
     parser.add_argument("--warmup_init_lr_scale", help="float")
     parser.add_argument("--warmup_steps", help="int")
-    parser.add_argument("--epochs", help="int", default=13, type=int)
+    parser.add_argument("--epochs", help="int", default=1, type=int)
     parser.add_argument("--use_rcnn_bn", help="bool")
     parser.add_argument("--use_conv", help="bool")
     parser.add_argument("--ls", help="float")
-    parser.add_argument("--name", help="float")
+
     args = parser.parse_args()
     return args
 
 if __name__=='__main__':
     args = parse()
     cfg = Config.fromfile(args.configuration)
+    instance_name = args.instance_name
+    s3_path = args.s3_path
+    s3_checkpoints, s3_tensorboard = setup_paths(instance_name, s3_path)
+    cfg.s3_checkpoints = s3_checkpoints
+    cfg.s3_tensorboard = s3_tensorboard
+    cfg.model_name = instance_name
     cfg.base_learning_rate = float(args.base_learning_rate)
+    cfg.instance_count = int(args.instance_count)
     cfg.batch_size_per_device = int(args.batch_size_per_device)
     cfg.fp16 = (args.fp16 == 'True')
     cfg.ls = float(args.ls)
     cfg.use_rcnn_bn = (args.use_rcnn_bn == 'True')
-    cfg.use_conv = (args.use_conv == 'True')  
+    cfg.use_conv = (args.use_conv == 'True')           
     cfg.schedule = args.schedule
+    cfg.training_epochs = args.epochs
+    cfg.num_workers_per_host = int(args.num_workers_per_host)
     cfg.workers_per_gpu = 1 # unused
     cfg.warmup_init_lr_scale = float(args.warmup_init_lr_scale)
     cfg.warmup_steps = int(args.warmup_steps)
-    cfg.training_epochs = args.epochs
-    cfg.model_name = args.name
     main(cfg)
