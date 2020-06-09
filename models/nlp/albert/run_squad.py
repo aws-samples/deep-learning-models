@@ -193,6 +193,7 @@ def print_eval_metrics(results, step) -> None:
     )
     logger.info(description)
 
+
 def tensorboard_eval_metrics(summary_writer, results: Dict, step: int) -> None:
     """ Log evaluation metrics to TensorBoard. """
     tf.summary.scalar("eval_exact", results["exact"], step=step)
@@ -285,6 +286,7 @@ def run_squad_and_get_results(
     validate_frequency = validate_frequency or 1000000
     is_sagemaker = fsx_prefix.startswith("/opt/ml")
     disable_tqdm = is_sagemaker
+
     if isinstance(load_from, tf.keras.Model):
         config = load_from.config
     assert config is not None, "config may not be None"
@@ -313,6 +315,7 @@ def run_squad_and_get_results(
     optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(
         optimizer, loss_scale="dynamic"
     )  # AMP
+
     model.call = wrap_tf_function_idempotent(model.call)
 
     if dataset == "squadv1":
