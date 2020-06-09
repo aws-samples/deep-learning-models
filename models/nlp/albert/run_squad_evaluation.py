@@ -134,7 +134,7 @@ def get_squad_results(
         outputs = model(input_dict, training=False)
         start_logits, end_logits = outputs[0], outputs[1]
 
-        per_gpu_batch_size = len(batch[1]["start_position"])
+        per_gpu_batch_size = len(batch[1]["start_positions"])
         for i in range(per_gpu_batch_size):
             feature_index = batch[0]["feature_index"][i].numpy().item()
             unique_id = int(features[feature_index].unique_id)

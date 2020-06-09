@@ -121,8 +121,8 @@ def train_step(model, optimizer, batch) -> List[tf.Tensor]:
         loss, acc, exact_match, precision, recall = loss_fn(
             start_logits=start_logits,
             end_logits=end_logits,
-            start_positions=batch[1]["start_position"],
-            end_positions=batch[1]["end_position"],
+            start_positions=batch[1]["start_positions"],
+            end_positions=batch[1]["end_positions"],
             attention_mask=batch[0]["attention_mask"],
         )
         scaled_loss = optimizer.get_scaled_loss(loss)
@@ -161,8 +161,8 @@ def validation_step(model, batch) -> List[tf.Tensor]:
     loss, acc, exact_match, precision, recall = loss_fn(
         start_logits=start_logits,
         end_logits=end_logits,
-        start_positions=batch[1]["start_position"],
-        end_positions=batch[1]["end_position"],
+        start_positions=batch[1]["start_positions"],
+        end_positions=batch[1]["end_positions"],
         attention_mask=batch[0]["attention_mask"],
     )
     return loss, acc, exact_match, precision, recall
