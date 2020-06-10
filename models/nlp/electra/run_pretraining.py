@@ -74,9 +74,13 @@ for _ in range(50):
 
         adv_ids = tf.argmax(adv_logits, axis=-1)  # [1, 6]
 
-        gen_acc = tf.reduce_mean(tf.cast(tf.boolean_mask(adv_ids == ids, mask), tf.float32))
+        ids_equal = tf.cast(adv_ids == ids, dtype=tf.int64)
+        gen_correct = tf.boolean_mask(ids_equal, mask)
+        gen_acc = tf.reduce_mean(tf.cast(gen_correct, dtype=tf.float32))
 
-        dis_logits = dis(adv_ids)  # [6], logits that
+        gen_ids = tf_mask * adv_ids + (1 - tf_mask) * ids
+
+        dis_logits = dis(gen_ids)  # [6], logits that
         dis_logits = tf.reshape(dis_logits, [1, -1])  # [1, 6]
         # Linear layer is already in TFElectraDiscriminatorPredictions.
         dis_probs = tf.math.sigmoid(dis_logits)
@@ -84,24 +88,29 @@ for _ in range(50):
 
         # TODO: If generator generates correct token, invert the loss
         dis_loss = tf.keras.losses.binary_crossentropy(
-            y_true=tf_mask, y_pred=dis_logits, from_logits=True
+            y_true=tf.cast(gen_ids != ids, tf.int64), y_pred=dis_logits, from_logits=True
         )
         dis_loss = tf.reduce_mean(dis_loss)
-        dis_acc = tf.reduce_mean(tf.cast(dis_preds == tf_mask, tf.float32))
+        dis_acc = tf.reduce_mean(
+            tf.cast(tf.cast(dis_preds, tf.bool) == (gen_ids != ids), dtype=tf.float32)
+        )  # gen_ids != ids is corrupted
 
         # Generator is 30,000-way classification loss, while discriminator is binary classification.
         lmbda = 50
         loss = gen_loss + lmbda * dis_loss
-        print(
-            f"gen_loss: {gen_loss:.3f}, dis_loss: {dis_loss:.3f}, gen_acc: {gen_acc:.3f}, dis_acc: {dis_acc:.3f}"
-        )
 
         print(f"Original:            '{tokenizer.decode(ids.numpy().flatten())}'")
-        print(f"Generator output:    '{colorize_gen(tokenizer, ids, adv_ids, tf_mask)}'")
-        print(f"Discriminator preds: '{colorize_dis(tokenizer, adv_ids, dis_preds, tf_mask)}'")
+        print(f"Masked:              '{tokenizer.decode(masked_ids.numpy().flatten())}'")
+        print(f"Generator output:    '{colorize_gen(tokenizer, ids, gen_ids, tf_mask)}'")
+        print(f"Discriminator preds: '{colorize_dis(tokenizer, gen_ids, dis_preds)}'")
+        print(
+            f"gen_loss: {gen_loss:.3f}, dis_loss: {dis_loss:.3f}, gen_acc: {gen_acc:.3f}, dis_acc: {dis_acc:.3f}\n"
+        )
 
-    vars = gen.trainable_variables + dis.trainable_variables
-    grads = tape.gradient(loss, vars)
+    vars = []
+    # vars += gen.trainable_variables
+    vars += dis.trainable_variables
+    grads = tape.gradient(dis_loss, vars)
     optimizer.apply_gradients(zip(grads, vars))
 
     # breakpoint()
