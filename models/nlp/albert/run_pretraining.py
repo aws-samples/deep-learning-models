@@ -522,7 +522,7 @@ def main():
         summary_writer = None  # Only create a writer if we make it through a successful step
         logger.info(f"Starting training, job name {run_name}")
 
-    i = 0
+    i = 1
     start_time = time.perf_counter()
     for batch in train_dataset:
         learning_rate = optimizer.learning_rate(step=tf.constant(i, dtype=tf.float32))
@@ -539,15 +539,15 @@ def main():
         )
 
         # Don't want to wrap broadcast_variables() in a tf.function, can lead to asynchronous errors
-        if i == 0:
+        if i == 1:
             if hvd.rank() == 0 and loaded_optimizer_weights is not None:
                 optimizer.set_weights(loaded_optimizer_weights)
             hvd.broadcast_variables(model.variables, root_rank=0)
             hvd.broadcast_variables(optimizer.variables(), root_rank=0)
             i = optimizer.get_weights()[0] - 1
 
-        is_final_step = i >= train_args.total_steps - 1
-        do_squad = ((i > 0) and (i % log_args.squad_frequency == 0)) or is_final_step
+        is_final_step = i >= train_args.total_steps
+        do_squad = ((i > 1) and (i % log_args.squad_frequency == 0)) or is_final_step
         # Squad requires all the ranks to train, but results are only returned on rank 0
         if do_squad:
             squad_results = get_squad_results_while_pretraining(
@@ -568,15 +568,15 @@ def main():
 
         if hvd.rank() == 0:
             do_log = i % log_args.log_frequency == 0
-            do_checkpoint = ((i > 0) and (i % log_args.checkpoint_frequency == 0)) or is_final_step
-            do_validation = ((i > 0) and (i % log_args.validation_frequency == 0)) or is_final_step
+            do_checkpoint = ((i > 1) and (i % log_args.checkpoint_frequency == 0)) or is_final_step
+            do_validation = ((i > 1) and (i % log_args.validation_frequency == 0)) or is_final_step
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, MLM: {mlm_loss:.3f}, SOP: {sop_loss:.3f}, MLM_acc: {mlm_acc:.3f}, SOP_acc: {sop_acc:.3f}"
             pbar.set_description(description)
             if do_log:
                 elapsed_time = time.perf_counter() - start_time
-                if i == 0:
+                if i == 1:
                     logger.info(f"First step: {elapsed_time:.3f} secs")
                 else:
                     it_per_sec = log_args.log_frequency / elapsed_time
