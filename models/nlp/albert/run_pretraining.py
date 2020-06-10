@@ -414,28 +414,31 @@ def main():
             loss_str = "-skipmlm"
         else:
             loss_str = ""
-
-        metadata = (
-            f"{model_args.model_type}"
-            f"-{model_args.model_size}"
-            f"-{model_args.load_from}"
-            f"-{hvd.size()}gpus"
-            f"-{train_args.per_gpu_batch_size * hvd.size()}globalbatch"
-            f"-{train_args.gradient_accumulation_steps}accum"
-            f"-{train_args.learning_rate}maxlr"
-            f"-{train_args.end_learning_rate}endlr"
-            f"-{train_args.learning_rate_decay_power}power"
-            f"-{train_args.max_grad_norm}maxgrad"
-            f"-{train_args.optimizer}opt"
-            f"-{train_args.total_steps}steps"
-            f"-{data_args.max_seq_length}seq"
-            f"-{data_args.max_predictions_per_seq}preds"
-            f"-{'preln' if pre_layer_norm else 'postln'}"
-            f"{loss_str}"
-            f"-{model_args.hidden_dropout_prob}dropout"
-            f"-{train_args.seed}seed"
-        )
-        run_name = f"{current_time}-{platform}-{metadata}-{train_args.name if train_args.name else 'unnamed'}"
+        
+        if log_args.run_name is None:
+            metadata = (
+                f"{model_args.model_type}"
+                f"-{model_args.model_size}"
+                f"-{model_args.load_from}"
+                f"-{hvd.size()}gpus"
+                f"-{train_args.per_gpu_batch_size * hvd.size()}globalbatch"
+                f"-{train_args.gradient_accumulation_steps}accum"
+                f"-{train_args.learning_rate}maxlr"
+                f"-{train_args.end_learning_rate}endlr"
+                f"-{train_args.learning_rate_decay_power}power"
+                f"-{train_args.max_grad_norm}maxgrad"
+                f"-{train_args.optimizer}opt"
+                f"-{train_args.total_steps}steps"
+                f"-{data_args.max_seq_length}seq"
+                f"-{data_args.max_predictions_per_seq}preds"
+                f"-{'preln' if pre_layer_norm else 'postln'}"
+                f"{loss_str}"
+                f"-{model_args.hidden_dropout_prob}dropout"
+                f"-{train_args.seed}seed"
+            )
+            run_name = f"{current_time}-{platform}-{metadata}-{train_args.name if train_args.name else 'unnamed'}"
+        else:
+            run_name = log_args.run_name
 
         # Logging should only happen on a single process
         # https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time

@@ -32,6 +32,7 @@ class ModelArguments:
             "help": "For example, `/fsx/checkpoints/albert/2020..step125000`. No .ckpt on the end."
         },
     )
+
     # TODO: Pre-layer norm is not yet supported in transformers. PR is at https://github.com/huggingface/transformers/pull/3929, but maintainers are unresponsive.
     # The difficulty of keeping a parallel fork means we'll disable this option temporarily.
     pre_layer_norm: str = field(
@@ -132,6 +133,12 @@ class LoggingArguments:
     squad_frequency: int = field(default=40000)
     fast_squad: str = field(default=None, metadata={"choices": ["true"]})
     dummy_eval: str = field(default=None, metadata={"choices": ["true"]})
+    run_name: str = field(
+        default=None,
+        metadata={
+            "help": "Name of saved checkpoints and logs during training. For example, bert-phase-1."
+        },
+    )
 
 
 @dataclass
