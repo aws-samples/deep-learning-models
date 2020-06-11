@@ -1,12 +1,6 @@
 # Copyright (c) Open-MMLab. All rights reserved.
 from enum import Enum
-
 import numpy as np
-
-import six
-def is_str(x):
-    """Whether the input is an string instance."""
-    return isinstance(x, six.string_types)
 
 class Color(Enum):
     """An enum that defines common colors.
@@ -32,7 +26,7 @@ def color_val(color):
     Returns:
         tuple[int]: A tuple of 3 integers indicating BGR channels.
     """
-    if is_str(color):
+    if isinstance(color, str):
         return Color[color].value
     elif isinstance(color, Color):
         return color.value

@@ -30,5 +30,6 @@ mpirun -np ${NUM_GPU} \
 python tools/train.py ${TRAIN_CFG} \
 --validate \
 --autoscale-lr \
---amp
+--amp 
+# --resume_from /deep-learning-models/models/vision/detection/work_dirs/retinanet_r50_fpn_1x_amp_bn/000
 

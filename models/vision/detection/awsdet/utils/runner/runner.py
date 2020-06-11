@@ -2,24 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
 import logging
-import os.path as osp
 import time
+import json
+import os.path as osp
 import tensorflow as tf
+import numpy as np
 from . import hooks
 from .dist_utils import get_dist_info, get_distributed_tape, broadcast_weights
 from .hooks import (CheckpointHook, Hook, IterTimerHook, LrUpdaterHook, 
-                    lr_updater, OptimizerHook, WeightsMonitorHook)
+                    lr_updater, WeightsMonitorHook)
 from .log_buffer import LogBuffer
 from .priority import get_priority
 from .utils import get_host_info, get_time_str, obj_from_dict
 from awsdet.utils.misc import mkdir_or_exist
-from awsdet.utils.generic import is_list_of
 
-import six
-
-def is_str(x):
-    """Whether the input is an string instance."""
-    return isinstance(x, six.string_types)
 
 class Runner(object):
     """A training helper.
@@ -56,7 +52,7 @@ class Runner(object):
         self.batch_processor = batch_processor
 
         # create work_dir
-        if is_str(work_dir):
+        if isinstance(work_dir, str):
             self.work_dir = osp.abspath(work_dir)
             mkdir_or_exist(self.work_dir)
         elif work_dir is None:
@@ -84,6 +80,7 @@ class Runner(object):
         self._max_iters = 0
         self._amp_enabled = amp_enabled
         self.gradient_clip = gradient_clip # <= 0.0 disables it
+
 
     @property
     def model_name(self):
@@ -225,16 +222,41 @@ class Runner(object):
         for hook in self._hooks:
             getattr(hook, fn_name)(self)
 
-    def load_checkpoint(self, filename):
-        self.logger.info('Loading checkpoint from %s...', filename)
-        self.model.load_weights(filename)
-        self.logger.info('Loaded weights from checkpoint: {}'.format(filename))
+
+    def load_checkpoint(self, checkpoint_dir):
+        filepath = osp.join(checkpoint_dir, self.model.name)
+        self.logger.info('Loading checkpoint from %s...', checkpoint_dir)
+        self.model.load_weights(filepath)
+        self.logger.info('Loaded weights from checkpoint: {}'.format(filepath))
+        opt_state_file = '{}.opt'.format(filepath)
+        if osp.exists(opt_state_file):
+            opt_weights = np.load(opt_state_file)
+            self.optimizer.set_weights(opt_weights)
+            self.logger.info('Loaded optimizer state from: {}'.format(opt_state_file))
+        runner_state_file = '{}.runner.json'.format(filepath)
+        if osp.exists(runner_state_file):
+            with open(runner_state_file, 'r') as f:
+                runner_state = json.load(f)
+                self._epoch = int(runner_state['epoch'])
+                self._iter = int(runner_state['iter'])
+                self.logger.info('Loaded runner state from: {}'.format(runner_state_file))
+
 
     def save_checkpoint(self, out_dir):
+        """
+        Save current running state of training - model state, optimizer state, and runner state
+        """
         filepath = osp.join(out_dir, self.model.name)
-        # save full model, including optimizer state
+        # save model
         self.model.save_weights(filepath, save_format='tf')
+        # save optimizer state
+        opt_state = self.optimizer.get_weights()
+        np.save('{}.opt'.format(filepath), opt_state)
+        # save runner state
+        with open('{}.runner.json'.format(filepath), 'w') as f:
+            json.dump({'epoch':'{}'.format(self.epoch+1), 'iter':'{}'.format(self.iter)}, f)
         self.logger.info('Saved checkpoint at: {}'.format(filepath))
+
 
     @tf.function(experimental_relax_shapes=True)
     def run_train_step(self, data_batch):
@@ -255,6 +277,7 @@ class Runner(object):
         # if self.rank == 0: tf.print(global_norm, all_are_finite)
         self.optimizer.apply_gradients(zip(grads, var_list))
         return outputs
+
 
     def run_eval_step(self, data_batch):
         '''
@@ -327,7 +350,6 @@ class Runner(object):
             max_epochs (int): Total training epochs.
         """
         assert isinstance(tf_datasets, list)
-        assert is_list_of(workflow, tuple)
         assert len(tf_datasets) == len(workflow)
 
         self._max_epochs = max_epochs
@@ -360,6 +382,7 @@ class Runner(object):
         time.sleep(1)  # wait for some hooks like loggers to finish
         self.call_hook('after_run')
 
+
     def register_lr_hooks(self, lr_config):
         if isinstance(lr_config, LrUpdaterHook):
             self.register_hook(lr_config)
@@ -375,12 +398,14 @@ class Runner(object):
             raise TypeError('"lr_config" must be either a LrUpdaterHook object'
                             ' or dict, not {}'.format(type(lr_config)))
 
+
     def register_logger_hooks(self, log_config):
         log_interval = log_config['interval']
         for info in log_config['hooks']:
             logger_hook = obj_from_dict(
                 info, hooks, default_args=dict(interval=log_interval))
             self.register_hook(logger_hook, priority='VERY_LOW')
+
 
     def register_training_hooks(self,
                                 lr_config,
@@ -402,7 +427,6 @@ class Runner(object):
         if checkpoint_config is None:
             checkpoint_config = {}
         self.register_lr_hooks(lr_config)
-        # self.register_hook(self.build_hook(optimizer_config, OptimizerHook), priority='VERY_HIGH')
         self.register_hook(self.build_hook(checkpoint_config, CheckpointHook))
         self.register_hook(IterTimerHook())
         # self.register_hook(WeightsMonitorHook())

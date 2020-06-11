@@ -3,9 +3,8 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 import tensorflow as tf
-
 from awsdet.core.bbox import transforms
-from awsdet.utils.generic import is_str
+
 
 class RPNTestMixin:
     

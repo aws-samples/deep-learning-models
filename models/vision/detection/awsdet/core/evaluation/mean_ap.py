@@ -9,10 +9,6 @@ from awsdet.utils import print_log
 from .bbox_overlaps import bbox_overlaps
 from .class_names import get_classes
 
-import six
-def is_str(x):
-    """Whether the input is an string instance."""
-    return isinstance(x, six.string_types)
 
 def average_precision(recalls, precisions, mode='area'):
     """Calculate average precision (for single or multiple scales).
@@ -435,7 +431,7 @@ def print_map_summary(mean_ap,
 
     if dataset is None:
         label_names = [str(i) for i in range(1, num_classes + 1)]
-    elif is_str(dataset):
+    elif isinstance(dataset, str):
         label_names = get_classes(dataset)
     else:
         label_names = dataset

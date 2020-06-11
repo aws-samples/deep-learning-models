@@ -41,7 +41,7 @@ def parse_args():
     )
     parser.add_argument('--work_dir', help='the dir to save logs and models')
     parser.add_argument('--resume_from',
-                        help='the checkpoint file to resume from')
+                        help='restarts training from saved running state in provided directory')
     parser.add_argument('--amp', action='store_true', help='enable mixed precision training')
     parser.add_argument(
         '--validate',
@@ -139,7 +139,7 @@ def main():
     # labels = tf.constant([1], dtype=tf.int32)
     _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)),
               training=False)
-
+    #model.save('my_model')
     # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
     weights_path = cfg.model['backbone']['weights_path']
     logger.info('Loading weights from: {}'.format(weights_path))

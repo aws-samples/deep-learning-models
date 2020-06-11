@@ -2,18 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
 import itertools
-import six
 import numpy as np
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 from terminaltables import AsciiTable
 from .recall import eval_recalls
 from awsdet.utils.fileio import dump, load
-
-def is_str(x):
-    """Whether the input is an string instance."""
-    return isinstance(x, six.string_types)
-
 
 def coco_eval(result_files,
               result_types,
@@ -25,7 +19,7 @@ def coco_eval(result_files,
             'proposal', 'proposal_fast', 'bbox', 'segm', 'keypoints'
         ]
 
-    if is_str(coco):
+    if isinstance(coco, str):
         coco = COCO(coco)
     assert isinstance(coco, COCO)
 
@@ -91,7 +85,7 @@ def fast_eval_recall(results,
                      coco,
                      max_dets,
                      iou_thrs=np.arange(0.5, 0.96, 0.05)):
-    if is_str(results):
+    if isinstance(results, str):
         assert results.endswith('.pkl')
         results = load(results)
     elif not isinstance(results, list):

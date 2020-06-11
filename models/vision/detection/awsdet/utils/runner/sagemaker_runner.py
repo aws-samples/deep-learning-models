@@ -14,13 +14,7 @@ from .log_buffer import LogBuffer
 from .priority import get_priority
 from .utils import get_host_info, get_time_str, obj_from_dict
 from awsdet.utils.misc import mkdir_or_exist
-from awsdet.utils.generic import is_list_of
 
-import six
-
-def is_str(x):
-    """Whether the input is an string instance."""
-    return isinstance(x, six.string_types)
 
 class Runner(object):
     """A training helper.
@@ -59,7 +53,7 @@ class Runner(object):
         self.batch_processor = batch_processor
         self.loss_weights = loss_weights
         # create work_dir
-        if is_str(work_dir):
+        if isinstance(work_dir, str):
             self.work_dir = osp.abspath(work_dir)
             mkdir_or_exist(self.work_dir)
         elif work_dir is None:
@@ -321,7 +315,6 @@ class Runner(object):
             max_epochs (int): Total training epochs.
         """
         assert isinstance(tf_datasets, list)
-        assert is_list_of(workflow, tuple)
         assert len(tf_datasets) == len(workflow)
 
         self._max_epochs = max_epochs

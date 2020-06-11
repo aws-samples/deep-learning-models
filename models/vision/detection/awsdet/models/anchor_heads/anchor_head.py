@@ -132,7 +132,8 @@ class AnchorHead(tf.keras.Model):
         proposals_list = []
         img_shapes = calc_pad_shapes(img_metas)
         # for each image in batch generate proposals
-        for img_idx in range(len(img_metas)):
+        num_imgs = len(img_metas)
+        for img_idx in range(num_imgs):
             img_probs = [tf.stop_gradient(probs[i][img_idx]) for i in range(num_levels)]
             img_deltas = [tf.stop_gradient(deltas[i][img_idx]) for i in range(num_levels)]
             img_shape = img_shapes[img_idx]

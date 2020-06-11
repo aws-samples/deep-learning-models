@@ -1,8 +1,7 @@
 # Copyright (c) Open-MMLab. All rights reserved.
 import sys
+import collections
 from multiprocessing import Pool
-
-from awsdet.utils.generic import collections_abc
 from .timer import Timer
 
 
@@ -81,7 +80,7 @@ def track_progress(func, tasks, bar_width=50, file=sys.stdout, **kwargs):
     """
     if isinstance(tasks, tuple):
         assert len(tasks) == 2
-        assert isinstance(tasks[0], collections_abc.Iterable)
+        assert isinstance(tasks[0], collections.abc.Iterable)
         assert isinstance(tasks[1], int)
         task_num = tasks[1]
         tasks = tasks[0]

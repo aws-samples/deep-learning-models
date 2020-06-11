@@ -41,7 +41,7 @@ def set_random_seed(seed, deterministic=False):
 
     Args:
         seed (int): Seed to be used.
-        # deterministic (bool): TODO: check NVIDIA determinism
+        # deterministic (bool): unused - to be enabled through TF FLAGS in 2.2.0 (see tools/train.py)
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -63,7 +63,9 @@ def parse_losses(losses, local_batch_size):
     for _key, _value in log_vars.items():
         if 'loss' in _key:
             if 'reg_loss' not in _key:
-                loss_list.append(_value/local_batch_size) # horovod averages (not sums) gradients by default over workers
+                # https://github.com/horovod/horovod/issues/843
+                # horovod averages (not sums) gradients by default over workers
+                loss_list.append(_value/local_batch_size)
             else:
                 loss_list.append(_value)
     total_loss = sum(loss_list) 
