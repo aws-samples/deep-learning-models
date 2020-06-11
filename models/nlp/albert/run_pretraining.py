@@ -474,7 +474,8 @@ def main():
         model_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(model_args.checkpoint_path)
         if hvd.rank() == 0:
             model.load_weights(model_ckpt)
-            loaded_optimizer_weights = np.load(optimizer_ckpt, allow_pickle=True)
+            if model_args.load_optimizer_state == "true":
+                loaded_optimizer_weights = np.load(optimizer_ckpt, allow_pickle=True)
             # We do not set the weights yet, we have to do a first step to initialize the optimizer.
 
     # Train filenames are [1, 2047], Val filenames are [0]. Note the different subdirectories
@@ -550,7 +551,7 @@ def main():
             i = optimizer.get_weights()[0] - 1
 
         is_final_step = i >= train_args.total_steps
-        do_squad = (log_args.squad_frequency != 0) and (((i > 1) and (i % log_args.squad_frequency == 0)) or is_final_step))
+        do_squad = (log_args.squad_frequency != 0) and (((i > 1) and (i % log_args.squad_frequency == 0)) or is_final_step)
         # Squad requires all the ranks to train, but results are only returned on rank 0
         if do_squad:
             squad_results = get_squad_results_while_pretraining(
