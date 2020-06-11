@@ -124,7 +124,8 @@ export SAGEMAKER_IMAGE_NAME=${IMAGE}
 export SAGEMAKER_FSX_ID=fs-123
 export SAGEMAKER_SUBNET_IDS=subnet-123
 export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
-export PHASE1_RUN_NAME=myberttraining
+export PHASE1_RUN_NAME=myberttrainingphase1
+export PHASE2_RUN_NAME=myberttrainingphase2
 export PHASE1_STEPS=14076
 ```
 
@@ -175,7 +176,7 @@ python -m albert.launch_sagemaker \
     --learning_rate=0.00176 \
     --log_frequency=10 \
     --checkpoint_path=/fsx/checkpoints/bert/${RUN_NAME_PHASE1}-step${PHASE1_STEPS}
-    --name=mybertphase2 \
+    --name=mybertphase2 
 ```
 
 7. Launch a SageMaker finetuning job.
