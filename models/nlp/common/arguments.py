@@ -1,6 +1,8 @@
 """
-Since arguments are duplicated in run_pretraining.py and sagemaker_pretraining.py, they have
+Since arguments are duplicated in run_pretraining.py and launch_sagemaker.py, they have
 been abstracted into this file. It also makes the training scripts much shorter.
+
+Using `transformers.HfArgumentParser` we can turn these classes into argparse arguments.
 """
 
 import dataclasses
@@ -59,6 +61,11 @@ class ModelArguments:
 
 @dataclass
 class DataTrainingArguments:
+    """ Arguments related to the dataset preparation.
+
+    Task name, sequence length, and filepath fall under this category, but batch size does not.
+    """
+
     task_name: str = field(default="squadv2", metadata={"choices": ["squadv1", "squadv2"]})
     max_seq_length: int = field(default=512, metadata={"choices": [128, 512]})
     max_predictions_per_seq: int = field(default=20, metadata={"choices": [20, 80]})
@@ -73,18 +80,11 @@ class DataTrainingArguments:
 
 @dataclass
 class TrainingArguments:
-    """
-    TrainingArguments is the subset of the arguments we use in our example scripts
-    **which relate to the training loop itself**.
-
-    Using `HfArgumentParser` we can turn this class
-    into argparse arguments to be able to specify them on
-    the command line.
-    """
+    """ Related to the training loop. """
 
     model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
     seed: int = field(default=42)
-    # TODO: Change this to per_gpu_train_per_gpu_batch_size
+    # TODO: Change this to per_gpu_train_batch_size
     per_gpu_batch_size: int = field(default=32)
     gradient_accumulation_steps: int = field(
         default=1,
@@ -128,6 +128,12 @@ class TrainingArguments:
 
 @dataclass
 class LoggingArguments:
+    """ Related to validation and finetuning evaluation.
+
+    This can have a significant impact on runtime (squad_frequency), so it seems a tad disingenuous
+    to call them logging arguments. Maybe change later.
+    """
+
     log_frequency: int = field(default=1000)
     validation_frequency: int = field(default=2000)
     checkpoint_frequency: int = field(default=5000)
@@ -145,6 +151,8 @@ class LoggingArguments:
 
 @dataclass
 class SageMakerArguments:
+    """ Related to SageMaker infrastructure, unused on EC2 or EKS. """
+
     source_dir: str = field(
         metadata={
             "help": "For example, /Users/myusername/Desktop/deep-learning-models/models/nlp/albert"
