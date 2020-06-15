@@ -32,9 +32,16 @@ tokenizer = ElectraTokenizer.from_pretrained("bert-base-uncased")
 gen_config = ElectraConfig.from_pretrained("google/electra-small-generator")
 dis_config = ElectraConfig.from_pretrained("google/electra-small-discriminator")
 
-gen = TFElectraForMaskedLM.from_pretrained("google/electra-small-generator")
-dis = TFElectraForPreTraining.from_pretrained("google/electra-small-discriminator")
+# gen = TFElectraForMaskedLM.from_pretrained("google/electra-small-generator")
+# dis = TFElectraForPreTraining.from_pretrained("google/electra-small-discriminator")
+gen = TFElectraForMaskedLM(config=gen_config)
+dis = TFElectraForPreTraining(config=dis_config)
 optimizer = tf.keras.optimizers.Adam(lr=1e-4)
+
+# Load in WikiText-2.
+filename = "/fsx/wikitext/wikitext-2-raw/wiki.test.raw"
+with open(filename) as infile:
+    wiki_text: str = infile.read()  # length 1,288,556
 
 # Load in text strings.
 text = "The chef cooked the meal. It was delicious and appetizing, yet I couldn't shake the feeling that Michael Jordan would have the flu game."
@@ -43,17 +50,28 @@ tokens = tokenizer.tokenize(text)  # ['the', 'chef', 'cooked', 'the', 'meal', '.
 
 # Convert to token ids.
 ids = tokenizer.convert_tokens_to_ids(tokens)
-ids = np.reshape(ids, (1, len(ids)))  # [1, 6]
-ids = tf.constant(ids)
+
+wiki_tokens = tokenizer.tokenize(wiki_text)  # length 273,178, tokenized instantaneously
+wiki_ids = tokenizer.convert_tokens_to_ids(wiki_tokens)
 
 
-for _ in range(50):
+def select_ids(arr, seq_len: int) -> np.array:
+    start = 0 if len(arr) <= seq_len else np.random.randint(0, len(arr) - seq_len)
+    return np.array(arr[start : start + seq_len])
+
+
+def to_batch(arr) -> tf.Tensor:
+    return tf.constant(np.reshape(arr, (1, len(arr))))
+
+
+for _ in range(50000):
     with tf.GradientTape() as tape:
+        ids = to_batch(select_ids(wiki_ids, 128))  # [1, 6]
         # Generate a mask.
         num_masks = 2
         # mask = np.random.choice(np.arange(len(tokens)), size=num_masks, replace=True)
         # Mask should be a boolean array where 1 represents masked token.
-        mask_prob = 0.5  # TODO: Change to 0.15
+        mask_prob = 0.15  # TODO: Change to 0.15
         mask = np.array(np.random.rand(*ids.shape) > 1 - mask_prob, dtype=int)
         tf_mask = tf.constant(mask)
 
@@ -108,9 +126,9 @@ for _ in range(50):
         )
 
     vars = []
-    # vars += gen.trainable_variables
+    vars += gen.trainable_variables
     vars += dis.trainable_variables
-    grads = tape.gradient(dis_loss, vars)
+    grads = tape.gradient(loss, vars)
     optimizer.apply_gradients(zip(grads, vars))
 
     # breakpoint()
