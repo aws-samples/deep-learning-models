@@ -40,7 +40,12 @@ import tensorflow as tf
 _R_MEAN = 123.68
 _G_MEAN = 116.78
 _B_MEAN = 103.94
+_R_STD = 58.393
+_G_STD = 57.12
+_B_STD = 57.375
+
 _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
+_CHANNEL_STDS = [_R_STD, _G_STD, _B_STD]
 
 # The lower bound for the smallest side of the image for aspect-preserving
 # resizing. For example, if an image is 500 x 1000, it will be resized to
@@ -73,12 +78,20 @@ def _decode_crop_and_flip(image_buffer, bbox, num_channels):
   # allowed range of aspect ratios, sizes and overlap with the human-annotated
   # bounding box. If no box is supplied, then we assume the bounding box is
   # the entire image.
-  sample_distorted_bounding_box = tf.image.sample_distorted_bounding_box(
-      tf.image.extract_jpeg_shape(image_buffer),
+  # sample_distorted_bounding_box = tf.image.sample_distorted_bounding_box(
+  #    tf.image.extract_jpeg_shape(image_buffer),
+  #    bounding_boxes=bbox,
+  #    min_object_covered=0.1,
+  #    aspect_ratio_range=[0.75, 1.33],
+  #    area_range=[0.05, 1.0],
+  #    max_attempts=100,
+  #    use_image_if_no_bounding_boxes=True)
+  sample_distorted_bounding_box = tf.raw_ops.SampleDistortedBoundingBoxV2(
+      image_size=tf.image.extract_jpeg_shape(image_buffer),
       bounding_boxes=bbox,
       min_object_covered=0.1,
       aspect_ratio_range=[0.75, 1.33],
-      area_range=[0.05, 1.0],
+      area_range=[0.08, 1.0],
       max_attempts=100,
       use_image_if_no_bounding_boxes=True)
   bbox_begin, bbox_size, _ = sample_distorted_bounding_box
@@ -151,8 +164,8 @@ def _mean_image_subtraction(image, means, num_channels):
   # Note(b/130245863): we explicitly call `broadcast` instead of simply
   # expanding dimensions for better performance.
   means = tf.broadcast_to(means, tf.shape(image))
-
-  return image - means
+  stds = tf.broadcast_to(_CHANNEL_STDS, tf.shape(image))
+  return (image - means) / stds
 
 
 def _smallest_size_at_least(height, width, resize_min):

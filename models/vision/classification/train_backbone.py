@@ -11,6 +11,7 @@ from tqdm import tqdm
 from time import time
 import sys
 import resnet_preprocessing
+import resnet
 
 
 class WarmupScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -48,16 +49,22 @@ class WarmupScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
 @tf.function
 def parse(record, is_training):
     features = {'image/encoded': tf.io.FixedLenFeature((), tf.string),
-                'image/class/label': tf.io.FixedLenFeature((), tf.int64)}
+                'image/class/label': tf.io.FixedLenFeature((), tf.int64),
+                'image/object/bbox/xmin': tf.io.VarLenFeature(dtype=tf.float32),
+                'image/object/bbox/ymin': tf.io.VarLenFeature(dtype=tf.float32),
+                'image/object/bbox/xmax': tf.io.VarLenFeature(dtype=tf.float32),
+                'image/object/bbox/ymax': tf.io.VarLenFeature(dtype=tf.float32),
+                }
     parsed = tf.io.parse_single_example(record, features)
     image_bytes = tf.reshape(parsed['image/encoded'], shape=[])
-    bbox = tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32, shape=[1, 1, 4])
+    # bbox = tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32, shape=[1, 1, 4])
+    bbox = tf.stack([parsed['image/object/bbox/%s' % x].values for x in ['ymin', 'xmin', 'ymax', 'xmax']])
+    bbox = tf.transpose(tf.expand_dims(bbox, 0), [0, 2, 1])
     image = resnet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
     label = tf.cast(parsed['image/class/label'] - 1, tf.int32)
     one_hot_label = tf.one_hot(label, depth=1000, dtype=tf.int32)
     return image, one_hot_label
 
-# @tf.function
 def parse_train(record):
     return parse(record, is_training=True)
 
@@ -79,7 +86,7 @@ def add_cli_args():
                          help="""Size of each minibatch per GPU""")
     cmdline.add_argument('--num_epochs', default=100, type=int,
                          help="""Number of epochs to train for.""")
-    cmdline.add_argument('-lr', '--learning_rate', default=1e-1, type=float,
+    cmdline.add_argument('-lr', '--learning_rate', default=0.1, type=float,
                          help="""Start learning rate""")
     cmdline.add_argument('--momentum', default=0.9, type=float,
                          help="""Start optimizer momentum""")
@@ -103,7 +110,7 @@ def add_cli_args():
 
 def create_dataset(data_dir, batch_size, validation):
     filenames = [os.path.join(data_dir, i) for i in os.listdir(data_dir)]
-    data = tf.data.TFRecordDataset(filenames).shard(hvd.size(), hvd.rank())
+    data = tf.data.TFRecordDataset(filenames).shard(hvd.size(), hvd.rank())#.cache()
     if not validation:
         data = data.shuffle(buffer_size=10000)
         data = data.map(parse_train, num_parallel_calls=tf.data.experimental.AUTOTUNE)
@@ -117,7 +124,7 @@ def train_step(model, opt, loss_func, images, labels, first_batch, fp32=False):
     with tf.GradientTape() as tape:
         probs = model(images, training=True)
         loss_value = loss_func(labels, probs)
-        loss_value += tf.add_n(model.losses) 
+        loss_value += tf.add_n(model.losses)
         if not fp32:
             scaled_loss_value = opt.get_scaled_loss(loss_value)
 
@@ -147,6 +154,8 @@ def validation_step(images, labels, model, loss_func):
     # top_1_accuracy = tf.math.reduce_sum(tf.cast(tf.equal(top_1_pred, labels), tf.int32))
     return loss, top_1_accuracy
 
+
+
 def main():
     hvd.init()
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -171,36 +180,23 @@ def main():
 
     if FLAGS.model == 'resnet50':
         if not FLAGS.fine_tune:
-            model = tf.keras.applications.ResNet50(weights=None, classes=1000)
+            model = resnet.ResNet50(weights=None, weight_decay=0.0001, classes=1000)
         else:
-            model = tf.keras.applications.ResNet50(weights='imagenet', classes=1000)
+            model = resnet.ResNet50(weights='imagenet', classes=1000)
     model.summary()
-    # FROM HOROVOD example
-    model_config = model.get_config()
-    for layer, layer_config in zip(model.layers, model_config['layers']):
-        if hasattr(layer, 'kernel_regularizer'):
-            regularizer = tf.keras.regularizers.l2(0.0000125) #TODO: get from config
-            layer_config['config']['kernel_regularizer'] = \
-                {'class_name': regularizer.__class__.__name__,
-                 'config': regularizer.get_config()}
-        if type(layer) == tf.keras.layers.BatchNormalization:
-            layer_config['config']['momentum'] = 0.9
-            layer_config['config']['epsilon'] = 1e-5
-    # reinit model so that losses get initialized
-    model = tf.keras.models.Model.from_config(model_config)
     learning_rate = (FLAGS.learning_rate * hvd.size() * FLAGS.batch_size)/256 
-    steps_per_epoch = int((1.282e6 / (FLAGS.batch_size * hvd.size())))
+    steps_per_epoch = int((1281167 / (FLAGS.batch_size * hvd.size())))
 
     scheduler = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-                    boundaries=[steps_per_epoch * 30, steps_per_epoch * 60, steps_per_epoch * 80], 
+                    boundaries=[steps_per_epoch * 25, steps_per_epoch * 55, steps_per_epoch * 75], # 5 epochs for warmup
                     values=[learning_rate, learning_rate * 0.1, learning_rate * 0.01, learning_rate * 0.001])
 
-    scheduler = WarmupScheduler(optimizer=scheduler, initial_learning_rate=learning_rate/16., warmup_steps=steps_per_epoch * 5)
+    scheduler = WarmupScheduler(optimizer=scheduler, initial_learning_rate=learning_rate / 16., warmup_steps=steps_per_epoch * 5)
     # opt = tfa.optimizers.SGDW(weight_decay=1e-5, learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True)
-    opt = tf.keras.optimizers.SGD(learning_rate=scheduler, momentum=FLAGS.momentum)
+    opt = tf.keras.optimizers.SGD(learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True)
+
     if not FLAGS.fp32:
-        # opt = tf.keras.mixed_precision.experimental.LossScaleOptimizer(opt, loss_scale="dynamic")
-        opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt)
+        opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale=128.)
 
     loss_func = tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1, reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE) 
     # loss_func = tf.keras.losses.SparseCategoricalCrossentropy(reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE)
@@ -218,8 +214,6 @@ def main():
         logger = logging.getLogger('logger')
         logger.info('Batch Size: %f, Learning Rate: %f, Momentum: %f' % \
                     (FLAGS.batch_size, FLAGS.learning_rate, FLAGS.momentum))
- 
-    #checkpoint = tf.train.Checkpoint(model=model, optimizer=opt)
 
     hvd.allreduce(tf.constant(0))
  
