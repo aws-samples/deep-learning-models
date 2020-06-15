@@ -190,24 +190,31 @@ def run_validation(model, val_dataset, num_batches: int = 100) -> List[tf.Tensor
     return (val_loss, val_acc, val_exact_match, val_f1, val_precision, val_recall)
 
 
-def print_eval_metrics(results, step) -> None:
+def print_eval_metrics(results, step, dataset) -> None:
     """ Print evaluation metrics to console. """
-    description = (
-        f"Step {step} evaluation - EM: {results['exact']:.3f}, F1: {results['f1']:.3f}, "
-        f"HasAnsEM: {results['HasAns_exact']:.3f}, HasAnsF1: {results['HasAns_f1']:.3f}, "
-        f"NoAnsEM: {results['NoAns_exact']:.3f}, NoAnsF1: {results['NoAns_f1']:.3f}\n"
-    )
+    if dataset == "squadv2":
+        description = (
+            f"Step {step} evaluation - EM: {results['exact']:.3f}, F1: {results['f1']:.3f}, "
+            f"HasAnsEM: {results['HasAns_exact']:.3f}, HasAnsF1: {results['HasAns_f1']:.3f}, "
+            f"NoAnsEM: {results['NoAns_exact']:.3f}, NoAnsF1: {results['NoAns_f1']:.3f}\n"
+        )
+    else:
+        description = (
+            f"Step {step} evaluation - EM: {results['exact']:.3f}, F1: {results['f1']:.3f}, "
+            f"HasAnsEM: {results['HasAns_exact']:.3f}, HasAnsF1: {results['HasAns_f1']:.3f}\n "
+        )
     logger.info(description)
 
 
-def tensorboard_eval_metrics(summary_writer, results: Dict, step: int) -> None:
+def tensorboard_eval_metrics(summary_writer, results: Dict, step: int, dataset) -> None:
     """ Log evaluation metrics to TensorBoard. """
     tf.summary.scalar("eval_exact", results["exact"], step=step)
     tf.summary.scalar("eval_f1", results["f1"], step=step)
     tf.summary.scalar("eval_hasans_exact", results["HasAns_exact"], step=step)
     tf.summary.scalar("eval_hasans_f1", results["HasAns_f1"], step=step)
-    tf.summary.scalar("eval_noans_exact", results["NoAns_exact"], step=step)
-    tf.summary.scalar("eval_noans_f1", results["NoAns_f1"], step=step)
+    if dataset == "squadv2":
+        tf.summary.scalar("eval_noans_exact", results["NoAns_exact"], step=step)
+        tf.summary.scalar("eval_noans_f1", results["NoAns_f1"], step=step)
 
 
 def hvd_barrier():
@@ -334,7 +341,7 @@ def run_squad_and_get_results(
     )
 
     if hvd.rank() == 0:
-        logger.info("Starting finetuning")
+        logger.info(f"Starting finetuning on {dataset}")
         pbar = tqdm.tqdm(total_steps, disable=disable_tqdm)
         summary_writer = None  # Only create a writer if we make it through a successful step
         val_dataset = get_dataset(
@@ -367,9 +374,9 @@ def run_squad_and_get_results(
 
         is_final_step = step >= total_steps - 1
         if hvd.rank() == 0:
-            do_checkpoint = ((step > 0) and (step % checkpoint_frequency == 0)) or is_final_step
-            do_validate = ((step > 0) and (step % validate_frequency == 0)) or is_final_step
-            do_evaluate = ((step > 0) and (step % evaluate_frequency == 0)) or is_final_step
+            do_checkpoint = ((step > 1) and (step % checkpoint_frequency == 0)) or is_final_step
+            do_validate = ((step > 1) and (step % validate_frequency == 0)) or is_final_step
+            do_evaluate = ((step > 1) and (step % evaluate_frequency == 0)) or is_final_step
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, Acc: {acc:.3f}, EM: {exact_match:.3f}, F1: {f1:.3f}"
@@ -417,7 +424,7 @@ def run_squad_and_get_results(
                         filename=val_filename,
                         per_gpu_batch_size=32,
                     )
-                print_eval_metrics(results=results, step=step)
+                print_eval_metrics(results=results, step=step, dataset=dataset)
 
             if do_checkpoint:
                 checkpoint_path = (
@@ -447,7 +454,7 @@ def run_squad_and_get_results(
                     tf.summary.scalar("val_recall", val_recall, step=step)
                     # And the eval metrics
                     tensorboard_eval_metrics(
-                        summary_writer=summary_writer, results=results, step=step
+                        summary_writer=summary_writer, results=results, step=step, dataset=dataset
                     )
 
         if is_final_step:

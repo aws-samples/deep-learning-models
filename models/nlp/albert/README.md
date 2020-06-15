@@ -198,6 +198,23 @@ python -m albert.launch_sagemaker \
     --task_name=squadv2
 ```
 
+```bash
+python -m albert.launch_sagemaker \
+    --source_dir=. \
+    --entry_point=albert/run_squad.py \
+    --sm_job_name=bert-squad \
+    --instance_type=ml.p3dn.24xlarge \
+    --instance_count=1 \
+    --load_from=scratch \
+    --model_type=bert \
+    --model_size=base \
+    --per_gpu_batch_size=6 \
+    --total_steps=3649 \
+    --warmup_steps=365 \
+    --learning_rate=5e-5 \
+    --task_name=squadv1
+```
+
 8. Enter the Docker container to debug and edit code.
 
 ```bash
