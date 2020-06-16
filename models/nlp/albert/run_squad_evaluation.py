@@ -1,11 +1,9 @@
-import argparse
 import collections
 import math
 from typing import Dict, List
 
 import tensorflow as tf
 import tqdm
-from transformers import AutoConfig, TFAutoModelForQuestionAnswering
 from transformers.data.metrics.squad_metrics import compute_predictions_logits, squad_evaluate
 from transformers.data.processors.squad import (
     SquadExample,
@@ -14,14 +12,15 @@ from transformers.data.processors.squad import (
     SquadV2Processor,
 )
 
-from common.utils import get_dataset, get_tokenizer
+from common.utils import get_dataset
 
 
 def get_evaluation_metrics(
     model,
+    tokenizer,
     data_dir: str,
     filename: str,
-    batch_size: int = 32,
+    per_gpu_batch_size: int = 32,
     num_batches: int = None,
     disable_tqdm: bool = False,
 ) -> Dict[str, "Number"]:
@@ -45,14 +44,13 @@ def get_evaluation_metrics(
     """
     # These are not used in inference, only for scoring in `compute_predictions_logits()`.
     processor = SquadV2Processor()
-    tokenizer = get_tokenizer()
     examples: List[SquadExample] = processor.get_dev_examples(data_dir, filename=filename)
     features: List[SquadFeatures] = get_dataset(
         tokenizer=tokenizer,
         processor=processor,
         data_dir=data_dir,
         filename=filename,
-        batch_size=batch_size,
+        per_gpu_batch_size=per_gpu_batch_size,
         shard=False,
         shuffle=False,
         drop_remainder=False,
@@ -65,7 +63,7 @@ def get_evaluation_metrics(
         processor=processor,
         data_dir=data_dir,
         filename=filename,
-        batch_size=batch_size,
+        per_gpu_batch_size=per_gpu_batch_size,
         shard=False,
         shuffle=False,
         drop_remainder=False,
@@ -75,7 +73,7 @@ def get_evaluation_metrics(
         model=model,
         dataset=dataset,
         features=features,
-        batch_size=batch_size,
+        per_gpu_batch_size=per_gpu_batch_size,
         num_batches=num_batches,
         disable_tqdm=disable_tqdm,
     )
@@ -114,15 +112,15 @@ def get_squad_results(
     model,
     dataset: tf.data.Dataset,
     features: List[SquadFeatures],
-    batch_size: int,
+    per_gpu_batch_size: int,
     num_batches: int,
     disable_tqdm: bool,
 ) -> List[SquadResult]:
     results = []
 
-    total_steps = math.ceil(len(features) / batch_size)
+    total_steps = math.ceil(len(features) / per_gpu_batch_size)
     pbar = tqdm.tqdm(total=total_steps, disable=disable_tqdm)
-    pbar.set_description(f"Evaluating with batch size {batch_size}")
+    pbar.set_description(f"Evaluating with batch size {per_gpu_batch_size}")
 
     if num_batches:
         dataset = dataset.take(num_batches)
@@ -136,8 +134,8 @@ def get_squad_results(
         outputs = model(input_dict, training=False)
         start_logits, end_logits = outputs[0], outputs[1]
 
-        batch_size = len(batch[1]["start_position"])
-        for i in range(batch_size):
+        per_gpu_batch_size = len(batch[1]["start_positions"])
+        for i in range(per_gpu_batch_size):
             feature_index = batch[0]["feature_index"][i].numpy().item()
             unique_id = int(features[feature_index].unique_id)
             result = SquadResult(
@@ -151,35 +149,3 @@ def get_squad_results(
     pbar.close()
 
     return results
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--checkpoint", type=str, default=None)
-    parser.add_argument("--pre_layer_norm", type=str, choices=["true"])
-    args = parser.parse_args()
-
-    # Load finetuned model from checkpoint
-    config = AutoConfig.from_pretrained("albert-base-v2")
-    config.pre_layer_norm = args.pre_layer_norm == "true"
-    model = TFAutoModelForQuestionAnswering.from_config(config)
-
-    # XLA, AMP, tf.function
-    tf.config.optimizer.set_jit(True)
-    tf.config.optimizer.set_experimental_options({"auto_mixed_precision": True})
-    model.call = tf.function(model.call)
-
-    # Get validation dataset
-    data_dir = "/fsx/squad_data"
-    train_filename = "train-v2.0.json"
-    val_filename = "dev-v2.0.json"
-
-    results = get_evaluation_metrics(
-        model=model,
-        data_dir=data_dir,
-        filename=val_filename,
-        batch_size=args.batch_size,
-        disable_tqdm=False,
-    )
-    print(dict(results))

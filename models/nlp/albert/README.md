@@ -13,17 +13,19 @@ Language models help AWS customers to improve search results, text classificatio
 
 ### How To Launch Training
 
+All commands should be run from the `models/nlp` directory.
+
 1. Create an FSx volume.
 
 2. Download the datasets onto FSx. The simplest way to start is with English Wikipedia.
 
-3. Create an Amazon Elastic Container Registry (ECR) repository. Then build a Docker image from `docker/ngc_sagemaker.Dockerfile` and push it to ECR.
+3. Create an Amazon Elastic Container Registry (ECR) repository. Then build a Docker image from `models/nlp/Dockerfile` and push it to ECR.
 
 ```bash
 export ACCOUNT_ID=
 export REPO=
-export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:ngc_tf210_sagemaker
-docker build -t ${IMAGE} -f docker/ngc_sagemaker.Dockerfile .
+export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:py37_tf211
+docker build -t ${IMAGE} .
 $(aws ecr get-login --no-include-email)
 docker push ${IMAGE}
 ```
@@ -41,19 +43,16 @@ export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
 5. Launch the SageMaker job.
 
 ```bash
-# Add the main folder to your PYTHONPATH
-export PYTHONPATH=$PYTHONPATH:/path/to/deep-learning-models/models/nlp
-
-python launch_sagemaker.py \
+python -m albert.launch_sagemaker \
     --source_dir=. \
-    --entry_point=run_pretraining.py \
+    --entry_point=albert/run_pretraining.py \
     --sm_job_name=albert-pretrain \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=1 \
     --load_from=scratch \
     --model_type=albert \
     --model_size=base \
-    --batch_size=32 \
+    --per_gpu_batch_size=32 \
     --gradient_accumulation_steps=2 \
     --warmup_steps=3125 \
     --total_steps=125000 \
@@ -66,16 +65,16 @@ python launch_sagemaker.py \
 6. Launch a SageMaker finetuning job.
 
 ```bash
-python launch_sagemaker.py \
+python -m albert.launch_sagemaker \
     --source_dir=. \
-    --entry_point=run_squad.py \
+    --entry_point=albert/run_squad.py \
     --sm_job_name=albert-squad \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=1 \
     --load_from=scratch \
     --model_type=albert \
     --model_size=base \
-    --batch_size=6 \
+    --per_gpu_batch_size=6 \
     --total_steps=8144 \
     --warmup_steps=814 \
     --learning_rate=3e-5 \

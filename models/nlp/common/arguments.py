@@ -1,6 +1,8 @@
 """
-Since arguments are duplicated in run_pretraining.py and sagemaker_pretraining.py, they have
+Since arguments are duplicated in run_pretraining.py and launch_sagemaker.py, they have
 been abstracted into this file. It also makes the training scripts much shorter.
+
+Using `transformers.HfArgumentParser` we can turn these classes into argparse arguments.
 """
 
 import dataclasses
@@ -32,18 +34,38 @@ class ModelArguments:
             "help": "For example, `/fsx/checkpoints/albert/2020..step125000`. No .ckpt on the end."
         },
     )
+
+    load_optimizer_state: str = field(default="true", metadata={"choices": ["true", "false"]})
+
+    # TODO: Pre-layer norm is not yet supported in transformers. PR is at https://github.com/huggingface/transformers/pull/3929, but maintainers are unresponsive.
+    # The difficulty of keeping a parallel fork means we'll disable this option temporarily.
     pre_layer_norm: str = field(
         default=None,
         metadata={
-            "choices": ["true"],
+            "choices": [],
             "help": "Place layer normalization before the attention & FFN, rather than after adding the residual connection. https://openreview.net/pdf?id=B1x8anVFPr",
         },
     )
     hidden_dropout_prob: float = field(default=0.0)
+    attention_probs_dropout_prob: float = field(default=0.0)
+
+    @property
+    def model_desc(self) -> str:
+        if self.model_type == "albert":
+            return f"albert-{self.model_size}-v2"
+        elif self.model_type == "bert":
+            return f"bert-{self.model_size}-uncased"
+        else:
+            assert False
 
 
 @dataclass
 class DataTrainingArguments:
+    """ Arguments related to the dataset preparation.
+
+    Task name, sequence length, and filepath fall under this category, but batch size does not.
+    """
+
     task_name: str = field(default="squadv2", metadata={"choices": ["squadv1", "squadv2"]})
     max_seq_length: int = field(default=512, metadata={"choices": [128, 512]})
     max_predictions_per_seq: int = field(default=20, metadata={"choices": [20, 80]})
@@ -58,31 +80,29 @@ class DataTrainingArguments:
 
 @dataclass
 class TrainingArguments:
-    """
-    TrainingArguments is the subset of the arguments we use in our example scripts
-    **which relate to the training loop itself**.
+    """ Related to the training loop. """
 
-    Using `HfArgumentParser` we can turn this class
-    into argparse arguments to be able to specify them on
-    the command line.
-    """
-
-    # model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
+    model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
     seed: int = field(default=42)
     # TODO: Change this to per_gpu_train_batch_size
-    batch_size: int = field(default=32)
+    per_gpu_batch_size: int = field(default=32)
     gradient_accumulation_steps: int = field(
         default=1,
         metadata={
             "help": "Number of updates steps to accumulate before performing a backward/update pass."
         },
     )
-    optimizer: str = field(default="lamb", metadata={"choices": ["lamb", "adam"]})
     warmup_steps: int = field(default=3125)
     total_steps: int = field(default=125000)
+    optimizer: str = field(default="lamb", metadata={"choices": ["lamb", "adamw"]})
     learning_rate: float = field(default=0.00176)
+    weight_decay: float = field(default=0.01)
     end_learning_rate: float = field(default=3e-5)
     learning_rate_decay_power: float = field(default=1.0)
+    beta_1: float = field(default=0.9)
+    beta_2: float = field(default=0.999)
+    epsilon: float = field(default=1e-6)
+
     max_grad_norm: float = field(default=1.0)
     name: str = field(default="", metadata={"help": "Additional info to append to metadata"})
 
@@ -108,16 +128,31 @@ class TrainingArguments:
 
 @dataclass
 class LoggingArguments:
+    """ Related to validation and finetuning evaluation.
+
+    This can have a significant impact on runtime (squad_frequency), so it seems a tad disingenuous
+    to call them logging arguments. Maybe change later.
+    """
+
     log_frequency: int = field(default=1000)
     validation_frequency: int = field(default=2000)
     checkpoint_frequency: int = field(default=5000)
-    extra_squad_steps: str = field(default=None)
+    evaluate_frequency: int = field(default=5000)
+    squad_frequency: int = field(default=40000)
     fast_squad: str = field(default=None, metadata={"choices": ["true"]})
     dummy_eval: str = field(default=None, metadata={"choices": ["true"]})
+    run_name: str = field(
+        default=None,
+        metadata={
+            "help": "Name of saved checkpoints and logs during training. For example, bert-phase-1."
+        },
+    )
 
 
 @dataclass
 class SageMakerArguments:
+    """ Related to SageMaker infrastructure, unused on EC2 or EKS. """
+
     source_dir: str = field(
         metadata={
             "help": "For example, /Users/myusername/Desktop/deep-learning-models/models/nlp/albert"

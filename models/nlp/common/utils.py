@@ -4,7 +4,14 @@ from typing import List
 
 import tensorflow as tf
 import tqdm
-from transformers import AlbertTokenizer, PreTrainedTokenizer
+from transformers import (
+    AlbertTokenizer,
+    AutoConfig,
+    BertTokenizer,
+    BertTokenizerFast,
+    PretrainedConfig,
+    PreTrainedTokenizer,
+)
 from transformers.data.processors.squad import (
     SquadExample,
     SquadFeatures,
@@ -13,6 +20,8 @@ from transformers.data.processors.squad import (
     SquadV2Processor,
     squad_convert_examples_to_features,
 )
+
+from common.arguments import ModelArguments
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
@@ -37,6 +46,7 @@ def rewrap_tf_function(func, experimental_compile=None):
     # If func is already a tf.function, un-wrap it and re-wrap it.
     # Necessary to avoid TF's global cache bugs when changing models.
     if hasattr(func, "python_function"):
+        # printing func._list_all_concrete_functions_for_serialization() here is always an empty list
         return tf.function(func.python_function, experimental_compile=experimental_compile)
     else:
         return tf.function(func, experimental_compile=experimental_compile)
@@ -51,15 +61,15 @@ def f1_score(precision: tf.Tensor, recall: tf.Tensor) -> tf.Tensor:
 def gather_indexes(sequence_tensor: "[batch,seq_length,width]", positions) -> tf.Tensor:
     """Gathers the vectors at the specific positions over a 3D minibatch."""
     sequence_shape = sequence_tensor.shape.as_list()
-    batch_size = sequence_shape[0]
+    per_gpu_batch_size = sequence_shape[0]
     seq_length = sequence_shape[1]
     width = sequence_shape[2]
 
-    flat_offsets = tf.reshape(tf.range(0, batch_size, dtype=tf.int64) * seq_length, [-1, 1])
+    flat_offsets = tf.reshape(tf.range(0, per_gpu_batch_size, dtype=tf.int64) * seq_length, [-1, 1])
     flat_positions = tf.reshape(positions + flat_offsets, [-1])
-    flat_sequence_tensor = tf.reshape(sequence_tensor, [batch_size * seq_length, width])
+    flat_sequence_tensor = tf.reshape(sequence_tensor, [per_gpu_batch_size * seq_length, width])
     output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
-    output_tensor = tf.reshape(output_tensor, [batch_size, -1, width])
+    output_tensor = tf.reshape(output_tensor, [per_gpu_batch_size, -1, width])
     return output_tensor
 
 
@@ -67,14 +77,14 @@ def gather_indexes_2d(sequence_tensor: "[batch,seq_length]", positions) -> tf.Te
     """ Gathers the vectors at the specific positions over a 2D minibatch."""
     # TODO: Merge this with gather_indexes()
     sequence_shape = sequence_tensor.shape.as_list()
-    batch_size = sequence_shape[0]
+    per_gpu_batch_size = sequence_shape[0]
     seq_length = sequence_shape[1]
 
-    flat_offsets = tf.reshape(tf.range(0, batch_size, dtype=tf.int64) * seq_length, [-1, 1])
+    flat_offsets = tf.reshape(tf.range(0, per_gpu_batch_size, dtype=tf.int64) * seq_length, [-1, 1])
     flat_positions = tf.reshape(positions + flat_offsets, [-1])
-    flat_sequence_tensor = tf.reshape(sequence_tensor, [batch_size * seq_length])
+    flat_sequence_tensor = tf.reshape(sequence_tensor, [per_gpu_batch_size * seq_length])
     output_tensor = tf.gather(flat_sequence_tensor, flat_positions)
-    output_tensor = tf.reshape(output_tensor, [batch_size, -1])
+    output_tensor = tf.reshape(output_tensor, [per_gpu_batch_size, -1])
     return output_tensor
 
 
@@ -84,7 +94,7 @@ def get_dataset(
     processor: SquadProcessor,
     data_dir: str,
     filename: str,
-    batch_size: int,
+    per_gpu_batch_size: int,
     shard: bool,
     drop_remainder: bool,
     shuffle: bool = True,
@@ -121,11 +131,24 @@ def get_dataset(
             dataset = dataset.shuffle(buffer_size=1000, reshuffle_each_iteration=True)
         if repeat:
             dataset = dataset.repeat()
-        dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
+        dataset = dataset.batch(per_gpu_batch_size, drop_remainder=drop_remainder)
         if shuffle:
             dataset = dataset.shuffle(buffer_size=1000, reshuffle_each_iteration=True)
         return dataset
 
 
-def get_tokenizer():
-    return AlbertTokenizer.from_pretrained("albert-base-v2")
+def create_config(model_args: ModelArguments) -> PretrainedConfig:
+    config = AutoConfig.from_pretrained(model_args.model_desc)
+    config.pre_layer_norm = model_args.pre_layer_norm
+    config.hidden_dropout_prob = model_args.hidden_dropout_prob
+    config.attention_probs_dropout_prob = model_args.attention_probs_dropout_prob
+    return config
+
+
+def create_tokenizer(model_type: str) -> PreTrainedTokenizer:
+    if model_type == "albert":
+        return AlbertTokenizer.from_pretrained("albert-base-v2")
+    elif model_type == "bert":
+        return BertTokenizer.from_pretrained("bert-base-uncased")
+    else:
+        raise ValueError(f"model_type={model_type} must be one of ['albert', 'bert']")
