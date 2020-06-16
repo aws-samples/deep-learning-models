@@ -374,9 +374,9 @@ def run_squad_and_get_results(
 
         is_final_step = step >= total_steps - 1
         if hvd.rank() == 0:
-            do_checkpoint = ((step > 1) and (step % checkpoint_frequency == 0)) or is_final_step
-            do_validate = ((step > 1) and (step % validate_frequency == 0)) or is_final_step
-            do_evaluate = ((step > 1) and (step % evaluate_frequency == 0)) or is_final_step
+            do_checkpoint = (step % checkpoint_frequency == 0) or is_final_step
+            do_validate = (step % validate_frequency == 0) or is_final_step
+            do_evaluate = (step % evaluate_frequency == 0) or is_final_step
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, Acc: {acc:.3f}, EM: {exact_match:.3f}, F1: {f1:.3f}"

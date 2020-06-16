@@ -414,7 +414,7 @@ def main():
             loss_str = "-skipmlm"
         else:
             loss_str = ""
-        
+
         if log_args.run_name is None:
             metadata = (
                 f"{model_args.model_type}"
@@ -551,7 +551,7 @@ def main():
             i = optimizer.get_weights()[0] - 1
 
         is_final_step = i >= train_args.total_steps
-        do_squad = (log_args.squad_frequency != 0) and (((i > 1) and (i % log_args.squad_frequency == 0)) or is_final_step)
+        do_squad = (i % log_args.squad_frequency == 0) or is_final_step
         # Squad requires all the ranks to train, but results are only returned on rank 0
         if do_squad:
             squad_results = get_squad_results_while_pretraining(
@@ -572,8 +572,8 @@ def main():
 
         if hvd.rank() == 0:
             do_log = i % log_args.log_frequency == 0
-            do_checkpoint = ((i > 1) and (i % log_args.checkpoint_frequency == 0)) or is_final_step
-            do_validation = ((i > 1) and (i % log_args.validation_frequency == 0)) or is_final_step
+            do_checkpoint = (i % log_args.checkpoint_frequency == 0) or is_final_step
+            do_validation = (i % log_args.validation_frequency == 0) or is_final_step
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, MLM: {mlm_loss:.3f}, SOP: {sop_loss:.3f}, MLM_acc: {mlm_acc:.3f}, SOP_acc: {sop_acc:.3f}"
