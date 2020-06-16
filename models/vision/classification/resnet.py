@@ -76,48 +76,40 @@ def block1(x, filters, kernel_size=3, stride=1,
 
     if conv_shortcut is True:
         shortcut = layers.Conv2D(4 * filters, 1, strides=stride, use_bias=False, padding='SAME',
-                                 kernel_initializer=tf.keras.initializers.VarianceScaling(scale=2.0, mode='fan_out'),
+                                 kernel_initializer='he_normal',
                                  kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                  name=name + '_0_conv')(x)
         shortcut = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
-#                                             beta_regularizer=tf.keras.regularizers.l2(weight_decay),
-#                                             gamma_regularizer=tf.keras.regularizers.l2(weight_decay),
                                              name=name + '_0_bn')(shortcut)
     else:
         shortcut = x
 
-    x = layers.Conv2D(filters, 1, strides=stride, use_bias=False, padding='SAME',
-                        kernel_initializer=tf.keras.initializers.VarianceScaling(scale=2.0, mode='fan_out'),
+    x = layers.Conv2D(filters, 1, strides=1, use_bias=False, padding='SAME',
+                        kernel_initializer='he_normal',
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_1_conv')(x)
     x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
-#                                  beta_regularizer=tf.keras.regularizers.l2(weight_decay),
-#                                  gamma_regularizer=tf.keras.regularizers.l2(weight_decay),
                                   name=name + '_1_bn')(x)
     x = layers.Activation('relu', name=name + '_1_relu')(x)
 
-    x = layers.Conv2D(filters, kernel_size, padding='SAME',
+    x = layers.Conv2D(filters, kernel_size, strides=stride, padding='SAME',
                         use_bias=False,
-                        kernel_initializer=tf.keras.initializers.VarianceScaling(scale=2.0, mode='fan_out'),
+                        kernel_initializer='he_normal',
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_2_conv')(x)
 
     x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, 
-#                                  beta_regularizer=tf.keras.regularizers.l2(weight_decay),
-#                                  gamma_regularizer=tf.keras.regularizers.l2(weight_decay),
                                   name=name + '_2_bn')(x)
 
     x = layers.Activation('relu', name=name + '_2_relu')(x)
 
     x = layers.Conv2D(4 * filters, 1, use_bias=False, padding='SAME',
-                        kernel_initializer=tf.keras.initializers.VarianceScaling(scale=2.0, mode='fan_out'),
+                        kernel_initializer='he_normal',
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_3_conv')(x)
 
     x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
                                   gamma_initializer='zeros', # https://arxiv.org/pdf/1706.02677.pdf
-#                                  beta_regularizer=tf.keras.regularizers.l2(weight_decay),
-#                                  gamma_regularizer=tf.keras.regularizers.l2(weight_decay),
                                   name=name + '_3_bn')(x)
 
     x = layers.Add(name=name + '_add')([shortcut, x])
@@ -376,16 +368,13 @@ def ResNet(stack_fn,
     x = layers.ZeroPadding2D(padding=((3, 3), (3, 3)), name='conv1_pad')(img_input)
     x = layers.Conv2D(64, 7, strides=2, use_bias=False, name='conv1_conv', 
             kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-            kernel_initializer=tf.keras.initializers.VarianceScaling(scale=2.0, mode='fan_out'))(x)
+            kernel_initializer='he_normal')(x)
 
     if preact is False:
         x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
-#                                      beta_regularizer=tf.keras.regularizers.l2(weight_decay),
-#                                      gamma_regularizer=tf.keras.regularizers.l2(weight_decay),
                                       name='conv1_bn')(x)
         x = layers.Activation('relu', name='conv1_relu')(x)
 
-    # x = layers.ZeroPadding2D(padding=((1, 1), (1, 1)), name='pool1_pad')(x)
     x = layers.MaxPooling2D(3, strides=2, padding='SAME', name='pool1_pool')(x)
 
     x = stack_fn(x)

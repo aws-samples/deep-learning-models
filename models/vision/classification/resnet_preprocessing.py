@@ -272,5 +272,13 @@ def preprocess_image(image_buffer, bbox, output_height, output_width,
 
   image.set_shape([output_height, output_width, num_channels])
 
-  return _mean_image_subtraction(image, _CHANNEL_MEANS, num_channels)
-
+  image = _mean_image_subtraction(image, _CHANNEL_MEANS, num_channels)
+  if is_training:
+      do_distort = tf.math.less(tf.random.uniform([]), 0.05)
+      if do_distort:
+          image = tf.image.random_brightness(image, max_delta=32. / 255.)
+          image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
+          image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+          image = tf.image.random_hue(image, max_delta=0.2)
+          image = tf.clip_by_value(image, 0.0, 1.0)
+  return image

@@ -110,9 +110,8 @@ def add_cli_args():
 
 def create_dataset(data_dir, batch_size, validation):
     filenames = [os.path.join(data_dir, i) for i in os.listdir(data_dir)]
-    data = tf.data.TFRecordDataset(filenames).shard(hvd.size(), hvd.rank())#.cache()
+    data = tf.data.TFRecordDataset(filenames).shuffle(buffer_size=10000).shard(hvd.size(), hvd.rank())
     if not validation:
-        data = data.shuffle(buffer_size=10000)
         data = data.map(parse_train, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     else:
         data = data.map(parse_validation, num_parallel_calls=tf.data.experimental.AUTOTUNE)
@@ -163,6 +162,9 @@ def main():
         tf.config.experimental.set_memory_growth(gpu, True)
     if gpus:
         tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
+    tf.config.threading.intra_op_parallelism_threads = 1 # Avoid pool of Eigen threads
+    tf.config.threading.inter_op_parallelism_threads = max(2, 96//hvd.size()-2)
+
     os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
 
     cmdline = add_cli_args()
@@ -172,15 +174,15 @@ def main():
     if not FLAGS.fp32:
         tf.config.optimizer.set_experimental_options({"auto_mixed_precision": True})
     # init global imagenet mean (for tf function graph)
-    temp = tf.zeros([128, 224, 224, 3], dtype=tf.float32)
-    _ = tf.keras.applications.resnet.preprocess_input(temp)
+    # temp = tf.zeros([128, 224, 224, 3], dtype=tf.float32)
+    # _ = tf.keras.applications.resnet.preprocess_input(temp)
 
     data = create_dataset(FLAGS.train_data_dir, FLAGS.batch_size, validation=False)
     validation_data = create_dataset(FLAGS.validation_data_dir, FLAGS.batch_size, validation=True)
 
     if FLAGS.model == 'resnet50':
         if not FLAGS.fine_tune:
-            model = resnet.ResNet50(weights=None, weight_decay=0.0001, classes=1000)
+            model = resnet.ResNet50(weights=None, weight_decay=0.00005, pooling='avg', classes=1000)
         else:
             model = resnet.ResNet50(weights='imagenet', classes=1000)
     model.summary()
@@ -191,16 +193,18 @@ def main():
                     boundaries=[steps_per_epoch * 25, steps_per_epoch * 55, steps_per_epoch * 75], # 5 epochs for warmup
                     values=[learning_rate, learning_rate * 0.1, learning_rate * 0.01, learning_rate * 0.001])
 
-    scheduler = WarmupScheduler(optimizer=scheduler, initial_learning_rate=learning_rate / 16., warmup_steps=steps_per_epoch * 5)
+    scheduler = WarmupScheduler(optimizer=scheduler, initial_learning_rate=learning_rate / hvd.size(), warmup_steps=steps_per_epoch * 5)
     # opt = tfa.optimizers.SGDW(weight_decay=1e-5, learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True)
-    opt = tf.keras.optimizers.SGD(learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True)
+    opt = tf.keras.optimizers.SGD(learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True) # FIXME: not correct - needs momentum correction term
+    # opt = tf.compat.v1.train.MomentumOptimizer(learning_rate=lr_func, momentum=0.9, use_nesterov=True)
 
     if not FLAGS.fp32:
         opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale=128.)
 
     loss_func = tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1, reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE) 
+    # loss_func = tf.keras.losses.CategoricalCrossentropy(reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE) 
     # loss_func = tf.keras.losses.SparseCategoricalCrossentropy(reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE)
-    
+
     if hvd.rank() == 0:
         model_dir = os.path.join(FLAGS.model + datetime.datetime.now().strftime("_%Y-%m-%d_%H-%M-%S"))
         path_logs = os.path.join(os.getcwd(), model_dir, 'log.csv')
@@ -224,7 +228,14 @@ def main():
             print('Starting training Epoch %d/%d' % (epoch, FLAGS.num_epochs))
         training_score = 0
         for batch, (images, labels) in enumerate(tqdm(data)):
+            # momentum correction (V2 SGD absorbs LR into the update term)
+            prev_lr = opt._optimizer.learning_rate(curr_step-1)
+            curr_lr = opt._optimizer.learning_rate(curr_step)
+            momentum_correction_factor = curr_lr / prev_lr
+            opt._optimizer.momentum = opt._optimizer.momentum * momentum_correction_factor
             loss, score = train_step(model, opt, loss_func, images, labels, batch==0 and epoch==0, fp32=FLAGS.fp32)
+            # restore momentum
+            opt._optimizer.momentum = FLAGS.momentum
             training_score += score.numpy()
             curr_step.assign_add(1)
         training_accuracy = training_score / (FLAGS.batch_size * (batch + 1))
