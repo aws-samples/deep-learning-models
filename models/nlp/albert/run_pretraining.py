@@ -548,10 +548,12 @@ def main():
                 optimizer.set_weights(loaded_optimizer_weights)
             hvd.broadcast_variables(model.variables, root_rank=0)
             hvd.broadcast_variables(optimizer.variables(), root_rank=0)
-            i = optimizer.get_weights()[0] - 1
+            i = optimizer.get_weights()[0]
 
         is_final_step = i >= train_args.total_steps
-        do_squad = (i % log_args.squad_frequency == 0) or is_final_step
+        do_squad = (log_args.squad_frequency != 0) and (
+            (i % log_args.squad_frequency == 0) or is_final_step
+        )
         # Squad requires all the ranks to train, but results are only returned on rank 0
         if do_squad:
             squad_results = get_squad_results_while_pretraining(

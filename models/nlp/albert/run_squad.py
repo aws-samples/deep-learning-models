@@ -251,7 +251,7 @@ def get_squad_results_while_pretraining(
             warmup_steps = 5
             total_steps = 10
             dataset = "debug"
-        if  dataset == "squadv2":
+        if dataset == "squadv2":
             warmup_steps = 814
             total_steps = 8144
             learning_rate = 3e-5
@@ -259,7 +259,7 @@ def get_squad_results_while_pretraining(
             warmup_steps = 365
             total_steps = 3649
             learning_rate = 5e-5
-        else: 
+        else:
             warmup_steps = 5
             total_steps = 10
 
@@ -382,9 +382,9 @@ def run_squad_and_get_results(
 
         is_final_step = step >= total_steps - 1
         if hvd.rank() == 0:
-            do_checkpoint = (step % checkpoint_frequency == 0) or is_final_step
-            do_validate = (step % validate_frequency == 0) or is_final_step
-            do_evaluate = (step % evaluate_frequency == 0) or is_final_step
+            do_checkpoint = ((step > 0) and step % checkpoint_frequency == 0) or is_final_step
+            do_validate = ((step > 0) and step % validate_frequency == 0) or is_final_step
+            do_evaluate = ((step > 0) and step % evaluate_frequency == 0) or is_final_step
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, Acc: {acc:.3f}, EM: {exact_match:.3f}, F1: {f1:.3f}"
