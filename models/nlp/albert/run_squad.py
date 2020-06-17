@@ -227,6 +227,7 @@ def get_squad_results_while_pretraining(
     model_size: str,
     fsx_prefix: str,
     step: int,
+    dataset: str,
     fast: bool = False,
     dummy_eval: bool = False,
 ):
@@ -250,10 +251,17 @@ def get_squad_results_while_pretraining(
             warmup_steps = 5
             total_steps = 10
             dataset = "debug"
-        else:
+        if  dataset == "squadv2":
             warmup_steps = 814
             total_steps = 8144
-            dataset = "squadv2"
+            learning_rate = 3e-5
+        elif dataset == "squadv1":
+            warmup_steps = 365
+            total_steps = 3649
+            learning_rate = 5e-5
+        else: 
+            warmup_steps = 5
+            total_steps = 10
 
         squad_run_name = f"pretrain{step}-"
         squad_results = run_squad_and_get_results(
@@ -265,7 +273,7 @@ def get_squad_results_while_pretraining(
             checkpoint_frequency=None,
             validate_frequency=None,
             evaluate_frequency=None,
-            learning_rate=3e-5,
+            learning_rate=learning_rate,
             warmup_steps=warmup_steps,
             total_steps=total_steps,
             dataset=dataset,

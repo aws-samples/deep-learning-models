@@ -560,6 +560,7 @@ def main():
                 model_size=model_args.model_size,
                 fsx_prefix=data_args.fsx_prefix,
                 step=i,
+                dataset=data_args.task_name,
                 fast=log_args.fast_squad,
                 dummy_eval=log_args.dummy_eval,
             )
