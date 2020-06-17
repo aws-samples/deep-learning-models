@@ -56,8 +56,9 @@ WEIGHTS_HASHES = {
 }
 
 
-def block1(x, filters, kernel_size=3, stride=1,
-           conv_shortcut=True, name=None, trainable=True, weight_decay=0.0001):
+def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True, 
+        image_data_format='channels_last', name=None, trainable=True,
+        weight_decay=0.0001):
     """A residual block.
 
     # Arguments
@@ -72,7 +73,7 @@ def block1(x, filters, kernel_size=3, stride=1,
     # Returns
         Output tensor for the residual block.
     """
-    bn_axis = 3 #AS: if backend.image_data_format() == 'channels_last' else 1
+    bn_axis = 3 if image_data_format == 'channels_last' else 1
 
     if conv_shortcut is True:
         shortcut = layers.Conv2D(4 * filters, 1, strides=stride, use_bias=False, padding='SAME',
@@ -137,7 +138,8 @@ def stack1(x, filters, blocks, stride1=2, name=None, trainable=True, weight_deca
 
 
 def block2(x, filters, kernel_size=3, stride=1,
-           conv_shortcut=False, name=None, trainable=True, weight_decay=0.0001):
+           conv_shortcut=False, name=None, image_data_format='channels_last',
+           trainable=True, weight_decay=0.0001):
     """A residual block.
 
     # Arguments
@@ -152,7 +154,7 @@ def block2(x, filters, kernel_size=3, stride=1,
     # Returns
         Output tensor for the residual block.
     """
-    bn_axis = 3 #AS: if backend.image_data_format() == 'channels_last' else 1
+    bn_axis = 3 if image_data_format == 'channels_last' else 1
 
     preact = layers.BatchNormalization(axis=bn_axis, epsilon=1.001e-5,
                                        name=name + '_preact_bn', trainable=False)(x, training=False)
@@ -202,7 +204,7 @@ def stack2(x, filters, blocks, stride1=2, name=None, trainable=True, weight_deca
     return x
 
 
-def block3(x, filters, kernel_size=3, stride=1, groups=32,
+def block3(x, filters, kernel_size=3, stride=1, groups=32, image_data_format='channels_last',
            conv_shortcut=True, name=None):
     """A residual block.
 
@@ -219,7 +221,7 @@ def block3(x, filters, kernel_size=3, stride=1, groups=32,
     # Returns
         Output tensor for the residual block.
     """
-    bn_axis = 3  #AS: if backend.image_data_format() == 'channels_last' else 1
+    bn_axis = 3 if image_data_format == 'channels_last' else 1
 
     if conv_shortcut is True:
         shortcut = layers.Conv2D((64 // groups) * filters, 1, strides=stride,
@@ -294,6 +296,7 @@ def ResNet(stack_fn,
            classes=1000,
            weight_decay=0.0001,
            is_training=False,
+           image_data_format='channels_last',
            **kwargs):
     """Instantiates the ResNet, ResNetV2, and ResNeXt architecture.
 
@@ -363,7 +366,7 @@ def ResNet(stack_fn,
             img_input = layers.Input(tensor=input_tensor, shape=input_shape)
         else:
             img_input = input_tensor
-    bn_axis = 3 # if backend.image_data_format() == 'channels_last' else 1 # FIXME: channel order from config
+    bn_axis = 3 if image_data_format == 'channels_last' else 1
 
     x = layers.ZeroPadding2D(padding=((3, 3), (3, 3)), name='conv1_pad')(img_input)
     x = layers.Conv2D(64, 7, strides=2, use_bias=False, name='conv1_conv', 

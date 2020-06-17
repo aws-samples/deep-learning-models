@@ -71,21 +71,8 @@ def _decode_crop_and_flip(image_buffer, bbox, num_channels):
     3-D tensor with cropped image.
 
   """
-  # A large fraction of image datasets contain a human-annotated bounding box
-  # delineating the region of the image containing the object of interest.  We
-  # choose to create a new bounding box for the object which is a randomly
-  # distorted version of the human-annotated bounding box that obeys an
-  # allowed range of aspect ratios, sizes and overlap with the human-annotated
-  # bounding box. If no box is supplied, then we assume the bounding box is
+  # If no box is supplied, then we assume the bounding box is
   # the entire image.
-  # sample_distorted_bounding_box = tf.image.sample_distorted_bounding_box(
-  #    tf.image.extract_jpeg_shape(image_buffer),
-  #    bounding_boxes=bbox,
-  #    min_object_covered=0.1,
-  #    aspect_ratio_range=[0.75, 1.33],
-  #    area_range=[0.05, 1.0],
-  #    max_attempts=100,
-  #    use_image_if_no_bounding_boxes=True)
   sample_distorted_bounding_box = tf.raw_ops.SampleDistortedBoundingBoxV2(
       image_size=tf.image.extract_jpeg_shape(image_buffer),
       bounding_boxes=bbox,
@@ -132,7 +119,7 @@ def _central_crop(image, crop_height, crop_width):
       image, [crop_top, crop_left, 0], [crop_height, crop_width, -1])
 
 
-def _mean_image_subtraction(image, means, num_channels):
+def _image_standardization(image, means, stds, num_channels):
   """Subtracts the given means from each image channel.
 
   For example:
@@ -160,11 +147,9 @@ def _mean_image_subtraction(image, means, num_channels):
   if len(means) != num_channels:
     raise ValueError('len(means) must match the number of channels')
 
-  # We have a 1-D tensor of means; convert to 3-D.
-  # Note(b/130245863): we explicitly call `broadcast` instead of simply
-  # expanding dimensions for better performance.
+  # We have a 1-D tensor of means and stds; convert to 3-D.
   means = tf.broadcast_to(means, tf.shape(image))
-  stds = tf.broadcast_to(_CHANNEL_STDS, tf.shape(image))
+  stds = tf.broadcast_to(stds, tf.shape(image))
   return (image - means) / stds
 
 
@@ -272,7 +257,7 @@ def preprocess_image(image_buffer, bbox, output_height, output_width,
 
   image.set_shape([output_height, output_width, num_channels])
 
-  image = _mean_image_subtraction(image, _CHANNEL_MEANS, num_channels)
+  image = _image_standardization(image, _CHANNEL_MEANS, _CHANNEL_STDS, num_channels)
   if is_training:
       do_distort = tf.math.less(tf.random.uniform([]), 0.05)
       if do_distort:

@@ -82,14 +82,22 @@ def add_cli_args():
                          help="""Path to dataset in TFRecord format
                              (aka Example protobufs). Files should be
                              named 'train-*' and 'validation-*'.""")
+    cmdline.add_argument('--num_classes', default=1000, type=int,
+                         help="""Number of classes.""")
+    cmdline.add_argument('--train_dataset_size', default=1281167, type=int,
+                         help="""Number of images in training data.""")
     cmdline.add_argument('-b', '--batch_size', default=256, type=int,
                          help="""Size of each minibatch per GPU""")
     cmdline.add_argument('--num_epochs', default=100, type=int,
                          help="""Number of epochs to train for.""")
     cmdline.add_argument('-lr', '--learning_rate', default=0.1, type=float,
-                         help="""Start learning rate""")
+                         help="""Start learning rate.""")
     cmdline.add_argument('--momentum', default=0.9, type=float,
-                         help="""Start optimizer momentum""")
+                         help="""Start optimizer momentum.""")
+    cmdline.add_argument('--label_smoothing', default=0.1, type=float,
+                         help="""Label smoothing value.""")
+    cmdline.add_argument('--l2_weight_decay', default=5e-5, type=float,
+                         help="""L2 weight decay multiplier.""")
     cmdline.add_argument('-fp32', '--fp32', 
                          help="""disable mixed precision training""",
                          action='store_true')
@@ -140,7 +148,6 @@ def train_step(model, opt, loss_func, images, labels, first_batch, fp32=False):
     top_1_pred = tf.squeeze(tf.math.top_k(probs, k=1)[1])
     sparse_labels = tf.cast(tf.math.argmax(labels, axis=1), tf.int32)
     top_1_accuracy = tf.math.reduce_sum(tf.cast(tf.equal(top_1_pred, sparse_labels), tf.int32))
-    # top_1_accuracy = tf.math.reduce_sum(tf.cast(tf.equal(top_1_pred, labels), tf.int32))
     return loss_value, top_1_accuracy
 
 @tf.function
@@ -150,7 +157,6 @@ def validation_step(images, labels, model, loss_func):
     top_1_pred = tf.squeeze(tf.math.top_k(pred, k=1)[1])
     sparse_labels = tf.cast(tf.math.argmax(labels, axis=1), tf.int32)
     top_1_accuracy = tf.math.reduce_sum(tf.cast(tf.equal(top_1_pred, sparse_labels), tf.int32))
-    # top_1_accuracy = tf.math.reduce_sum(tf.cast(tf.equal(top_1_pred, labels), tf.int32))
     return loss, top_1_accuracy
 
 
@@ -173,37 +179,30 @@ def main():
         tf.config.optimizer.set_jit(True)
     if not FLAGS.fp32:
         tf.config.optimizer.set_experimental_options({"auto_mixed_precision": True})
-    # init global imagenet mean (for tf function graph)
-    # temp = tf.zeros([128, 224, 224, 3], dtype=tf.float32)
-    # _ = tf.keras.applications.resnet.preprocess_input(temp)
 
     data = create_dataset(FLAGS.train_data_dir, FLAGS.batch_size, validation=False)
     validation_data = create_dataset(FLAGS.validation_data_dir, FLAGS.batch_size, validation=True)
 
     if FLAGS.model == 'resnet50':
         if not FLAGS.fine_tune:
-            model = resnet.ResNet50(weights=None, weight_decay=0.00005, pooling='avg', classes=1000)
+            model = resnet.ResNet50(weights=None, weight_decay=FLAGS.l2_weight_decay, pooling='avg', classes=FLAGS.num_classes)
         else:
-            model = resnet.ResNet50(weights='imagenet', classes=1000)
+            model = resnet.ResNet50(weights='imagenet', classes=FLAGS.num_classes)
     model.summary()
     learning_rate = (FLAGS.learning_rate * hvd.size() * FLAGS.batch_size)/256 
-    steps_per_epoch = int((1281167 / (FLAGS.batch_size * hvd.size())))
+    steps_per_epoch = int((FLAGS.train_dataset_size / (FLAGS.batch_size * hvd.size())))
 
     scheduler = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
                     boundaries=[steps_per_epoch * 25, steps_per_epoch * 55, steps_per_epoch * 75], # 5 epochs for warmup
                     values=[learning_rate, learning_rate * 0.1, learning_rate * 0.01, learning_rate * 0.001])
 
     scheduler = WarmupScheduler(optimizer=scheduler, initial_learning_rate=learning_rate / hvd.size(), warmup_steps=steps_per_epoch * 5)
-    # opt = tfa.optimizers.SGDW(weight_decay=1e-5, learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True)
-    opt = tf.keras.optimizers.SGD(learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True) # FIXME: not correct - needs momentum correction term
-    # opt = tf.compat.v1.train.MomentumOptimizer(learning_rate=lr_func, momentum=0.9, use_nesterov=True)
+    opt = tf.keras.optimizers.SGD(learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True) # needs momentum correction term
 
     if not FLAGS.fp32:
         opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale=128.)
 
-    loss_func = tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1, reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE) 
-    # loss_func = tf.keras.losses.CategoricalCrossentropy(reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE) 
-    # loss_func = tf.keras.losses.SparseCategoricalCrossentropy(reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE)
+    loss_func = tf.keras.losses.CategoricalCrossentropy(label_smoothing=FLAGS.label_smoothing, reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE) 
 
     if hvd.rank() == 0:
         model_dir = os.path.join(FLAGS.model + datetime.datetime.now().strftime("_%Y-%m-%d_%H-%M-%S"))
@@ -255,15 +254,13 @@ def main():
         average_validation_loss = hvd.allreduce(tf.constant(loss))
 
         if hvd.rank() == 0:
-            #path_checkpoint = path_logs = os.path.join(os.getcwd(), model_dir)
             info_str = 'Epoch: %d, Train Accuracy: %f, Train Loss: %f, Validation Accuracy: %f, Validation Loss: %f LR:%f' % \
                     (epoch, average_training_accuracy, average_training_loss, average_validation_accuracy, average_validation_loss, scheduler(curr_step))
             print(info_str)
             logger.info(info_str)
-            #checkpoint.save(path_checkpoint)
     if hvd.rank() == 0:
         logger.info('Total Training Time: %f' % (time() - start_time))
-        model.save('saved_model/resnet50')
+        model.save('saved_model/{}'.format(FLAGS.model))
 
 if __name__ == '__main__':
     main()
