@@ -12,6 +12,7 @@ from time import time
 import sys
 import resnet_preprocessing
 import resnet
+import resnet_evo
 
 
 class WarmupScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -90,7 +91,7 @@ def add_cli_args():
                          help="""Size of each minibatch per GPU""")
     cmdline.add_argument('--num_epochs', default=100, type=int,
                          help="""Number of epochs to train for.""")
-    cmdline.add_argument('-lr', '--learning_rate', default=0.1, type=float,
+    cmdline.add_argument('-lr', '--learning_rate', default=0.15, type=float,
                          help="""Start learning rate.""")
     cmdline.add_argument('--momentum', default=0.9, type=float,
                          help="""Start optimizer momentum.""")
@@ -186,6 +187,7 @@ def main():
     if FLAGS.model == 'resnet50':
         if not FLAGS.fine_tune:
             model = resnet.ResNet50(weights=None, weight_decay=FLAGS.l2_weight_decay, pooling='avg', classes=FLAGS.num_classes)
+            # model = resnet_evo.ResNet50V2(weights=None, weight_decay=FLAGS.l2_weight_decay, pooling='avg', classes=FLAGS.num_classes)
         else:
             model = resnet.ResNet50(weights='imagenet', classes=FLAGS.num_classes)
     model.summary()
