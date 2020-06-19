@@ -44,6 +44,7 @@ from common.arguments import (
     TrainingArguments,
 )
 from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
+from common.models import create_model
 from common.models import load_qa_from_pretrained
 from common.utils import (
     TqdmLoggingHandler,
@@ -508,18 +509,22 @@ def main():
         # Run name should only be used on one process to avoid race conditions
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         platform = "eks" if data_args.fsx_prefix == "/fsx" else "sm"
-        if model_args.load_from.startswith("amazon"):
-            load_name = f"{model_args.load_from}"
+        if log_args.run_name is None:
+            run_name = f"{current_time}-{platform}-{model_args.model_type}-{model_args.model_size}-{data_args.task_name}-{model_args.load_from}-{hvd.size()}gpus-{train_args.name}"
         else:
-            load_name = model_args.load_from
-        run_name = f"{current_time}-{platform}-{model_args.model_size}-{data_args.task_name}-{load_name}-{hvd.size()}gpus-{train_args.per_gpu_batch_size}batch-{train_args.learning_rate}lr-{train_args.name}"
+            run_name = log_args.run_name
     else:
         # We only use run_name on rank 0, but need all ranks to pass a value in function args
         run_name = None
-
-    model = TFAutoModelForQuestionAnswering.from_pretrained(model_args.model_desc)
+    model = create_model(model_class=TFAutoModelForQuestionAnswering, model_args=model_args)
     model.call = rewrap_tf_function(model.call)
     tokenizer = create_tokenizer(model_args.model_type)
+            
+    loaded_optimizer_weights = None
+    if model_args.load_from == "checkpoint":
+        if hvd.rank() == 0:
+            logger.info(f"Loading weights from {model_args.checkpoint_path}.ckpt")
+            model.load_weights(f"{model_args.checkpoint_path}.ckpt")
 
     results = run_squad_and_get_results(
         model=model,
