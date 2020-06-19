@@ -524,7 +524,7 @@ def main():
     if model_args.load_from == "checkpoint":
         if hvd.rank() == 0:
             logger.info(f"Loading weights from {model_args.checkpoint_path}.ckpt")
-            model.load_weights(f"{model_args.checkpoint_path}.ckpt")
+            model.load_weights(f"{model_args.checkpoint_path}.ckpt").expect_partial()
 
     results = run_squad_and_get_results(
         model=model,
