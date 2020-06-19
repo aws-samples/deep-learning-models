@@ -26,7 +26,6 @@ import datetime
 import gc
 import glob
 import logging
-import os
 import time
 from dataclasses import asdict
 from typing import Tuple
@@ -53,30 +52,19 @@ from common.arguments import (
 from common.datasets import get_mlm_dataset
 from common.models import create_model
 from common.optimizers import get_adamw_optimizer, get_lamb_optimizer
-from common.utils import TqdmLoggingHandler, create_tokenizer, gather_indexes, rewrap_tf_function
+from common.utils import (
+    TqdmLoggingHandler,
+    create_tokenizer,
+    gather_indexes,
+    is_wandb_available,
+    rewrap_tf_function,
+)
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
 
-# Should still work if not logged into wandb
-try:
+if is_wandb_available():
     import wandb
-
-    # TODO: The ensure_configured() method does not exist within SageMaker. Figure out why.
-    wandb.ensure_configured()
-    if wandb.api.api_key is None:
-        _has_wandb = False
-        wandb.termwarn(
-            "W&B installed but not logged in.  Run `wandb login` or set the WANDB_API_KEY env variable."
-        )
-    else:
-        _has_wandb = False if os.getenv("WANDB_DISABLED") else True
-except ImportError:
-    _has_wandb = False
-
-
-def is_wandb_available():
-    return _has_wandb
 
 
 logger = logging.getLogger(__name__)
