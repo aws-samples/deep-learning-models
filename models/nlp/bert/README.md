@@ -10,12 +10,11 @@ Pretraining consists of two phases. We use mixed-batch training.
 * Phase2: We pretrain 6248 steps with a total batch size of 8K for maximum sequence length of 512 across 8 p3dn.24xlarge nodes.
 * Lastly, we finetune SQuAD v1.1 3649 steps with a total batch size of 48 on a single p3dn.24xlarge node.
 
-SQuAD scoring is done via two metrics: exact match and F1. Exact match measures whether the selected answer matched exactly, and F1 is a measure combining both precision and recall of each word in the predicted answer. Both of these metrics range between 0-100, and F1 is greater than or equal to exact match.
-
+SQuAD F1 score combines both precision and recall of each word in the predicted answer ranging between 0-100.
 
 | Model | Phase1 | Phase2 | Total Training Time | SQuAD v1.1 F1 | SQuAD v2.0 F1 |
 | --- | --- | --- |  --- | --- | --- |
-| BERT-base | 5 hrs 33 mins | 2 hrs 53 mins | 8 hrs 26 mins | 87.68 | 75.95 |
+| BERT-base | 5 hrs 33 mins | 2 hrs 53 mins | 8 hrs 26 mins | 87.68 | 76.14 |
 
 
 ### How To Launch Training
@@ -158,7 +157,7 @@ python -m albert.launch_sagemaker \
     --per_gpu_batch_size=6 \
     --model_size=base \
     --task_name=squadv2 \
-    --learning_rate=9.0e-5 \
+    --learning_rate=10.0e-5 \
     --warmup_steps=814 \
     --total_steps=8144 \
     --validation_frequency=10000 \
