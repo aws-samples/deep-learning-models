@@ -209,7 +209,7 @@ def main():
         if hvd.rank() == 0:
             if step % log_args.log_frequency == 0:
                 elapsed_time = time.perf_counter() - start_time  # Off for first log
-                it_s = elapsed_time / log_args.log_frequency
+                it_s = log_args.log_frequency / elapsed_time
                 start_time = time.perf_counter()
                 description = f"Step {step} -- gen_loss: {gen_loss:.3f}, dis_loss: {dis_loss:.3f}, gen_acc: {gen_acc:.3f}, dis_acc: {dis_acc:.3f}, it/s: {it_s:.3f}\n"
                 logger.info(f"ORIGINAL:      '{tokenizer.decode(ids[0].numpy())}'")
