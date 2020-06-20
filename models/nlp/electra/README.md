@@ -15,7 +15,8 @@ python -m electra.run_pretraining \
 ```
 
 ```python
-CUDA_VISIBLE_DEVICES=0 \
+CUDA_VISIBLE_DEVICES=1,2 \
+horovodrun -H localhost:2 -np 2 \
 python -m electra.run_pretraining \
     --per_gpu_batch_size=128 \
     --max_seq_len=128 \

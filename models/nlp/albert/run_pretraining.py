@@ -504,7 +504,7 @@ def main():
         # validation_dataset = validation_dataset.batch(1)
         validation_dataset = validation_dataset.prefetch(buffer_size=8)
 
-        pbar = tqdm.tqdm(train_args.total_steps, disable=disable_tqdm)
+        pbar = tqdm.tqdm(total=train_args.total_steps, disable=disable_tqdm)
         summary_writer = None  # Only create a writer if we make it through a successful step
         logger.info(f"Starting training, job name {run_name}")
 

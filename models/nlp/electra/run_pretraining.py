@@ -9,15 +9,20 @@ Incorporate the new transformers version. Be willing to lose my current work.
 
 # TODO: Should we include special tokens? <BOS>, <EOS>.
 # TODO: Weight sharing between generator and discriminator, only token embeddings.
+
+The "read -1 expected ..." errors are harmless and come from Docker. See https://github.com/horovod/horovod/issues/503
+Running Docker in privileged mode (docker run --privileged) solves the issue.
 """
 
 import logging
+import time
 
 import numpy as np
 import tensorflow as tf
+import tqdm
 from transformers import (
     ElectraConfig,
-    ElectraTokenizer,
+    ElectraTokenizerFast,
     HfArgumentParser,
     TFElectraForMaskedLM,
     TFElectraForPreTraining,
@@ -123,9 +128,11 @@ def main():
     gpus = tf.config.list_physical_devices("GPU")
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
+    if gpus:
+        tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], "GPU")
 
     # TODO: Should I use bert-base-uncased?
-    tokenizer = ElectraTokenizer.from_pretrained("bert-base-uncased")
+    tokenizer = ElectraTokenizerFast.from_pretrained("bert-base-uncased")
 
     gen_config = ElectraConfig.from_pretrained("google/electra-small-generator")
     dis_config = ElectraConfig.from_pretrained("google/electra-small-discriminator")
@@ -138,34 +145,35 @@ def main():
     # optimizer = tf.keras.optimizers.Adam(lr=1e-4)
 
     # Load in WikiText-2.
-    filename = "/fsx/wikitext/wikitext-2-raw/wiki.test.raw"
-    with open(filename) as infile:
+    # WikiText-2 train contains 2M tokens
+    # WikiText-103 train contains 103M tokens
+    train_filename = "/fsx/wikitext/wikitext-2-raw/wiki.train.raw"  # Tokenization complete in 25.394 secs, 7.386 secs with fast tokenizer
+    val_filename = "/fsx/wikitext/wikitext-2-raw/wiki.valid.raw"
+    test_filename = (
+        "/fsx/wikitext/wikitext-2-raw/wiki.test.raw"  # Tokenization complete in 2.964 secs,
+    )
+    # train_filename = "/fsx/wikitext/wikitext-103-raw/wiki.train.raw" # Fast tokenization in 380.913 secs
+    start_time = time.perf_counter()
+    with open(train_filename) as infile:
         wiki_text: str = infile.read()  # length 1,288,556
 
-    # Load in text strings.
-    text = "The chef cooked the meal. It was delicious and appetizing, yet I couldn't shake the feeling that Michael Jordan would have the flu game."
-    # Convert to text tokens
-    tokens = tokenizer.tokenize(text)  # ['the', 'chef', 'cooked', 'the', 'meal', '.']
-
     # Convert to token ids.
-    ids = tokenizer.convert_tokens_to_ids(tokens)
-
-    wiki_tokens = tokenizer.tokenize(wiki_text)  # length 273,178, tokenized instantaneously
+    wiki_tokens = tokenizer.tokenize(wiki_text)  # length 273,178
     wiki_ids = tokenizer.convert_tokens_to_ids(wiki_tokens)
 
-    wandb_run_name = None
     if hvd.rank() == 0:
-        # disable_tqdm = False
-        # pbar = tqdm.tqdm(train_args.total_steps, disable=disable_tqdm)
+        disable_tqdm = False
+        pbar = tqdm.tqdm(total=train_args.total_steps, disable=disable_tqdm)
         # Logging should only happen on a single process
         # https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time
         level = logging.INFO
         format = "%(asctime)-15s %(name)-12s: %(levelname)-8s %(message)s"
         handlers = [
-            # logging.FileHandler(f"{data_args.fsx_prefix}/logs/electra/{run_name}.log"),
             TqdmLoggingHandler(),
         ]
         logging.basicConfig(level=level, format=format, handlers=handlers)
+        wandb_run_name = None
+        logger.info(f"Tokenization complete in {time.perf_counter() - start_time:.3f} secs")
 
     for step in range(train_args.total_steps):
         bsz = train_args.per_gpu_batch_size
@@ -192,7 +200,7 @@ def main():
             hvd.broadcast_variables(gen.variables, root_rank=0)
             hvd.broadcast_variables(optimizer.variables(), root_rank=0)
             # WandB init
-            if is_wandb_available():
+            if hvd.rank() == 0 and is_wandb_available():
                 config = {
                     "global_batch_size": hvd.size() * train_args.per_gpu_batch_size,
                     "per_gpu_batch_size": train_args.per_gpu_batch_size,
@@ -202,32 +210,32 @@ def main():
                 wandb.run.save()
                 wandb_run_name = wandb.run.name
 
-        description = f"Step {step} -- gen_loss: {gen_loss:.3f}, dis_loss: {dis_loss:.3f}, gen_acc: {gen_acc:.3f}, dis_acc: {dis_acc:.3f}\n"
-        if step % log_args.log_frequency == 0:
-            logger.info(f"Original:            '{tokenizer.decode(ids[0].numpy())}'")
-            logger.info(f"Masked:              '{tokenizer.decode(masked_ids[0].numpy())}'")
-            logger.info(
-                f"Generator output:    '{colorize_gen(tokenizer, ids[0], gen_ids[0], tf_mask[0])}'"
-            )
-            logger.info(
-                f"Discriminator preds: '{colorize_dis(tokenizer, gen_ids[0], dis_preds[0])}'"
-            )
-            logger.info(description)
+        if hvd.rank() == 0:
+            description = f"Step {step} -- gen_loss: {gen_loss:.3f}, dis_loss: {dis_loss:.3f}, gen_acc: {gen_acc:.3f}, dis_acc: {dis_acc:.3f}\n"
+            if step % log_args.log_frequency == 0:
+                logger.info(f"Original:            '{tokenizer.decode(ids[0].numpy())}'")
+                logger.info(f"Masked:              '{tokenizer.decode(masked_ids[0].numpy())}'")
+                logger.info(
+                    f"Generator output:    '{colorize_gen(tokenizer, ids[0], gen_ids[0], tf_mask[0])}'"
+                )
+                logger.info(
+                    f"Discriminator preds: '{colorize_dis(tokenizer, gen_ids[0], dis_preds[0])}'"
+                )
+                logger.info(description)
 
-        # pbar.update(1)
-        # pbar.set_description("hello")
-        # pbar.set_description(description)
+            pbar.update(1)
+            pbar.set_description(f"Step {step}")
 
-        train_metrics = {
-            "train/loss": loss,
-            "train/gen_loss": gen_loss,
-            "train/dis_loss": dis_loss,
-            "train/gen_acc": gen_acc,
-            "train/dis_acc": dis_acc,
-        }
+            train_metrics = {
+                "train/loss": loss,
+                "train/gen_loss": gen_loss,
+                "train/dis_loss": dis_loss,
+                "train/gen_acc": gen_acc,
+                "train/dis_acc": dis_acc,
+            }
 
-        if is_wandb_available():
-            wandb.log({"step": step, **train_metrics})
+            if is_wandb_available():
+                wandb.log({"step": step, **train_metrics})
 
 
 if __name__ == "__main__":

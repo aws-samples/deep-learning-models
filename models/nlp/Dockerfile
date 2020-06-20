@@ -94,8 +94,9 @@ WORKDIR "/examples"
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
         scikit-learn==0.23.1 \
-        wandb==0.9.0 \
-        tensorflow-addons==0.9.1
+        wandb==0.9.1 \
+        tensorflow-addons==0.9.1 \
+        colorama==0.4.3
 
 ENV HDF5_USE_FILE_LOCKING "FALSE"
 
