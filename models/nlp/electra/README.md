@@ -2,7 +2,7 @@
 
 Check back later!
 
-```python
+```bash
 horovodrun -H localhost:8 -np 8 \
 python -m electra.run_pretraining \
     --per_gpu_batch_size=32 \
@@ -14,7 +14,7 @@ python -m electra.run_pretraining \
     --log_frequency=20
 ```
 
-```python
+```bash
 CUDA_VISIBLE_DEVICES=1,2 \
 horovodrun -H localhost:2 -np 2 \
 python -m electra.run_pretraining \

@@ -19,7 +19,6 @@ import time
 
 import numpy as np
 import tensorflow as tf
-import tqdm
 from transformers import (
     ElectraConfig,
     ElectraTokenizerFast,
@@ -142,7 +141,6 @@ def main():
     gen = TFElectraForMaskedLM(config=gen_config)
     dis = TFElectraForPreTraining(config=dis_config)
     optimizer = get_adamw_optimizer(train_args)
-    # optimizer = tf.keras.optimizers.Adam(lr=1e-4)
 
     # Load in WikiText-2.
     # WikiText-2 train contains 2M tokens
@@ -162,8 +160,6 @@ def main():
     wiki_ids = tokenizer.convert_tokens_to_ids(wiki_tokens)
 
     if hvd.rank() == 0:
-        disable_tqdm = False
-        pbar = tqdm.tqdm(total=train_args.total_steps, disable=disable_tqdm)
         # Logging should only happen on a single process
         # https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time
         level = logging.INFO
@@ -211,20 +207,18 @@ def main():
                 wandb_run_name = wandb.run.name
 
         if hvd.rank() == 0:
-            description = f"Step {step} -- gen_loss: {gen_loss:.3f}, dis_loss: {dis_loss:.3f}, gen_acc: {gen_acc:.3f}, dis_acc: {dis_acc:.3f}\n"
             if step % log_args.log_frequency == 0:
-                logger.info(f"Original:            '{tokenizer.decode(ids[0].numpy())}'")
-                logger.info(f"Masked:              '{tokenizer.decode(masked_ids[0].numpy())}'")
+                elapsed_time = time.perf_counter() - start_time  # Off for first log
+                it_s = elapsed_time / log_args.log_frequency
+                start_time = time.perf_counter()
+                description = f"Step {step} -- gen_loss: {gen_loss:.3f}, dis_loss: {dis_loss:.3f}, gen_acc: {gen_acc:.3f}, dis_acc: {dis_acc:.3f}, it/s: {it_s:.3f}\n"
+                logger.info(f"ORIGINAL:      '{tokenizer.decode(ids[0].numpy())}'")
+                logger.info(f"MASKED:        '{tokenizer.decode(masked_ids[0].numpy())}'")
                 logger.info(
-                    f"Generator output:    '{colorize_gen(tokenizer, ids[0], gen_ids[0], tf_mask[0])}'"
+                    f"GENERATOR:     '{colorize_gen(tokenizer, ids[0], gen_ids[0], tf_mask[0])}'"
                 )
-                logger.info(
-                    f"Discriminator preds: '{colorize_dis(tokenizer, gen_ids[0], dis_preds[0])}'"
-                )
+                logger.info(f"DISCRIMINATOR: '{colorize_dis(tokenizer, gen_ids[0], dis_preds[0])}'")
                 logger.info(description)
-
-            pbar.update(1)
-            pbar.set_description(f"Step {step}")
 
             train_metrics = {
                 "train/loss": loss,
