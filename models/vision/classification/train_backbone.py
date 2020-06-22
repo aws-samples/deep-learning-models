@@ -87,11 +87,13 @@ def add_cli_args():
                          help="""Number of classes.""")
     cmdline.add_argument('--train_dataset_size', default=1281167, type=int,
                          help="""Number of images in training data.""")
-    cmdline.add_argument('-b', '--batch_size', default=256, type=int,
+    cmdline.add_argument('--model_dir', default='best-model',
+                         help="""Path to save model with best accuracy""")
+    cmdline.add_argument('-b', '--batch_size', default=128, type=int,
                          help="""Size of each minibatch per GPU""")
     cmdline.add_argument('--num_epochs', default=100, type=int,
                          help="""Number of epochs to train for.""")
-    cmdline.add_argument('-lr', '--learning_rate', default=0.15, type=float,
+    cmdline.add_argument('-lr', '--learning_rate', default=0.1, type=float,
                          help="""Start learning rate.""")
     cmdline.add_argument('--momentum', default=0.9, type=float,
                          help="""Start optimizer momentum.""")
@@ -107,7 +109,7 @@ def add_cli_args():
                          action='store_true')
     cmdline.add_argument('--model',
                          help="""Which model to train. Options are:
-                         resnet50 and resnext50""")
+                         resnet50 and resnet50v2""")
     cmdline.add_argument('--fine_tune',
                          help="""Whether to fine tune on pretrained model or 
                          train the full model from scratch. Must specify weights
@@ -119,12 +121,16 @@ def add_cli_args():
 
 def create_dataset(data_dir, batch_size, validation):
     filenames = [os.path.join(data_dir, i) for i in os.listdir(data_dir)]
-    data = tf.data.TFRecordDataset(filenames).shuffle(buffer_size=10000).shard(hvd.size(), hvd.rank())
+    data = tf.data.TFRecordDataset(filenames)
     if not validation:
+        data = data.shuffle(buffer_size=10000).shard(hvd.size(), hvd.rank())
         data = data.map(parse_train, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     else:
+        data = data.shard(hvd.size(), hvd.rank())
         data = data.map(parse_validation, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    data = data.batch(batch_size, drop_remainder=not validation).prefetch(tf.data.experimental.AUTOTUNE)
+    # we drop remainder because we want same sized batches - this is because of allreduce being used to calculate
+    # accuracy - validation accuracy may be slightly different than computing on all of validation data
+    data = data.batch(batch_size, drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE)
     return data
 
 @tf.function
@@ -170,8 +176,7 @@ def main():
     if gpus:
         tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
     tf.config.threading.intra_op_parallelism_threads = 1 # Avoid pool of Eigen threads
-    tf.config.threading.inter_op_parallelism_threads = max(2, 96//hvd.size()-2)
-
+    tf.config.threading.inter_op_parallelism_threads = max(2, 40//hvd.size()-2)
     os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
 
     cmdline = add_cli_args()
@@ -187,9 +192,17 @@ def main():
     if FLAGS.model == 'resnet50':
         if not FLAGS.fine_tune:
             model = resnet.ResNet50(weights=None, weight_decay=FLAGS.l2_weight_decay, pooling='avg', classes=FLAGS.num_classes)
-            # model = resnet_evo.ResNet50V2(weights=None, weight_decay=FLAGS.l2_weight_decay, pooling='avg', classes=FLAGS.num_classes)
         else:
             model = resnet.ResNet50(weights='imagenet', classes=FLAGS.num_classes)
+    elif FLAGS.model == 'resnet50v2':
+        if not FLAGS.fine_tune:
+            model = resnet.ResNet50V2(weights=None, weight_decay=FLAGS.l2_weight_decay, pooling='avg', classes=FLAGS.num_classes)
+        else:
+            model = resnet.ResNet50V2(weights='imagenet', classes=FLAGS.num_classes)
+    elif FLAGS.model == 'resnet50v2_evo':
+        if not FLAGS.fine_tune:
+            model = resnet_evo.ResNet50V2(weights=None, weight_decay=FLAGS.l2_weight_decay, pooling='avg', classes=FLAGS.num_classes)
+
     model.summary()
     learning_rate = (FLAGS.learning_rate * hvd.size() * FLAGS.batch_size)/256 
     steps_per_epoch = int((FLAGS.train_dataset_size / (FLAGS.batch_size * hvd.size())))
@@ -224,6 +237,7 @@ def main():
  
     start_time = time()
     curr_step = tf.Variable(initial_value=0, dtype=tf.int32)
+    best_validation_accuracy = 0.0
     for epoch in range(FLAGS.num_epochs):
         if hvd.rank() == 0:
             print('Starting training Epoch %d/%d' % (epoch, FLAGS.num_epochs))
@@ -260,9 +274,12 @@ def main():
                     (epoch, average_training_accuracy, average_training_loss, average_validation_accuracy, average_validation_loss, scheduler(curr_step))
             print(info_str)
             logger.info(info_str)
+            if average_validation_accuracy > best_validation_accuracy:
+                logger.info("Found new best accuracy, saving checkpoint ...")
+                best_validation_accuracy = average_validation_accuracy
+                model.save('{}-best/{}'.format(FLAGS.model_dir, FLAGS.model))
     if hvd.rank() == 0:
         logger.info('Total Training Time: %f' % (time() - start_time))
-        model.save('saved_model/{}'.format(FLAGS.model))
 
 if __name__ == '__main__':
     main()
