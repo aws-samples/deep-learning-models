@@ -217,17 +217,17 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 RUN apt update && apt install -y python3-opencv libopenblas-base \
 	libomp-dev build-essential
     
-RUN ${PIP} install tensorflow_addons \
-                s3fs \
-		ipykernel \
-                imgaug \
-                tqdm \
-                tensorflow_datasets \
-                scikit-image \
-                cython \
-                addict \
-                terminaltables \
-                numba && \
-    pip install pycocotools
+RUN ${PIP} install tensorflow_addons==0.9.1 \
+                s3fs==0.4.2 \
+                ipykernel \
+                imgaug==0.4.0 \
+                tqdm==4.45.0 \
+                tensorflow_datasets==2.1.0 \
+                scikit-image==0.16.2 \
+                cython==0.29.16 \
+                addict==2.2.1 \
+                terminaltables==3.1.0 \
+                numba==0.49.1 && \
+    pip install pycocotools==2.0.0
 
 CMD ["bin/bash"]
