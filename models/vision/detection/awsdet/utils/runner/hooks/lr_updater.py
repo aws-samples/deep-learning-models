@@ -57,10 +57,6 @@ class LrUpdaterHook(Hook):
         return warmup_lr
 
     def before_run(self, runner):
-        # NOTE: when resuming from a checkpoint, if 'initial_lr' is not saved,
-        # it will be set according to the optimizer params
-        # for group in runner.optimizer.param_groups:
-        #     group.setdefault('initial_lr', group['lr'])
         # self.base_lr = [
         #     group['initial_lr'] for group in runner.optimizer.param_groups
         # ]
@@ -86,11 +82,9 @@ class LrUpdaterHook(Hook):
             if self.warmup is None or cur_iter > self.warmup_iters:
                 return
             elif cur_iter == self.warmup_iters:
-                # print('setting up regular lr', self.regular_lr)
                 self._set_lr(runner, self.regular_lr)
             else:
                 warmup_lr = self.get_warmup_lr(cur_iter)
-                # print('setting up warmup lr', warmup_lr)
                 self._set_lr(runner, warmup_lr)
 
 

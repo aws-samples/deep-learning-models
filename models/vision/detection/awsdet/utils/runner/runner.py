@@ -266,10 +266,7 @@ class Runner(object):
         tape = get_distributed_tape(tape) if self.world_size > 1 else tape
         loss = outputs['loss']
         grads = tape.gradient(loss, var_list)
-        grads = [
-            grad if grad is not None else tf.zeros_like(var)
-            for var, grad in zip(var_list, grads)
-        ]
+        grads = [grad if grad is not None else tf.zeros_like(var) for var, grad in zip(var_list, grads)]
         # all_are_finite = tf.reduce_all([tf.reduce_all(tf.math.is_finite(g)) for g in grads])
         if self.gradient_clip > 0.0:
             clipped_grads, global_norm = tf.clip_by_global_norm(grads, self.gradient_clip)
@@ -304,8 +301,16 @@ class Runner(object):
         self.call_hook('before_train_epoch')
         for i, data_batch in enumerate(tf_dataset[0]):
             self._inner_iter = i
+            prev_lr = self.current_lr()
             self.call_hook('before_train_iter')
+            # momentum correction (V2 SGD absorbs LR into the update term) TODO: write a hook for this
+            curr_lr = self.current_lr()
+            orig_momentum = self.optimizer._optimizer.momentum.numpy()
+            momentum_correction_factor = curr_lr / prev_lr
+            self.optimizer._optimizer.momentum = self.optimizer._optimizer.momentum * momentum_correction_factor
             outputs = self.run_train_step(data_batch)
+            # restore momentum
+            self.optimizer._optimizer.momentum = orig_momentum
             if self.broadcast: # broadcast once
                 broadcast_weights(self)
                 self.broadcast = False

@@ -102,12 +102,14 @@ class RetinaHead(AnchorHead):
         for i in range(self.stacked_convs):
             self.cls_convs.append(
                     layers.Conv2D(self.feat_channels, (3, 3), padding='same',
+                        use_bias=False,
                         kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
                         kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                         activation=None, name='cls_conv_{}'.format(i+1)))
             self.cls_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.997, epsilon=1e-4, name='cls_conv_bn_{}'.format(i+1)))
             self.reg_convs.append(
                     layers.Conv2D(self.feat_channels, (3, 3), padding='same',
+                        use_bias=False,
                         kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
                         kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                         activation=None, name='reg_conv_{}'.format(i+1)))
