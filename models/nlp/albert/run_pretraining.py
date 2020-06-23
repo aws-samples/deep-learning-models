@@ -42,13 +42,9 @@ from transformers import (
     TFBertForPreTraining,
 )
 
+from albert.arguments import TrainingArguments
 from albert.run_squad import get_squad_results_while_pretraining
-from common.arguments import (
-    DataTrainingArguments,
-    LoggingArguments,
-    ModelArguments,
-    TrainingArguments,
-)
+from common.arguments import DataTrainingArguments, LoggingArguments, ModelArguments
 from common.datasets import get_mlm_dataset
 from common.models import create_model
 from common.optimizers import get_adamw_optimizer, get_lamb_optimizer
@@ -544,7 +540,7 @@ def main():
                 model_size=model_args.model_size,
                 fsx_prefix=data_args.fsx_prefix,
                 step=i,
-                dataset=data_args.task_name,
+                dataset=data_args.squad_version,
                 fast=log_args.fast_squad,
                 dummy_eval=log_args.dummy_eval,
             )

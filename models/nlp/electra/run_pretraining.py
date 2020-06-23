@@ -1,15 +1,6 @@
 """
 Batch sizes: 32 = 5GB memory, 128 = 17GB
 
-What's the best way to develop a new pretraining script?
-
-Dynamic masking straight from text.
-Abstract out the gradient accumulation functionality. Tracking loss, acc variables within the accumulator rather than outside.
-Incorporate the new transformers version. Be willing to lose my current work.
-
-# TODO: Should we include special tokens? <BOS>, <EOS>.
-# TODO: Weight sharing between generator and discriminator, only token embeddings.
-
 The "read -1 expected ..." errors are harmless and come from Docker. See https://github.com/horovod/horovod/issues/503
 Running Docker in privileged mode (docker run --privileged) solves the issue.
 """
@@ -29,14 +20,10 @@ from transformers import (
     TFElectraForPreTraining,
 )
 
-from common.arguments import (
-    DataTrainingArguments,
-    LoggingArguments,
-    ModelArguments,
-    TrainingArguments,
-)
+from common.arguments import DataTrainingArguments, LoggingArguments, ModelArguments
 from common.optimizers import get_adamw_optimizer
 from common.utils import TqdmLoggingHandler, is_wandb_available
+from electra.arguments import TrainingArguments
 from electra.utils import colorize_dis, colorize_gen
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
@@ -55,13 +42,13 @@ def log_example(tokenizer, ids, masked_ids, mask, gen_ids, dis_preds):
     logger.info(f"DISCRIMINATOR: '{colorize_dis(tokenizer, gen_ids[0], dis_preds[0])}'")
 
 
-def select_ids(arr, seq_len: int) -> np.array:
+def select_ids(arr, seq_len: int) -> np.ndarray:
     """ Given an array and sequence length, select a subsequence of that length. """
     start = 0 if len(arr) <= seq_len else np.random.randint(0, len(arr) - seq_len)
     return np.array(arr[start : start + seq_len])
 
 
-def select_batch_ids(arr, bsz: int, seq_len: int) -> np.array:
+def select_batch_ids(arr, bsz: int, seq_len: int) -> np.ndarray:
     """ Select a batch of select_ids(). """
     out = np.zeros(shape=(bsz, seq_len), dtype=int)
     for i in range(bsz):
@@ -69,7 +56,10 @@ def select_batch_ids(arr, bsz: int, seq_len: int) -> np.array:
     return out
 
 
-# Can we pass labels into model.forward? Simplify the forward pass as much as possible.
+# TODO: Limit code duplication between train_step and val_step.
+# Abstracting logic out into another function gets messy because of tf.function wrapping & caching,
+# long lists of parameters to pass in and long lists of return values.
+@tf.function
 def val_step(gen, dis, ids, masked_ids, mask):
     # Generator loss
     (gen_logits,) = gen(masked_ids)  # [bsz, seq_len, vocab_size]
@@ -89,7 +79,8 @@ def val_step(gen, dis, ids, masked_ids, mask):
     # Discriminator loss
     gen_ids = mask * adv_ids + (1 - mask) * ids  # [bsz, seq_len]
     (dis_logits,) = dis(gen_ids)  # [bsz, seq_len]
-    # If generator generates correct token, invert the loss
+    # We compare against the original ids. So if the generator creates the correct token, then the
+    # discriminator should predict 'original' or 0.
     dis_loss = tf.keras.losses.binary_crossentropy(
         y_true=tf.cast(gen_ids != ids, tf.int64), y_pred=dis_logits, from_logits=True
     )

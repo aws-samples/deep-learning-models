@@ -44,8 +44,7 @@ from common.arguments import (
     TrainingArguments,
 )
 from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
-from common.models import create_model
-from common.models import load_qa_from_pretrained
+from common.models import create_model, load_qa_from_pretrained
 from common.utils import (
     TqdmLoggingHandler,
     create_tokenizer,
@@ -510,7 +509,7 @@ def main():
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         platform = "eks" if data_args.fsx_prefix == "/fsx" else "sm"
         if log_args.run_name is None:
-            run_name = f"{current_time}-{platform}-{model_args.model_type}-{model_args.model_size}-{data_args.task_name}-{model_args.load_from}-{hvd.size()}gpus-{train_args.name}"
+            run_name = f"{current_time}-{platform}-{model_args.model_type}-{model_args.model_size}-{data_args.squad_version}-{model_args.load_from}-{hvd.size()}gpus-{train_args.name}"
         else:
             run_name = log_args.run_name
     else:
@@ -519,7 +518,7 @@ def main():
     model = create_model(model_class=TFAutoModelForQuestionAnswering, model_args=model_args)
     model.call = rewrap_tf_function(model.call)
     tokenizer = create_tokenizer(model_args.model_type)
-            
+
     loaded_optimizer_weights = None
     if model_args.load_from == "checkpoint":
         if hvd.rank() == 0:
@@ -538,7 +537,7 @@ def main():
         learning_rate=train_args.learning_rate,
         warmup_steps=train_args.warmup_steps,
         total_steps=train_args.total_steps,
-        dataset=data_args.task_name,
+        dataset=data_args.squad_version,
     )
     if hvd.rank() == 0:
         logger.info(results)

@@ -5,12 +5,9 @@ been abstracted into this file. It also makes the training scripts much shorter.
 Using `transformers.HfArgumentParser` we can turn these classes into argparse arguments.
 """
 
-import dataclasses
-import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +20,7 @@ class ModelArguments:
     used at training time.
     """
 
+    model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
     model_type: str = field(default="albert", metadata={"choices": ["albert", "bert"]})
     model_size: str = field(default="base", metadata={"choices": ["base", "large"]})
     load_from: str = field(
@@ -34,9 +32,9 @@ class ModelArguments:
             "help": "For example, `/fsx/checkpoints/albert/2020..step125000`. No .ckpt on the end."
         },
     )
-
     load_optimizer_state: str = field(default="true", metadata={"choices": ["true", "false"]})
-
+    hidden_dropout_prob: float = field(default=0.0)
+    attention_probs_dropout_prob: float = field(default=0.0)
     # TODO: Pre-layer norm is not yet supported in transformers. PR is at https://github.com/huggingface/transformers/pull/3929, but maintainers are unresponsive.
     # The difficulty of keeping a parallel fork means we'll disable this option temporarily.
     pre_layer_norm: str = field(
@@ -46,8 +44,6 @@ class ModelArguments:
             "help": "Place layer normalization before the attention & FFN, rather than after adding the residual connection. https://openreview.net/pdf?id=B1x8anVFPr",
         },
     )
-    hidden_dropout_prob: float = field(default=0.0)
-    attention_probs_dropout_prob: float = field(default=0.0)
 
     @property
     def model_desc(self) -> str:
@@ -55,6 +51,8 @@ class ModelArguments:
             return f"albert-{self.model_size}-v2"
         elif self.model_type == "bert":
             return f"bert-{self.model_size}-uncased"
+        elif self.model_type == "electra":
+            assert False, "Not yet supported since there are two ELECTRA models"
         else:
             assert False
 
@@ -66,9 +64,11 @@ class DataTrainingArguments:
     Task name, sequence length, and filepath fall under this category, but batch size does not.
     """
 
-    task_name: str = field(default="squadv2", metadata={"choices": ["squadv1", "squadv2"]})
-    max_seq_length: int = field(default=512, metadata={"choices": [128, 512]})
-    max_predictions_per_seq: int = field(default=20, metadata={"choices": [20, 80]})
+    squad_version: str = field(default="squadv2", metadata={"choices": ["squadv1", "squadv2"]})
+    # For BERT/ALBERT the only valid combos are [512,20] and [128,80]
+    # For ELECTRA we use dynamic masking, so all combos are valid
+    max_seq_length: int = field(default=512)
+    max_predictions_per_seq: int = field(default=20)
     fsx_prefix: str = field(
         default="/fsx",
         metadata={
@@ -76,54 +76,6 @@ class DataTrainingArguments:
             "help": "Change to /opt/ml/input/data/training on SageMaker",
         },
     )
-
-
-@dataclass
-class TrainingArguments:
-    """ Related to the training loop. """
-
-    model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
-    seed: int = field(default=42)
-    # TODO: Change this to per_gpu_train_batch_size
-    per_gpu_batch_size: int = field(default=32)
-    gradient_accumulation_steps: int = field(
-        default=1,
-        metadata={
-            "help": "Number of updates steps to accumulate before performing a backward/update pass."
-        },
-    )
-    warmup_steps: int = field(default=3125)
-    total_steps: int = field(default=125000)
-    optimizer: str = field(default="lamb", metadata={"choices": ["lamb", "adamw"]})
-    learning_rate: float = field(default=0.00176)
-    weight_decay: float = field(default=0.01)
-    end_learning_rate: float = field(default=3e-5)
-    learning_rate_decay_power: float = field(default=1.0)
-    beta_1: float = field(default=0.9)
-    beta_2: float = field(default=0.999)
-    epsilon: float = field(default=1e-6)
-
-    max_grad_norm: float = field(default=1.0)
-    name: str = field(default="", metadata={"help": "Additional info to append to metadata"})
-
-    skip_xla: str = field(default=None, metadata={"choices": ["true"]})
-    eager: str = field(default=None, metadata={"choices": ["true"]})
-    skip_sop: str = field(default=None, metadata={"choices": ["true"]})
-    skip_mlm: str = field(default=None, metadata={"choices": ["true"]})
-
-    def to_json_string(self):
-        """
-        Serializes this instance to a JSON string.
-        """
-        return json.dumps(dataclasses.asdict(self), indent=2)
-
-    def to_sanitized_dict(self) -> Dict[str, Any]:
-        """
-        Sanitized serialization to use with TensorBoard’s hparams
-        """
-        d = dataclasses.asdict(self)
-        valid_types = [bool, int, float, str]
-        return {k: v if type(v) in valid_types else str(v) for k, v in d.items()}
 
 
 @dataclass
@@ -138,15 +90,17 @@ class LoggingArguments:
     validation_frequency: int = field(default=2000)
     checkpoint_frequency: int = field(default=5000)
     evaluate_frequency: int = field(default=5000)
-    squad_frequency: int = field(default=40000)
-    fast_squad: str = field(default=None, metadata={"choices": ["true"]})
-    dummy_eval: str = field(default=None, metadata={"choices": ["true"]})
     run_name: str = field(
         default=None,
         metadata={
             "help": "Name of saved checkpoints and logs during training. For example, bert-phase-1."
         },
     )
+
+    # TODO: Remove these since they're a little too specific
+    squad_frequency: int = field(default=40000)
+    fast_squad: str = field(default=None, metadata={"choices": ["true"]})
+    dummy_eval: str = field(default=None, metadata={"choices": ["true"]})
 
 
 @dataclass
