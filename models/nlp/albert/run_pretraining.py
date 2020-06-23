@@ -42,9 +42,13 @@ from transformers import (
     TFBertForPreTraining,
 )
 
-from albert.arguments import TrainingArguments
 from albert.run_squad import get_squad_results_while_pretraining
-from common.arguments import DataTrainingArguments, LoggingArguments, ModelArguments
+from common.arguments import (
+    DataTrainingArguments,
+    LoggingArguments,
+    ModelArguments,
+    TrainingArguments,
+)
 from common.datasets import get_mlm_dataset
 from common.models import create_model
 from common.optimizers import get_adamw_optimizer, get_lamb_optimizer

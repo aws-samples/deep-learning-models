@@ -20,10 +20,14 @@ from transformers import (
     TFElectraForPreTraining,
 )
 
-from common.arguments import DataTrainingArguments, LoggingArguments, ModelArguments
+from common.arguments import (
+    DataTrainingArguments,
+    LoggingArguments,
+    ModelArguments,
+    TrainingArguments,
+)
 from common.optimizers import get_adamw_optimizer
 from common.utils import TqdmLoggingHandler, is_wandb_available
-from electra.arguments import TrainingArguments
 from electra.utils import colorize_dis, colorize_gen
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
