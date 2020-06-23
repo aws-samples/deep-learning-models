@@ -4,7 +4,7 @@ Batch sizes: 32 = 5GB memory, 128 = 17GB
 What's the best way to develop a new pretraining script?
 
 Dynamic masking straight from text.
-Abtract out the gradient accumulation functionality. Tracking loss, acc variables within the accumulator rather than outside.
+Abstract out the gradient accumulation functionality. Tracking loss, acc variables within the accumulator rather than outside.
 Incorporate the new transformers version. Be willing to lose my current work.
 
 # TODO: Should we include special tokens? <BOS>, <EOS>.
@@ -14,6 +14,7 @@ The "read -1 expected ..." errors are harmless and come from Docker. See https:/
 Running Docker in privileged mode (docker run --privileged) solves the issue.
 """
 
+import datetime
 import logging
 import time
 
@@ -171,6 +172,17 @@ def main():
         wandb_run_name = None
         logger.info(f"Tokenization complete in {time.perf_counter() - start_time:.3f} secs")
 
+        current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        if log_args.run_name is None:
+            metadata = (
+                f"electra-{hvd.size()}gpus"
+                f"-{train_args.per_gpu_batch_size * hvd.size() * train_args.gradient_accumulation_steps}globalbatch"
+                f"-{train_args.total_steps}steps"
+            )
+            run_name = f"{current_time}-{metadata}-{train_args.name if train_args.name else 'unnamed'}"
+        else:
+            run_name = f"{current_time}-{log_args.run_name}"
+
     for step in range(train_args.total_steps):
         bsz = train_args.per_gpu_batch_size
         seq_len = data_args.max_seq_length
@@ -190,6 +202,8 @@ def main():
             optimizer=optimizer, gen=gen, dis=dis, ids=ids, masked_ids=masked_ids, mask=tf_mask
         )
 
+        is_final_step = step >= train_args.total_steps - 1
+
         if step == 0:
             # Horovod broadcast
             hvd.broadcast_variables(dis.variables, root_rank=0)
@@ -207,6 +221,7 @@ def main():
                 wandb_run_name = wandb.run.name
 
         if hvd.rank() == 0:
+            
             if step % log_args.log_frequency == 0:
                 elapsed_time = time.perf_counter() - start_time  # Off for first log
                 it_s = log_args.log_frequency / elapsed_time
@@ -227,6 +242,19 @@ def main():
                 "train/gen_acc": gen_acc,
                 "train/dis_acc": dis_acc,
             }
+
+            do_checkpoint = (step > 0) and ((step % log_args.checkpoint_frequency == 0) or is_final_step)
+
+            if do_checkpoint:
+                dis_model_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/discriminator-{run_name}-step{step}.ckpt"
+                gen_model_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/generator-{run_name}-step{step}.ckpt"
+                optimizer_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/optimizer-{run_name}-step{step}.npy"
+                logger.info(f"Saving discriminator model at {dis_model_ckpt}, generator model at {gen_model_ckpt}, optimizer at {optimizer_ckpt}")
+                dis.save_weights(dis_model_ckpt)
+                gen.save_weights(gen_model_ckpt)
+
+                optimizer_weights = optimizer.get_weights()
+                np.save(optimizer_ckpt, optimizer_weights)
 
             if is_wandb_available():
                 wandb.log({"step": step, **train_metrics})
