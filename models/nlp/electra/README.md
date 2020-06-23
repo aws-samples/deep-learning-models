@@ -5,13 +5,14 @@ Check back later!
 ```bash
 horovodrun -H localhost:8 -np 8 \
 python -m electra.run_pretraining \
-    --per_gpu_batch_size=32 \
+    --per_gpu_batch_size=128 \
     --max_seq_len=128 \
     --learning_rate=5e-4 \
     --weight_decay=0.01 \
     --warmup_steps=10000 \
     --total_steps=1000000 \
-    --log_frequency=20
+    --log_frequency=20 \
+    --validation_frequency=20
 ```
 
 ```bash
@@ -24,5 +25,6 @@ python -m electra.run_pretraining \
     --weight_decay=0.01 \
     --warmup_steps=10000 \
     --total_steps=1000000 \
-    --log_frequency=20
+    --log_frequency=20 \
+    --validation_frequency=20
 ```
