@@ -318,6 +318,8 @@ def main():
                     "val/dis_acc": val_dis_acc,
                 }
                 all_metrics = {**all_metrics, **val_metrics}
+            if do_log:
+                all_metrics = {"it_s": it_s, **all_metrics}
 
             if is_wandb_available():
                 if wandb_run_name is None:
