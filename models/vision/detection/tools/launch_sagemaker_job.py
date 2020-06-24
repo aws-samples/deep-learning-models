@@ -2,28 +2,33 @@ from sagemaker import get_execution_role
 from sagemaker.tensorflow import TensorFlow
 from datetime import datetime
 import os
-import pprint
-from awsdet.utils.misc import Config
+import argparse
+import importlib
 
 
 def main(args):
-    cfg = Config.fromfile(args.configuration)
+    loader = importlib.machinery.SourceFileLoader('', args.configuration)
+    cfg = loader.load_module()
     role = get_execution_role()
     main_script = 'tools/train.py'
     docker_image = cfg.sagemaker_user['docker_image']
     hvd_instance_count = cfg.sagemaker_user['hvd_instance_count']
     hvd_instance_type = cfg.sagemaker_user['hvd_instance_type']
     distributions = cfg.distributions
-    source_dir = '..' # TODO: better way to specify this?
     output_path = cfg.sagemaker_job['output_path']
+    job_name = cfg.sagemaker_job['job_name']
+    channels = cfg.channels
+
     configuration = {
         'config': args.configuration,
-        'amp': True,
-        'autoscale-lr': True,
+        'amp': 'True',
+        'autoscale-lr': 'True',
+        'validate': 'True'
     }
+
     estimator = TensorFlow(
                     entry_point=main_script, 
-                    source_dir=source_dir, 
+                    source_dir='.',
                     image_name=docker_image, 
                     role=role,
                     framework_version="2.1.0",
@@ -34,9 +39,8 @@ def main(args):
                     output_path=output_path,
                     train_volume_size=200,
                     hyperparameters=configuration)
-
     estimator.fit(channels, wait=False, job_name=job_name)
-
+    print("Launched SageMaker job:", job_name)
 
 def parse():
     """

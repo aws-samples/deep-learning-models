@@ -11,7 +11,6 @@ try:
 except ImportError:
     import collections as collections_abc
 
-#from .misc import collections_abc
 from .path import check_file_exist
 
 

@@ -6,6 +6,7 @@ import argparse
 import os
 import os.path as osp
 import time
+import pathlib
 import tarfile
 import numpy as np
 import tensorflow as tf
@@ -28,9 +29,13 @@ os.environ['TF_CUDNN_USE_AUTOTUNE']= str(0)
 os.environ['TF_DETERMINISTIC_OPS'] = str(1)
 os.environ['PYTHONHASHSEED']=str(17)
 os.environ['HOROVOD_FUSION_THRESHOLD']=str(0)
+
+# init distributed env first
+init_dist()
+
 # avoid large pool of Eigen threads
 tf.config.threading.set_intra_op_parallelism_threads(5)
-tf.config.threading.set_inter_op_parallelism_threads(2, 40 // get_dist_info()[2])
+tf.config.threading.set_inter_op_parallelism_threads(max(2, 40 // get_dist_info()[2]))
 # reduce TF warning verbosity
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = str(2)
 import logging
@@ -38,29 +43,25 @@ logging.getLogger('tensorflow').setLevel(logging.ERROR)
 
 
 def parse_args():
+    def str2bool(v):
+        if isinstance(v, bool):
+           return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
     parser = argparse.ArgumentParser(description='Train a detector')
-    parser.add_argument(
-        'config',
-        help='train config file path'
-    )
+    parser.add_argument('--config', help='train config file path')
+    parser.add_argument("--model_dir", help="Location of model on Sagemaker instance")
     parser.add_argument('--work_dir', help='the dir to save logs and models')
-    parser.add_argument('--resume_from',
-                        help='restarts training from saved running state in provided directory')
-    parser.add_argument('--amp', action='store_true', help='enable mixed precision training')
-    parser.add_argument(
-        '--validate',
-        action='store_true',
-        help='whether to evaluate the checkpoint during training')
-    parser.add_argument(
-        '--seed', type=int, default=17, help='random seed'
-    )
-    parser.add_argument(
-        '--deterministic',
-        action='store_true',
-        help='whether to set deterministic options for CUDNN backend.')
-    parser.add_argument('--autoscale-lr',
-                        action='store_true',
-                        help='automatically scale lr with the number of gpus')
+    parser.add_argument('--resume_from', help='restarts training from saved running state in provided directory')
+    parser.add_argument('--amp', type=str2bool, nargs='?', const=True, default=True, help='enable mixed precision training')
+    parser.add_argument('--validate', type=str2bool, nargs='?', const=True, default=True, help='whether to evaluate the checkpoint during training')
+    parser.add_argument('--seed', type=int, default=17, help='random seed')
+    parser.add_argument('--deterministic', type=str2bool, nargs='?', const=True, default=True, help='whether to set deterministic options for CUDNN backend.')
+    parser.add_argument('--autoscale-lr', type=str2bool, nargs='?', const=True, default=True, help='automatically scale lr with the number of gpus')
     args = parser.parse_args()
 
     return args
@@ -111,8 +112,8 @@ def main_ec2(args, cfg):
         total_bs = len(gpus) * cfg.data.imgs_per_gpu
         cfg.optimizer['learning_rate'] = cfg.optimizer['learning_rate'] * total_bs / 8
 
-    # init distributed env first, since logger depends on the dist info.
-    init_dist()
+#     # init distributed env first, since logger depends on the dist info.
+#     init_dist()
 
     if not gpus:
         distributed = False  # single node single gpu
@@ -243,6 +244,13 @@ def main_sagemaker(args, cfg):
     #model.save('my_model')
     # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
     weights_path = cfg.model['backbone']['weights_path']
+    # sagemaker specific path resolution
+    import os, pathlib
+    data_root = pathlib.Path(os.getenv('SM_CHANNEL_COCO')).joinpath('coco').as_posix()
+    cfg.data.train['dataset_dir'] = data_root
+    cfg.data.val['dataset_dir'] = data_root
+    weights_file = 'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
+    weights_path = pathlib.Path(os.getenv('SM_CHANNEL_WEIGHTS')).joinpath(weights_file).as_posix()
     logger.info('Loading weights from: {}'.format(weights_path))
     model.layers[0].layers[0].load_weights(weights_path, by_name=True, skip_mismatch=True)
     # print('AFTER:',model.layers[0].layers[0].get_weights()[0][0,0,0,:])

@@ -16,11 +16,15 @@ class Visualizer(Hook):
              interval=1000,
              threshold=0.75,
              figsize=(8, 8),
-             top_k=10):
+             top_k=10,
+             run_on_sagemaker=False):
+        if run_on_sagemaker:
+            # update paths for SM
+            import os, pathlib
+            data_root = pathlib.Path(os.getenv('SM_CHANNEL_COCO')).joinpath('coco').as_posix()
+            dataset_cfg['dataset_dir'] = data_root
         self.dataset = datasets.build_dataset(dataset_cfg)
-        self.tf_dataset, self.num_examples = datasets.build_dataloader(self.dataset, 
-                                                             1, 1, 
-                                                             num_gpus=1, dist=False)
+        self.tf_dataset, self.num_examples = datasets.build_dataloader(self.dataset, 1, 1, num_gpus=1, dist=False)
         self.tf_dataset = iter(self.tf_dataset.prefetch(16).shuffle(4).repeat())
         self.interval = interval
         self.img_mean = dataset_cfg.mean

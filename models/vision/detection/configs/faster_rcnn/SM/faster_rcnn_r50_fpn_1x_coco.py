@@ -46,7 +46,7 @@ model=dict(
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1',
-        weights_path='weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
+        weights_path='resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5', # will be fully resolved to path in train script
         weight_decay=1e-5
     ),
     neck=dict(
@@ -106,7 +106,7 @@ test_cfg=dict(
 
 # dataset settings
 dataset_type='CocoDataset'
-data_root='/data/COCO/'
+data_root='/data/COCO/' # will be resolved to SM specific path in train.py
 data=dict(
     imgs_per_gpu=4,
     train=dict(
@@ -181,9 +181,10 @@ log_config=dict(
         ),
         dict(
             type='Visualizer',
-            dataset_cfg=data.val,
+            dataset_cfg=data['val'],
             interval=100,
-            top_k=10
+            top_k=10,
+            run_on_sagemaker=True,
         ),
     ]
 )
