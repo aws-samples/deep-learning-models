@@ -29,7 +29,7 @@ class RetinaHead(AnchorHead):
                  neg_iou_thr=0.4,
                  alpha=0.25,
                  gamma=2.0,
-                 label_smoothing=0.05,
+                 label_smoothing=0.0,
                  num_pre_nms=1000,
                  min_confidence=0.005,
                  nms_threshold=0.5,
@@ -103,17 +103,17 @@ class RetinaHead(AnchorHead):
             self.cls_convs.append(
                     layers.Conv2D(self.feat_channels, (3, 3), padding='same',
                         use_bias=False,
-                        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
+                        kernel_initializer='he_normal', # tf.keras.initializers.RandomNormal(stddev=0.01),
                         kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                         activation=None, name='cls_conv_{}'.format(i+1)))
-            self.cls_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.997, epsilon=1e-4, name='cls_conv_bn_{}'.format(i+1)))
+            self.cls_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.9, epsilon=1e-5, name='cls_conv_bn_{}'.format(i+1)))
             self.reg_convs.append(
                     layers.Conv2D(self.feat_channels, (3, 3), padding='same',
                         use_bias=False,
-                        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
+                        kernel_initializer='he_normal', # tf.keras.initializers.RandomNormal(stddev=0.01),
                         kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                         activation=None, name='reg_conv_{}'.format(i+1)))
-            self.reg_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.997, epsilon=1e-4, name='reg_conv_bn_{}'.format(i+1)))
+            self.reg_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.9, epsilon=1e-5, name='reg_conv_bn_{}'.format(i+1)))
 
         self.retina_cls = layers.Conv2D(self.num_anchors * self.num_classes, (3, 3),
                             padding='same',
@@ -147,11 +147,9 @@ class RetinaHead(AnchorHead):
     @tf.function(experimental_relax_shapes=True)
     def call(self, feats, is_training=False):
         """
-        Args
-        ---
+        Args:
             feats (list[Tensor]): list of [batch_size, feat_map_height, feat_map_width, channels]
-        Returns
-        ---
+        Returns:
         """
         layer_outputs = []
         for feat in feats: # for every anchors feature maps
