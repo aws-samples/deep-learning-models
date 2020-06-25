@@ -3,6 +3,13 @@ Batch sizes: 32 = 5GB memory, 128 = 17GB
 
 The "read -1 expected ..." errors are harmless and come from Docker. See https://github.com/horovod/horovod/issues/503
 Running Docker in privileged mode (docker run --privileged) solves the issue.
+
+Dataset handling: Lots of empty lines, use dataset.filter() to eliminate those.
+For now, just grab one sentence.
+TODO: Combine two segments into a single example. https://github.com/google-research/electra/blob/master/build_pretraining_dataset.py
+TODO: Add zero-padding for shorter sequences
+
+nlp feature request: Select from dataset with arbitrary slices
 """
 
 import datetime
@@ -12,9 +19,10 @@ from typing import Tuple
 
 import numpy as np
 import tensorflow as tf
+from nlp import load_dataset
 from transformers import (
     ElectraConfig,
-    ElectraTokenizerFast,
+    ElectraTokenizer,
     HfArgumentParser,
     TFElectraForMaskedLM,
     TFElectraForPreTraining,
@@ -46,18 +54,19 @@ def log_example(tokenizer, ids, masked_ids, mask, gen_ids, dis_preds):
     logger.info(f"DISCRIMINATOR: '{colorize_dis(tokenizer, gen_ids[0], dis_preds[0])}'")
 
 
-def select_ids(arr, seq_len: int) -> np.ndarray:
-    """ Given an array and sequence length, select a subsequence of that length. """
-    start = 0 if len(arr) <= seq_len else np.random.randint(0, len(arr) - seq_len)
-    return np.array(arr[start : start + seq_len])
+# These are infeasible since we can't store the entire dataset in memory
+# def select_ids(arr, seq_len: int) -> np.ndarray:
+#     """ Given an array and sequence length, select a subsequence of that length. """
+#     start = 0 if len(arr) <= seq_len else np.random.randint(0, len(arr) - seq_len)
+#     return np.array(arr[start : start + seq_len])
 
 
-def select_batch_ids(arr, bsz: int, seq_len: int) -> np.ndarray:
-    """ Select a batch of select_ids(). """
-    out = np.zeros(shape=(bsz, seq_len), dtype=int)
-    for i in range(bsz):
-        out[i] = select_ids(arr, seq_len)
-    return out
+# def select_batch_ids(arr, bsz: int, seq_len: int) -> np.ndarray:
+#     """ Select a batch of select_ids(). """
+#     out = np.zeros(shape=(bsz, seq_len), dtype=int)
+#     for i in range(bsz):
+#         out[i] = select_ids(arr, seq_len)
+#     return out
 
 
 # TODO: Limit code duplication between train_step and val_step.
@@ -118,7 +127,7 @@ def train_step(optimizer, gen, dis, ids, masked_ids, mask):
 
         # Generator accuracy
         adv_ids = tf.argmax(gen_logits, axis=-1)  # [bsz, seq_len]
-        ids_equal = tf.cast(adv_ids == ids, dtype=tf.int64)  # [bsz, seq_len] (bool)
+        ids_equal = tf.cast(adv_ids == ids, dtype=tf.int64)  # [bsz, seq_len]
         gen_correct = tf.boolean_mask(ids_equal, mask)  # [bsz * n_masks]
         gen_acc = tf.reduce_mean(tf.cast(gen_correct, dtype=tf.float32))  # [1]
 
@@ -175,7 +184,8 @@ def main():
         tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], "GPU")
 
     # TODO: Should I use bert-base-uncased?
-    tokenizer = ElectraTokenizerFast.from_pretrained("bert-base-uncased")
+    # Change back to fast tokenizer after resolving https://github.com/huggingface/transformers/issues/5260
+    tokenizer = ElectraTokenizer.from_pretrained("bert-base-uncased")
 
     gen_config = ElectraConfig.from_pretrained("google/electra-small-generator")
     dis_config = ElectraConfig.from_pretrained("google/electra-small-discriminator")
@@ -204,7 +214,17 @@ def main():
         ids = tokenizer.convert_tokens_to_ids(tokens)
         return ids
 
-    wiki_ids = tokenize(train_filename)
+    portion = 100 / hvd.size()
+    start = int(hvd.rank() * portion)
+    end = int(start + portion)
+    train_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=f"train[{start}%:{end}%]")
+    # train_dataset = train_dataset.map(lambda example: {"ids": tokenizer.encode(example["text"])})
+    print(train_dataset[:5])
+    # train_dataset = train_dataset.map(lambda example: tokenizer.batch_encode_plus(example['text']), batched=True)
+
+    # WikiText is an array of each line, while we read in everything as a single string. Can't have a single string
+    # wiki_ids = tokenize(train_filename)
+    wiki_ids = train_dataset
 
     if hvd.rank() == 0:
         # Logging should only happen on a single process
@@ -244,13 +264,24 @@ def main():
         tf_masked_ids = tf.constant(masked_ids)
         return tf_masked_ids, tf_mask
 
+    def get_batch_ids(dataset, bsz, seq_len) -> tf.Tensor:
+        idxs = np.random.randint(len(dataset), size=bsz)
+        batch = dataset.select(idxs).map(
+            lambda example: {
+                "ids": tokenizer.encode(
+                    example["text"], max_length=seq_len, pad_to_max_length="right"
+                )
+            }
+        )
+        # TODO: Use encode_plus, then batch_encode_plus, and return padding mask
+        return tf.constant(batch["ids"], dtype=tf.int64)
+
     wandb_run_name = None
+    # tf.config.experimental_run_functions_eagerly(True)
     for step in range(1, train_args.total_steps + 1):
         bsz = train_args.per_gpu_batch_size
         seq_len = data_args.max_seq_length
-        ids = tf.constant(
-            select_batch_ids(arr=wiki_ids, bsz=bsz, seq_len=seq_len)
-        )  # [bsz, seq_len]
+        ids = get_batch_ids(dataset=train_dataset, bsz=bsz, seq_len=seq_len)
         masked_ids, mask = mask_ids(ids)
 
         loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds = train_step(
@@ -280,9 +311,7 @@ def main():
                 logger.info(description)
 
             if do_validation:
-                val_ids = tf.constant(
-                    select_batch_ids(arr=wiki_ids, bsz=bsz, seq_len=seq_len)
-                )  # [bsz, seq_len]
+                val_ids = get_batch_ids(dataset=train_dataset, bsz=bsz, seq_len=seq_len)
                 val_masked_ids, val_mask = mask_ids(val_ids)
                 (
                     val_loss,
