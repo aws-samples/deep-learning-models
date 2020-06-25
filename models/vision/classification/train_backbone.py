@@ -13,7 +13,7 @@ import sys
 import resnet_preprocessing
 import resnet
 import resnet_evo
-
+import darknet
 
 class WarmupScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
     """
@@ -202,7 +202,8 @@ def main():
     elif FLAGS.model == 'resnet50v2_evo':
         if not FLAGS.fine_tune:
             model = resnet_evo.ResNet50V2(weights=None, weight_decay=FLAGS.l2_weight_decay, pooling='avg', classes=FLAGS.num_classes)
-
+    elif FLAGS.model == 'darknet53':
+        model = darknet.Darknet(weight_decay=FLAGS.l2_weight_decay)
     model.summary()
     learning_rate = (FLAGS.learning_rate * hvd.size() * FLAGS.batch_size)/256 
     steps_per_epoch = int((FLAGS.train_dataset_size / (FLAGS.batch_size * hvd.size())))
