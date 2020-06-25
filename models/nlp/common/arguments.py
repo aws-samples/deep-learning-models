@@ -114,6 +114,9 @@ class DataTrainingArguments:
     Task name, sequence length, and filepath fall under this category, but batch size does not.
     """
 
+    pretrain_dataset: str = field(
+        default="wikitext-2", metadata={"choices": ["wikitext-2", "wikitext-103", "wikibooks"]}
+    )
     squad_version: str = field(default="squadv2", metadata={"choices": ["squadv1", "squadv2"]})
     # For BERT/ALBERT the only valid combos are [512,20] and [128,80]
     # For ELECTRA we use dynamic masking, so all combos are valid

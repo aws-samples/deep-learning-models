@@ -212,18 +212,23 @@ def main():
     portion = 100 / hvd.size()
     start = int(hvd.rank() * portion)
     end = int(start + portion)
-    dataset = "wikitext-2"  # or wikitext-103
-    train_dataset = load_dataset("wikitext", f"{dataset}-raw-v1", split=f"train[{start}%:{end}%]")
+    if data_args.pretrain_dataset.startswith("wikitext"):
+        train_dataset = load_dataset(
+            "wikitext", f"{data_args.pretrain_dataset}-raw-v1", split=f"train[{start}%:{end}%]"
+        )
+    else:
+        assert False, "Only wikitext-2 or wikitext-103 supported right now"
+
     train_dataset = train_dataset.filter(remove_none_values)
     train_dataset = train_dataset.map(
         tokenize,
         batched=True,
         batch_size=1000,
-        cache_file_name=f"/fsx/{dataset}.cache",
+        cache_file_name=f"/fsx/{data_args.pretrain_dataset}.cache",
         load_from_cache_file=False,
     )
     # Or load it in:
-    # train_dataset = Dataset.from_file(f"/fsx/{dataset}.cache")
+    # train_dataset = Dataset.from_file(f"/fsx/{data_args.pretrain_dataset}.cache")
 
     columns = ["input_ids", "token_type_ids", "attention_mask"]
     train_dataset.set_format("tensorflow", columns=columns)
@@ -233,7 +238,10 @@ def main():
 
     # Is this lazy evaluation?
     # TODO: Convert to from_generator()
-    logger.info("Creating tf_dataset from tensor_slices")  # Takes 18 secs for WikiText-2
+    # Takes 18 secs for WikiText-2
+    # Takes many minutes??? for WikiText-103
+    # Track https://github.com/huggingface/nlp/issues/315 for a good lazy batching using `nlp`
+    logger.info("Creating tf_dataset from tensor_slices")
     tf_dataset = tf.data.Dataset.from_tensor_slices(
         ({x: train_dataset[x].to_tensor() for x in columns})
     ).batch(train_args.per_gpu_batch_size)
