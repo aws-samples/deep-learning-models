@@ -220,11 +220,11 @@ class CocoDataset(object):
             img = self._tf_preprocessing(rgb_img)
         elif self.preproc_mode == 'caffe':
             img = self._caffe_preprocessing(bgr_img)
-        if self.preproc_mode == 'rgb':
+        elif self.preproc_mode == 'rgb':
             rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
             img = self._rgb_preprocessing(rgb_img)
         else:
-            raise NotImplementedError
+            raise NotImplementedError("Preprocessing mode '{}' not supported".format(self.preproc_mode))
 
         ori_shape = img.shape
 

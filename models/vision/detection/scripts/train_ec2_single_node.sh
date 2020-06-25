@@ -27,9 +27,10 @@ mpirun -np ${NUM_GPU} \
 -x HOROVOD_CYCLE_TIME=0.5 \
 -x HOROVOD_FUSION_THRESHOLD=67108864 \
 --output-filename /logs/mpirun_logs \
-python tools/train.py ${TRAIN_CFG} \
+python tools/train.py \
+--config ${TRAIN_CFG} \
 --validate \
 --autoscale-lr \
---amp 
+--amp
 # --resume_from /deep-learning-models/models/vision/detection/work_dirs/retinanet_r50_fpn_1x_amp_bn/000
 

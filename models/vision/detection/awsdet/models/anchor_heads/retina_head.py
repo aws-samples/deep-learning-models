@@ -113,9 +113,6 @@ class RetinaHead(AnchorHead):
                         kernel_initializer='he_normal',
                         kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                         activation=None, name='reg_conv_{}'.format(i+1)))
-                        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
-                        kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
-                        activation=None, name='reg_conv_{}'.format(i+1)))
             self.reg_conv_bns.append(layers.BatchNormalization(axis=-1, momentum=0.9, epsilon=1e-5, name='reg_conv_bn_{}'.format(i+1)))
 
         self.retina_cls = layers.Conv2D(self.num_anchors * self.num_classes, (3, 3),

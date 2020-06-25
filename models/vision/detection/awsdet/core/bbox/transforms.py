@@ -6,15 +6,15 @@ import numpy as np
 from ...models.utils import (parse_image_meta)
 
 def bbox2delta(box, gt_box, target_means, target_stds):
-    '''Compute refinement needed to transform box to gt_box.
+    """
+    Compute refinement needed to transform box to gt_box.
     
-    Args
-    ---
+    Args:
         box: [..., (y1, x1, y2, x2)]
         gt_box: [..., (y1, x1, y2, x2)]
         target_means: [4]
         target_stds: [4]
-    '''
+    """
     target_means = tf.constant(target_means, dtype=tf.float32)
     target_stds = tf.constant(target_stds, dtype=tf.float32)
 
@@ -43,15 +43,15 @@ def bbox2delta(box, gt_box, target_means, target_stds):
 
 
 def delta2bbox(box, delta, target_means, target_stds):
-    '''Compute bounding box based on roi and delta.
+    """
+    Compute bounding box based on roi and delta.
    
-    Args
-    ---
+    Args:
         box: [N, (y1, x1, y2, x2)] box to update
         delta: [N, (dy, dx, log(dh), log(dw))] refinements to apply
         target_means: [4]
         target_stds: [4]
-    '''
+    """
     target_means = tf.constant(target_means, dtype=tf.float32)
     target_stds = tf.constant(target_stds, dtype=tf.float32)
     denorm_delta = delta * target_stds + target_means
