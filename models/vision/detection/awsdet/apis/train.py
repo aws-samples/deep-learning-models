@@ -201,7 +201,7 @@ def _dist_train(model,
     runner.register_training_hooks(cfg.lr_config, optimizer_config,
                                    cfg.checkpoint_config, cfg.log_config)
     # register eval hooks
-    if validate and runner.rank < runner.local_size: # register this dist eval hook only for Node 0
+    if validate:
         val_dataset_cfg = cfg.data.val
         eval_cfg = cfg.get('evaluation', {})
         runner.register_hook(CocoDistEvalmAPHook(val_dataset_cfg, **eval_cfg))
