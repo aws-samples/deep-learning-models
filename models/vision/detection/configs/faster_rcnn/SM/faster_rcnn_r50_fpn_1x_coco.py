@@ -1,14 +1,52 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
+
+# date time settings to update paths for jobs
+from datetime import datetime
+now = datetime.now()
+time_str = now.strftime("%d-%m-%Y-%H-%M")
+date_str = now.strftime("%d-%m-%Y")
+
+
+# sagemaker settings
+sagemaker_user=dict(
+    user_id='mzanur',
+    s3_bucket='mzanur-sagemaker',
+    docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/mzanur-awsdet-ecr:awsdet',
+    hvd_processes_per_host=8,
+    hvd_instance_type='ml.p3dn.24xlarge', # 'ml.p3.16xlarge',
+    hvd_instance_count=2, #1,
+)
+# settings for distributed training on sagemaker
+distributions=dict(
+    mpi=dict(
+        enabled=True,
+        processes_per_host=sagemaker_user['hvd_processes_per_host'],
+        custom_mpi_options="-x OMPI_MCA_btl_vader_single_copy_mechanism=none -x TF_CUDNN_USE_AUTOTUNE=0",
+    )
+)
+# sagemaker channels
+channels=dict( 
+    coco='s3://{}/awsdet/data/coco/'.format(sagemaker_user['s3_bucket']),
+    weights='s3://{}/awsdet/data/weights/'.format(sagemaker_user['s3_bucket'])
+)
+
+sagemaker_job=dict(
+    s3_path='s3://{}/faster-rcnn/outputs/{}'.format(sagemaker_user['s3_bucket'], time_str),
+    job_name='{}-frcnn-{}'.format(sagemaker_user['user_id'], time_str),
+    output_path='',
+)
+sagemaker_job['output_path']='{}/output/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
+
 # model settings
-model = dict(
+model=dict(
     type='FasterRCNN',
     pretrained=None,
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1',
-        weights_path='weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
+        weights_path='resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5', # will be fully resolved to path in train script
         weight_decay=1e-5
     ),
     neck=dict(
@@ -25,7 +63,7 @@ model = dict(
         anchor_ratios=[0.5, 1.0, 2.0],
         anchor_strides=[4, 8, 16, 32, 64],
         target_means=[.0, .0, .0, .0],
-        target_stds= [1.0, 1.0, 1.0, 1.0],
+        target_stds=[1.0, 1.0, 1.0, 1.0],
         feat_channels=512,
         num_samples=256,
         positive_fraction=0.5,
@@ -57,16 +95,19 @@ model = dict(
     use_bn=False,
     soft_nms_sigma=0.5)
 )
+
 # model training and testing settings
-train_cfg = dict(
+train_cfg=dict(
     weight_decay=1e-5,
+    sagemaker=True
 )
-test_cfg = dict(
+test_cfg=dict(
 )
+
 # dataset settings
-dataset_type = 'CocoDataset'
-data_root = '/data/COCO/'
-data = dict(
+dataset_type='CocoDataset'
+data_root='/data/COCO/' # will be resolved to SM specific path in train.py
+data=dict(
     imgs_per_gpu=4,
     train=dict(
         type=dataset_type,
@@ -102,39 +143,55 @@ data = dict(
         std=(1., 1., 1.),
         scale=(800, 1333)),
 )
-# yapf: enable
-evaluation = dict(interval=1)
+evaluation=dict(interval=1)
 # optimizer
-optimizer = dict(
+optimizer=dict(
     type='SGD',
-    learning_rate=1e-2, # 15e-3,
+    learning_rate=1e-2,
     momentum=0.9,
     nesterov=False,
 )
 # extra options related to optimizers
-optimizer_config = dict(
+optimizer_config=dict(
     amp_enabled=True,
 )
 # learning policy
-lr_config = dict(
+lr_config=dict(
     policy='step',
     warmup='linear',
     warmup_iters=500,
     warmup_ratio=1.0 / 3,
     step=[8, 11])
-checkpoint_config = dict(interval=1, outdir='checkpoints')
-# yapf:disable
-log_config = dict(
+#TODO: add support for S3 checkpointing
+checkpoint_config=dict(
+    interval=1,
+    outdir='checkpoints')
+# log, tensorboard configuration
+log_config=dict(
     interval=50,
     hooks=[
-        dict(type='TextLoggerHook'),
-        dict(type='TensorboardLoggerHook', log_dir='/tmp/tensorboard')
-    ])
-# yapf:enable
+        dict(
+            type='TextLoggerHook'
+        ),
+        dict(
+            type='TensorboardLoggerHook',
+            log_dir=None,
+            image_interval=100,
+            s3_dir='{}/tensorboard/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
+        ),
+        dict(
+            type='Visualizer',
+            dataset_cfg=data['val'],
+            interval=100,
+            top_k=10,
+            run_on_sagemaker=True,
+        ),
+    ]
+)
 # runtime settings
-total_epochs = 12
-log_level = 'INFO'
-work_dir = './work_dirs/faster_rcnn_r50_fpn_1x_coco'
-load_from = None
-resume_from = None
-workflow = [('train', 1)]
+total_epochs=12
+log_level='INFO'
+work_dir='./work_dirs/faster_rcnn_r50_fpn_1x_coco'
+load_from=None
+resume_from=None
+workflow=[('train', 1)]

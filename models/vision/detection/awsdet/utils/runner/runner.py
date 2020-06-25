@@ -84,61 +84,83 @@ class Runner(object):
 
     @property
     def model_name(self):
-        """str: Name of the model, usually the module class name."""
+        """
+        Name of the model, usually the module class name.
+        """
         return self._model_name
 
 
     @property
     def local_rank(self):
-        """int: local rank of current process"""
+        """
+        Local rank of current process
+        """
         return self._local_rank
 
 
     @property
     def rank(self):
-        """int: Rank of current process. (distributed training)"""
+        """
+        Global rank of current process. (distributed training)
+        """
         return self._rank
 
     @property
     def world_size(self):
-        """int: Number of processes participating in the job.
-        (distributed training)"""
+        """
+        Number of processes participating in the job.
+        (distributed training)
+        """
         return self._world_size
 
     @property
     def local_size(self):
-        """int: Number of processes running in the same node as this runner.
-        (distributed training)"""
+        """
+        Number of processes running in the same node as this runner.
+        (distributed training)
+        """
         return self._local_size
 
     @property
     def hooks(self):
-        """list[:obj:`Hook`]: A list of registered hooks."""
+        """
+        A list of registered hooks.
+        """
         return self._hooks
 
     @property
     def epoch(self):
-        """int: Current epoch."""
+        """
+        Current epoch.
+        """
         return self._epoch
 
     @property
     def iter(self):
-        """int: Current iteration."""
+        """
+        Current iteration
+        """
         return self._iter
 
     @property
     def inner_iter(self):
-        """int: Iteration in an epoch."""
+        """
+        Iteration in an epoch.
+        """
         return self._inner_iter
 
     @property
     def max_epochs(self):
-        """int: Maximum training epochs."""
+        """
+        Maximum training epochs.
+        """
         return self._max_epochs
 
     @property
     def max_iters(self):
-        """int: Maximum training iterations."""
+        """
+        Maximum training iterations.
+        """
         return self._max_iters
 
     def _add_file_handler(self,
@@ -155,7 +177,8 @@ class Runner(object):
         return logger
 
     def init_logger(self, log_dir=None, level=logging.INFO):
-        """Init the logger.
+        """
+        Init the logger.
 
         Args:
             log_dir(str, optional): Log file directory. If not specified, no
@@ -175,7 +198,8 @@ class Runner(object):
         return logger
 
     def current_lr(self):
-        """Get current learning rates.
+        """
+        Get current learning rates.
 
         Returns:
             list: Current learning rate (#TODO: support individual LR for param groups)
@@ -186,7 +210,8 @@ class Runner(object):
         return float(self.optimizer.learning_rate.numpy())
 
     def register_hook(self, hook, priority='NORMAL'):
-        """Register a hook into the hook list.
+        """
+        Register a hook into the hook list.
 
         Args:
             hook (:obj:`Hook`): The hook to be registered.

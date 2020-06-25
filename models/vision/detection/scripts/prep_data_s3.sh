@@ -23,9 +23,9 @@ wget -O $BASE_DIR/data/weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop
 # Decompress arrange and archive
 ############################################################
 
-unzip -q $BASE_DIR/data/coco/train2017.zip -d $BASE_DIR/data/coco
-unzip -q $BASE_DIR/data/coco/val2017.zip -d $BASE_DIR/data/coco
-unzip $BASE_DIR/data/coco/annotations_trainval2017.zip -d $BASE_DIR/data/coco
+unzip -o -q $BASE_DIR/data/coco/train2017.zip -d $BASE_DIR/data/coco
+unzip -o -q $BASE_DIR/data/coco/val2017.zip -d $BASE_DIR/data/coco
+unzip -o -q $BASE_DIR/data/coco/annotations_trainval2017.zip -d $BASE_DIR/data/coco
 rm $BASE_DIR/data/coco/*.zip
 cd $BASE_DIR/data/
 tar -cf coco.tar coco

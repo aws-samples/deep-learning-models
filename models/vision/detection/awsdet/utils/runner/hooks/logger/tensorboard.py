@@ -1,4 +1,5 @@
 # Copyright (c) Open-MMLab. All rights reserved.
+import os
 import os.path as osp
 import tensorflow as tf
 from s3fs import S3FileSystem
@@ -21,6 +22,9 @@ class TensorboardLoggerHook(LoggerHook):
         super(TensorboardLoggerHook, self).__init__(interval, ignore_last,
                                                     reset_flag)
         self.log_dir = log_dir
+        if log_dir is None and not (s3_dir is None):
+            # SageMaker setup
+            self.log_dir = Path(os.getenv('SM_OUTPUT_DATA_DIR')).as_posix()
         self.s3_dir = s3_dir
         self.s3_interval = s3_interval
         self.image_interval = image_interval
