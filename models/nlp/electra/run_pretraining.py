@@ -10,12 +10,12 @@ TODO: Combine two segments into a single example. https://github.com/google-rese
 TODO: Add zero-padding for shorter sequences
 
 nlp feature request: Select from dataset with arbitrary slices
+`nlp` package tutorial: https://colab.research.google.com/github/huggingface/nlp/blob/master/notebooks/Overview.ipynb
 """
 
 import datetime
 import logging
 import time
-from typing import Tuple
 
 import numpy as np
 import tensorflow as tf
@@ -23,6 +23,7 @@ from nlp import load_dataset
 from transformers import (
     ElectraConfig,
     ElectraTokenizer,
+    ElectraTokenizerFast,
     HfArgumentParser,
     TFElectraForMaskedLM,
     TFElectraForPreTraining,
@@ -54,95 +55,64 @@ def log_example(tokenizer, ids, masked_ids, mask, gen_ids, dis_preds):
     logger.info(f"DISCRIMINATOR: '{colorize_dis(tokenizer, gen_ids[0], dis_preds[0])}'")
 
 
-# These are infeasible since we can't store the entire dataset in memory
-# def select_ids(arr, seq_len: int) -> np.ndarray:
-#     """ Given an array and sequence length, select a subsequence of that length. """
-#     start = 0 if len(arr) <= seq_len else np.random.randint(0, len(arr) - seq_len)
-#     return np.array(arr[start : start + seq_len])
-
-
-# def select_batch_ids(arr, bsz: int, seq_len: int) -> np.ndarray:
-#     """ Select a batch of select_ids(). """
-#     out = np.zeros(shape=(bsz, seq_len), dtype=int)
-#     for i in range(bsz):
-#         out[i] = select_ids(arr, seq_len)
-#     return out
-
-
 # TODO: Limit code duplication between train_step and val_step.
 # Abstracting logic out into another function gets messy because of tf.function wrapping & caching,
 # long lists of parameters to pass in and long lists of return values.
-@tf.function
-def val_step(gen, dis, ids, masked_ids, mask):
-    # Generator loss
-    (gen_logits,) = gen(masked_ids)  # [bsz, seq_len, vocab_size]
-    gen_loss = tf.keras.losses.sparse_categorical_crossentropy(
-        y_true=tf.boolean_mask(ids, mask),  # [bsz * n_masks, vocab_size]
-        y_pred=tf.boolean_mask(gen_logits, mask),  # [bsz * n_masks]
-        from_logits=True,
-    )  # [bsz * n_masks]
-    gen_loss = tf.reduce_mean(gen_loss)  # [1]
-
-    # Generator accuracy
-    adv_ids = tf.argmax(gen_logits, axis=-1)  # [bsz, seq_len]
-    ids_equal = tf.cast(adv_ids == ids, dtype=tf.int64)  # [bsz, seq_len] (bool)
-    gen_correct = tf.boolean_mask(ids_equal, mask)  # [bsz * n_masks]
-    gen_acc = tf.reduce_mean(tf.cast(gen_correct, dtype=tf.float32))  # [1]
-
-    # Discriminator loss
-    gen_ids = mask * adv_ids + (1 - mask) * ids  # [bsz, seq_len]
-    (dis_logits,) = dis(gen_ids)  # [bsz, seq_len]
-    # We compare against the original ids. So if the generator creates the correct token, then the
-    # discriminator should predict 'original' or 0.
-    dis_loss = tf.keras.losses.binary_crossentropy(
-        y_true=tf.cast(gen_ids != ids, tf.int64), y_pred=dis_logits, from_logits=True
-    )
-    dis_loss = tf.reduce_mean(dis_loss)
-
-    # Discriminator accuracy
-    dis_probs = tf.math.sigmoid(dis_logits)  # [bsz, seq_len]
-    dis_preds = tf.cast(dis_probs > 0.5, dtype=mask.dtype)  # [bsz, seq_len] (bool)
-    dis_acc = tf.reduce_mean(
-        tf.cast(tf.cast(dis_preds, tf.bool) == (gen_ids != ids), dtype=tf.float32)
-    )  # gen_ids != ids is corrupted
-
-    # Generator is 30,000-way classification loss, while discriminator is binary classification.
-    lmbda = 50
-    loss = gen_loss + lmbda * dis_loss
-
-    return loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds
+# TODO: Re-add validation step
 
 
 @tf.function
-def train_step(optimizer, gen, dis, ids, masked_ids, mask):
+def train_step(optimizer, gen, dis, ids, masked_ids, attention_mask, corruption_mask):
+    """
+    Attention mask refers to padding tokens.
+        1 is a real token, 0 is a padding token.
+    Corruption mask refers to which tokens are replaced by the generator.
+        1 is a corrupted (replaced) token, 0 is an original token.
+    tf.boolean_mask([[1,2], [3,4], [5,6]], [True, False, True]) -> [[1,2], [5,6]]
+    Id-to-token reference:
+        0: PAD
+        103: MASK
+    """
     with tf.GradientTape() as tape:
+        ids = tf.cast(ids, tf.int64)
+        corruption_mask = tf.cast(corruption_mask, tf.int64)
+
         # Generator loss
-        (gen_logits,) = gen(masked_ids)  # [bsz, seq_len, vocab_size]
+        (gen_logits,) = gen(
+            {"input_ids": masked_ids, "attention_mask": attention_mask}
+        )  # [bsz, seq_len, vocab_size]
         gen_loss = tf.keras.losses.sparse_categorical_crossentropy(
-            y_true=tf.boolean_mask(ids, mask),  # [bsz * n_masks, vocab_size]
-            y_pred=tf.boolean_mask(gen_logits, mask),  # [bsz * n_masks]
+            y_true=tf.boolean_mask(ids, corruption_mask),  # [bsz * n_masks, vocab_size]
+            y_pred=tf.boolean_mask(gen_logits, corruption_mask),  # [bsz * n_masks]
             from_logits=True,
         )  # [bsz * n_masks]
         gen_loss = tf.reduce_mean(gen_loss)  # [1]
 
         # Generator accuracy
-        adv_ids = tf.argmax(gen_logits, axis=-1)  # [bsz, seq_len]
+        # argmax returns tf.int64 by default
+        adv_ids = tf.argmax(gen_logits, axis=-1, output_type=ids.dtype)  # [bsz, seq_len]
         ids_equal = tf.cast(adv_ids == ids, dtype=tf.int64)  # [bsz, seq_len]
-        gen_correct = tf.boolean_mask(ids_equal, mask)  # [bsz * n_masks]
+        gen_correct = tf.boolean_mask(ids_equal, corruption_mask)  # [bsz * n_masks]
         gen_acc = tf.reduce_mean(tf.cast(gen_correct, dtype=tf.float32))  # [1]
 
         # Discriminator loss
-        gen_ids = mask * adv_ids + (1 - mask) * ids  # [bsz, seq_len]
-        (dis_logits,) = dis(gen_ids)  # [bsz, seq_len]
+        gen_ids = corruption_mask * adv_ids + (1 - corruption_mask) * ids  # [bsz, seq_len]
+        (dis_logits,) = dis(
+            {"input_ids": gen_ids, "attention_mask": attention_mask}
+        )  # [bsz, seq_len]
         # If generator generates correct token, invert the loss
+        is_corrupted = tf.cast(gen_ids != ids, tf.int64)
         dis_loss = tf.keras.losses.binary_crossentropy(
-            y_true=tf.cast(gen_ids != ids, tf.int64), y_pred=dis_logits, from_logits=True
+            y_true=tf.boolean_mask(is_corrupted, attention_mask),
+            y_pred=tf.boolean_mask(dis_logits, attention_mask),
+            from_logits=True,
         )
         dis_loss = tf.reduce_mean(dis_loss)
 
         # Discriminator accuracy
+        # TODO: Check that accuracy_mask is different
         dis_probs = tf.math.sigmoid(dis_logits)  # [bsz, seq_len]
-        dis_preds = tf.cast(dis_probs > 0.5, dtype=mask.dtype)  # [bsz, seq_len] (bool)
+        dis_preds = tf.cast(dis_probs > 0.5, dtype=corruption_mask.dtype)  # [bsz, seq_len] (bool)
         dis_acc = tf.reduce_mean(
             tf.cast(tf.cast(dis_preds, tf.bool) == (gen_ids != ids), dtype=tf.float32)
         )  # gen_ids != ids is corrupted
@@ -182,49 +152,19 @@ def main():
         tf.config.experimental.set_memory_growth(gpu, True)
     if gpus:
         tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], "GPU")
+    if train_args.eager == "true":
+        tf.config.experimental_run_functions_eagerly(True)
 
-    # TODO: Should I use bert-base-uncased?
-    # Change back to fast tokenizer after resolving https://github.com/huggingface/transformers/issues/5260
-    tokenizer = ElectraTokenizer.from_pretrained("bert-base-uncased")
+    tokenizer = ElectraTokenizerFast.from_pretrained("bert-base-uncased")
 
     gen_config = ElectraConfig.from_pretrained("google/electra-small-generator")
     dis_config = ElectraConfig.from_pretrained("google/electra-small-discriminator")
 
-    # gen = TFElectraForMaskedLM.from_pretrained("google/electra-small-generator")
-    # dis = TFElectraForPreTraining.from_pretrained("google/electra-small-discriminator")
     gen = TFElectraForMaskedLM(config=gen_config)
     dis = TFElectraForPreTraining(config=dis_config)
     optimizer = get_adamw_optimizer(train_args)
 
-    # Load in WikiText-2.
-    # WikiText-2 train contains 2M tokens
-    # WikiText-103 train contains 103M tokens
-    train_filename = "/fsx/wikitext/wikitext-2-raw/wiki.train.raw"  # Tokenization complete in 25.394 secs, 7.386 secs with fast tokenizer
-    val_filename = "/fsx/wikitext/wikitext-2-raw/wiki.valid.raw"
-    test_filename = (
-        "/fsx/wikitext/wikitext-2-raw/wiki.test.raw"  # Tokenization complete in 2.964 secs,
-    )
-    # train_filename = "/fsx/wikitext/wikitext-103-raw/wiki.train.raw" # Fast tokenization in 380.913 secs
     start_time = time.perf_counter()
-
-    def tokenize(filename):
-        with open(train_filename) as infile:
-            text: str = infile.read()
-        tokens = tokenizer.tokenize(text)
-        ids = tokenizer.convert_tokens_to_ids(tokens)
-        return ids
-
-    portion = 100 / hvd.size()
-    start = int(hvd.rank() * portion)
-    end = int(start + portion)
-    train_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=f"train[{start}%:{end}%]")
-    # train_dataset = train_dataset.map(lambda example: {"ids": tokenizer.encode(example["text"])})
-    print(train_dataset[:5])
-    # train_dataset = train_dataset.map(lambda example: tokenizer.batch_encode_plus(example['text']), batched=True)
-
-    # WikiText is an array of each line, while we read in everything as a single string. Can't have a single string
-    # wiki_ids = tokenize(train_filename)
-    wiki_ids = train_dataset
 
     if hvd.rank() == 0:
         # Logging should only happen on a single process
@@ -236,7 +176,6 @@ def main():
         ]
         logging.basicConfig(level=level, format=format, handlers=handlers)
         wandb_run_name = None
-        logger.info(f"Tokenization complete in {time.perf_counter() - start_time:.3f} secs")
 
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         if log_args.run_name is None:
@@ -251,41 +190,75 @@ def main():
         else:
             run_name = f"{current_time}-{log_args.run_name}"
 
-        val_ids = tokenize(val_filename)
-
-    def mask_ids(ids: np.ndarray) -> Tuple[tf.Tensor, tf.Tensor]:
-        # Generate a mask.
-        # Mask should be a boolean array where 1 represents masked token.
-        mask_prob = 0.15
-        mask = np.array(np.random.rand(*ids.shape) > 1 - mask_prob, dtype=int)
-        tf_mask = tf.constant(mask)
-        # Mask the token ids.
-        masked_ids = np.where(mask, tokenizer.mask_token_id, ids)
-        tf_masked_ids = tf.constant(masked_ids)
-        return tf_masked_ids, tf_mask
-
-    def get_batch_ids(dataset, bsz, seq_len) -> tf.Tensor:
-        idxs = np.random.randint(len(dataset), size=bsz)
-        batch = dataset.select(idxs).map(
-            lambda example: {
-                "ids": tokenizer.encode(
-                    example["text"], max_length=seq_len, pad_to_max_length="right"
-                )
-            }
+    def generate_corruption_mask(ids, attention_mask):
+        mask = (
+            tf.cast(tf.random.uniform(shape=ids.shape) > 0.85, dtype=attention_mask.dtype)
+            * attention_mask
         )
-        # TODO: Use encode_plus, then batch_encode_plus, and return padding mask
-        return tf.constant(batch["ids"], dtype=tf.int64)
+        return mask
+
+    def mask_ids(ids, corruption_mask, mask_id):
+        return tf.where(tf.cast(corruption_mask, tf.bool), mask_id, ids)
+
+    def remove_none_values(example):
+        return example["text"] != ""
+
+    def tokenize(example):
+        # return tokenizer.batch_encode_plus(example['text'])
+        return tokenizer(
+            example["text"], padding=True, truncation=True, max_length=data_args.max_seq_length
+        )
+
+    portion = 100 / hvd.size()
+    start = int(hvd.rank() * portion)
+    end = int(start + portion)
+    dataset = "wikitext-2"  # or wikitext-103
+    train_dataset = load_dataset("wikitext", f"{dataset}-raw-v1", split=f"train[{start}%:{end}%]")
+    train_dataset = train_dataset.filter(remove_none_values)
+    train_dataset = train_dataset.map(
+        tokenize,
+        batched=True,
+        batch_size=1000,
+        cache_file_name=f"/fsx/{dataset}.cache",
+        load_from_cache_file=False,
+    )
+    # Or load it in:
+    # train_dataset = Dataset.from_file(f"/fsx/{dataset}.cache")
+
+    columns = ["input_ids", "token_type_ids", "attention_mask"]
+    train_dataset.set_format("tensorflow", columns=columns)
+    batch = train_dataset[:5]["input_ids"]  # RaggedTensor
+    batch = batch.to_tensor(default_value=0, shape=[None, data_args.max_seq_length])  # Tensor
+    gen(batch)
+
+    # Is this lazy evaluation?
+    # TODO: Convert to from_generator()
+    logger.info("Creating tf_dataset from tensor_slices")  # Takes 18 secs for WikiText-2
+    tf_dataset = tf.data.Dataset.from_tensor_slices(
+        ({x: train_dataset[x].to_tensor() for x in columns})
+    ).batch(train_args.per_gpu_batch_size)
+    logger.info("Finished creating tf_dataset from tensor_slices")
 
     wandb_run_name = None
-    # tf.config.experimental_run_functions_eagerly(True)
+
+    tf_dataset_iter = iter(tf_dataset)
     for step in range(1, train_args.total_steps + 1):
-        bsz = train_args.per_gpu_batch_size
-        seq_len = data_args.max_seq_length
-        ids = get_batch_ids(dataset=train_dataset, bsz=bsz, seq_len=seq_len)
-        masked_ids, mask = mask_ids(ids)
+        batch_dict = next(tf_dataset_iter)
+        ids = batch_dict["input_ids"]
+        attention_mask = batch_dict["attention_mask"]
+        corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
+        masked_ids = mask_ids(
+            ids=ids, corruption_mask=corruption_mask, mask_id=tokenizer.mask_token_id
+        )
 
         loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds = train_step(
-            optimizer=optimizer, gen=gen, dis=dis, ids=ids, masked_ids=masked_ids, mask=mask
+            optimizer=optimizer,
+            gen=gen,
+            dis=dis,
+            ids=ids,
+            masked_ids=masked_ids,
+            attention_mask=attention_mask,
+            corruption_mask=corruption_mask,
         )
 
         if step == 1:
@@ -300,35 +273,37 @@ def main():
             do_checkpoint = (step > 0) and (
                 (step % log_args.checkpoint_frequency == 0) or is_final_step
             )
-            do_validation = step % log_args.validation_frequency == 0
+            do_validation = False  # step % log_args.validation_frequency == 0
 
             if do_log:
                 elapsed_time = time.perf_counter() - start_time  # Off for first log
                 it_s = log_args.log_frequency / elapsed_time
                 start_time = time.perf_counter()
-                log_example(tokenizer, ids, masked_ids, mask, gen_ids, dis_preds)
+                log_example(tokenizer, ids, masked_ids, corruption_mask, gen_ids, dis_preds)
                 description = f"Step {step} -- gen_loss: {gen_loss:.3f}, dis_loss: {dis_loss:.3f}, gen_acc: {gen_acc:.3f}, dis_acc: {dis_acc:.3f}, it/s: {it_s:.3f}\n"
                 logger.info(description)
 
             if do_validation:
-                val_ids = get_batch_ids(dataset=train_dataset, bsz=bsz, seq_len=seq_len)
-                val_masked_ids, val_mask = mask_ids(val_ids)
-                (
-                    val_loss,
-                    val_gen_loss,
-                    val_dis_loss,
-                    val_gen_acc,
-                    val_dis_acc,
-                    val_gen_ids,
-                    val_dis_preds,
-                ) = val_step(
-                    gen=gen, dis=dis, ids=val_ids, masked_ids=val_masked_ids, mask=val_mask
-                )
-                log_example(
-                    tokenizer, val_ids, val_masked_ids, val_mask, val_gen_ids, val_dis_preds
-                )
-                description = f"VALIDATION, Step {step} -- val_gen_loss: {val_gen_loss:.3f}, val_dis_loss: {val_dis_loss:.3f}, val_gen_acc: {val_gen_acc:.3f}, val_dis_acc: {val_dis_acc:.3f}\n"
-                logger.info(description)
+                # TODO: Re-implement validation, but with less code duplication
+                # val_ids = get_batch_ids(dataset=train_dataset, bsz=bsz, seq_len=seq_len)
+                # val_masked_ids, val_mask = mask_ids(val_ids)
+                # (
+                #     val_loss,
+                #     val_gen_loss,
+                #     val_dis_loss,
+                #     val_gen_acc,
+                #     val_dis_acc,
+                #     val_gen_ids,
+                #     val_dis_preds,
+                # ) = val_step(
+                #     gen=gen, dis=dis, ids=val_ids, masked_ids=val_masked_ids, mask=val_mask
+                # )
+                # log_example(
+                #     tokenizer, val_ids, val_masked_ids, val_mask, val_gen_ids, val_dis_preds
+                # )
+                # description = f"VALIDATION, Step {step} -- val_gen_loss: {val_gen_loss:.3f}, val_dis_loss: {val_dis_loss:.3f}, val_gen_acc: {val_gen_acc:.3f}, val_dis_acc: {val_dis_acc:.3f}\n"
+                # logger.info(description)
+                pass
 
             train_metrics = {
                 "train/loss": loss,
