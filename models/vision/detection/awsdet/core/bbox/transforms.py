@@ -81,34 +81,32 @@ def delta2bbox(box, delta, target_means, target_stds):
 
 
 def bbox_clip(box, window):
-    '''
-    Args
-    ---
+    """
+    Clip box to window boundaries.
+    Generally, window is [0.0, 0.0, max_H, max_W]
+    Args:
         box: [N, (y1, x1, y2, x2)]
         window: [4] in the form y1, x1, y2, x2
-    '''
-    # Split
+    """
     wy1, wx1, wy2, wx2 = tf.split(window, 4)
     y1, x1, y2, x2 = tf.split(box, 4, axis=1)
-    # Clip
-    y1 = tf.maximum(tf.minimum(y1, wy2), wy1)
-    x1 = tf.maximum(tf.minimum(x1, wx2), wx1)
-    y2 = tf.maximum(tf.minimum(y2, wy2), wy1)
-    x2 = tf.maximum(tf.minimum(x2, wx2), wx1)
+    y1 = tf.maximum(y1, wy1)
+    x1 = tf.maximum(x1, wx1)
+    y2 = tf.minimum(y2, wy2)
+    x2 = tf.minimum(x2, wx2)
     clipped = tf.concat([y1, x1, y2, x2], axis=1)
     clipped.set_shape((clipped.shape[0], 4))
     return clipped
 
 
 def bbox_flip(bboxes, width):
-    '''
+    """
     Flip bboxes horizontally.
     
-    Args
-    ---
+    Args:
         bboxes: [..., 4]
         width: Int or Float
-    '''
+    """
     y1, x1, y2, x2 = tf.split(bboxes, 4, axis=-1)
 
     new_x1 = width - x2
@@ -120,13 +118,12 @@ def bbox_flip(bboxes, width):
 
 
 def bbox_mapping(box, img_meta):
-    '''
+    """
     Map bboxes from the original image scale to testing scale
-    Args
-    ---
+    Args:
         box: [N, 4]
         img_meta: [11]
-    '''
+    """
     img_meta = parse_image_meta(img_meta)
     scale = img_meta['scale']
     flip = img_meta['flip']
@@ -139,13 +136,12 @@ def bbox_mapping(box, img_meta):
 
 
 def bbox_mapping_back(box, img_meta):
-    '''
+    """
     Map bboxes from testing scale to original image scale
-    Args
-    ---
+    Args:
         box: [N, 4]
         img_meta: [11]
-    '''
+    """
     img_meta = parse_image_meta(img_meta)
     scale = img_meta['scale']
     flip = img_meta['flip']
@@ -157,7 +153,8 @@ def bbox_mapping_back(box, img_meta):
 
 
 def bbox2result(bboxes, labels, scores, num_classes):
-    """Convert detection results to a list of numpy arrays.
+    """
+    Convert detection results to a list of numpy arrays.
 
     Args:
         bboxes (Tensor): shape (n, 4)

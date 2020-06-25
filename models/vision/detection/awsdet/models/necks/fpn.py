@@ -64,12 +64,12 @@ class FPN(tf.keras.Model):
             l_conv = layers.Conv2D(out_channels, lat_kernel_size, strides=1, use_bias=use_bias,
                                     name='lateral_{}'.format(channel_name),
                                     kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                                    padding='same', kernel_initializer='glorot_uniform')
+                                    padding='same', kernel_initializer='lecun_normal')
             fpn_kernel_size = 3
             fpn_conv = layers.Conv2D(out_channels, fpn_kernel_size, 1, use_bias=use_bias,
                                        kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                        padding='same', name='fpn_{}'.format(channel_name),
-                                       kernel_initializer='glorot_uniform')
+                                       kernel_initializer='lecun_normal')
             self.lateral_convs.append(l_conv)
             self.fpn_convs.append(fpn_conv)
             if i > self.start_level:
@@ -80,9 +80,10 @@ class FPN(tf.keras.Model):
             for i in range(extra_levels):
                 extra_fpn_conv = layers.Conv2D(out_channels, (3, 3), strides=2,
                                                 padding='same',
+                                                use_bias=use_bias,
                                                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                                 name='extra_conv_{}'.format(i),
-                                                kernel_initializer='glorot_uniform')
+                                                kernel_initializer='lecun_normal')
                 self.fpn_convs.append(extra_fpn_conv)
         self._method = interpolation_method
 
@@ -113,7 +114,7 @@ class FPN(tf.keras.Model):
         if self.num_outs > len(outs):
             if not self.add_extra_convs:
                 for i in range(self.num_outs - used_backbone_levels):
-                    outs.append(tf.nn.max_pool(outs[i - 1], ksize=1, strides=2, padding='SAME', name='build_p{}'.format(used_backbone_levels - i)))
+                    outs.append(tf.nn.max_pool(outs[i - 1], ksize=1, strides=2, padding='VALID', name='build_p{}'.format(used_backbone_levels - i)))
             else:
                 if self.extra_convs_on_inputs:
                     orig = inputs[self.backbone_end_level - 1]

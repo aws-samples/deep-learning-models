@@ -77,41 +77,41 @@ def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True,
 
     if conv_shortcut is True:
         shortcut = layers.Conv2D(4 * filters, 1, strides=stride, use_bias=False, padding='SAME',
-                                 kernel_initializer='he_normal',
+                                 kernel_initializer='he_normal', trainable=trainable,
                                  kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                  name=name + '_0_conv')(x)
         shortcut = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
-                                             name=name + '_0_bn')(shortcut)
+                                             name=name + '_0_bn', trainable=False)(shortcut)
     else:
         shortcut = x
 
     x = layers.Conv2D(filters, 1, strides=1, use_bias=False, padding='SAME',
-                        kernel_initializer='he_normal',
+                        kernel_initializer='he_normal', trainable=trainable,
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_1_conv')(x)
     x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
-                                  name=name + '_1_bn')(x)
+                                  name=name + '_1_bn', trainable=False)(x, training=False)
     x = layers.Activation('relu', name=name + '_1_relu')(x)
 
     x = layers.Conv2D(filters, kernel_size, strides=stride, padding='SAME',
-                        use_bias=False,
+                        use_bias=False, trainable=trainable,
                         kernel_initializer='he_normal',
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_2_conv')(x)
 
-    x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, 
+    x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, trainable=False, 
                                   name=name + '_2_bn')(x)
 
     x = layers.Activation('relu', name=name + '_2_relu')(x)
 
     x = layers.Conv2D(4 * filters, 1, use_bias=False, padding='SAME',
-                        kernel_initializer='he_normal',
+                        kernel_initializer='he_normal', trainable=trainable,
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_3_conv')(x)
 
     x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
                                   gamma_initializer='zeros', # https://arxiv.org/pdf/1706.02677.pdf
-                                  name=name + '_3_bn')(x)
+                                  trainable=False, name=name + '_3_bn')(x)
 
     x = layers.Add(name=name + '_add')([shortcut, x])
     x = layers.Activation('relu', name=name + '_out')(x)
@@ -155,35 +155,31 @@ def block2(x, filters, kernel_size=3, stride=1,
         Output tensor for the residual block.
     """
     bn_axis = 3 if image_data_format == 'channels_last' else 1
-    preact = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name=name + '_preact_bn')(x)
+
+    preact = layers.BatchNormalization(axis=bn_axis, epsilon=1.001e-5,
+                                       name=name + '_preact_bn', trainable=False)(x, training=False)
     preact = layers.Activation('relu', name=name + '_preact_relu')(preact)
 
     if conv_shortcut is True:
-        shortcut = layers.Conv2D(4 * filters, 1, strides=stride, use_bias=False, padding='SAME',
-                        kernel_initializer='he_normal',
-                        kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                        name=name + '_0_conv')(preact)
+        shortcut = layers.Conv2D(4 * filters, 1, strides=stride,
+                                 name=name + '_0_conv')(preact)
     else:
-        shortcut = layers.AveragePooling2D(1, strides=stride)(x) if stride > 1 else x
+        shortcut = layers.MaxPooling2D(1, strides=stride)(x) if stride > 1 else x
 
-    x = layers.Conv2D(filters, 1, strides=1, use_bias=False, padding='SAME',
-                        kernel_initializer='he_normal',
-                        kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                        name=name + '_1_conv')(preact)
-    x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name=name + '_1_bn')(x)
+    x = layers.Conv2D(filters, 1, strides=1, use_bias=False,
+                      name=name + '_1_conv')(preact)
+    x = layers.BatchNormalization(axis=bn_axis, epsilon=1.001e-5,
+                                  name=name + '_1_bn', trainable=False)(x, training=False)
     x = layers.Activation('relu', name=name + '_1_relu')(x)
 
-    x = layers.Conv2D(filters, kernel_size, strides=stride, padding='SAME', use_bias=False,
-                        kernel_initializer='he_normal',
-                        kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                        name=name + '_2_conv')(x)
-    x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name=name + '_2_bn')(x)
+    x = layers.ZeroPadding2D(padding=((1, 1), (1, 1)), name=name + '_2_pad')(x)
+    x = layers.Conv2D(filters, kernel_size, strides=stride,
+                      use_bias=False, name=name + '_2_conv')(x)
+    x = layers.BatchNormalization(axis=bn_axis, epsilon=1.001e-5,
+                                  name=name + '_2_bn', trainable=False)(x, training=False)
     x = layers.Activation('relu', name=name + '_2_relu')(x)
 
-    x = layers.Conv2D(4 * filters, 1, use_bias=False, padding='SAME',
-                        kernel_initializer='he_normal',
-                        kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                        name=name + '_3_conv')(x)
+    x = layers.Conv2D(4 * filters, 1, name=name + '_3_conv')(x)
     x = layers.Add(name=name + '_out')([shortcut, x])
     return x
 
@@ -313,7 +309,8 @@ def ResNet(stack_fn,
             stacked residual blocks.
         preact: whether to use pre-activation or not
             (True for ResNetV2, False for ResNet and ResNeXt).
-        use_bias: whether to use biases for convolutional layers or not #FIXME:
+        use_bias: whether to use biases for convolutional layers or not
+            (True for ResNet and ResNetV2, False for ResNeXt).
         model_name: string, model name.
         include_top: whether to include the fully-connected
             layer at the top of the network.
@@ -374,10 +371,11 @@ def ResNet(stack_fn,
     x = layers.ZeroPadding2D(padding=((3, 3), (3, 3)), name='conv1_pad')(img_input)
     x = layers.Conv2D(64, 7, strides=2, use_bias=False, name='conv1_conv', 
             kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-            kernel_initializer='he_normal')(x)
+            kernel_initializer='he_normal', trainable=False)(x)
 
     if preact is False:
-        x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name='conv1_bn')(x)
+        x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
+                                      trainable=False, name='conv1_bn')(x)
         x = layers.Activation('relu', name='conv1_relu')(x)
 
     x = layers.MaxPooling2D(3, strides=2, padding='SAME', name='pool1_pool')(x)
@@ -385,14 +383,16 @@ def ResNet(stack_fn,
     x = stack_fn(x)
 
     if preact is True:
-        x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name='post_bn')(x)
+        x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
+                                      trainable=False, name='post_bn')(x)
         x = layers.Activation('relu', name='post_relu')(x)
 
     if include_top:
         x = layers.GlobalAveragePooling2D(name='avg_pool')(x)
         x = layers.Dense(classes,
             kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.01),
-            kernel_regularizer=tf.keras.regularizers.l2(weight_decay), name='logits')(x)
+            kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
+            name='logits')(x)
         x = layers.Activation('softmax', dtype='float32')(x)
     else:
         if pooling == 'avg':
@@ -430,7 +430,7 @@ def ResNet(stack_fn,
     return model
 
 
-def ResNet50(include_top=True,
+def ResNet50V1(include_top=True,
              weights='imagenet',
              input_tensor=None,
              input_shape=None,
@@ -439,7 +439,7 @@ def ResNet50(include_top=True,
              weight_decay=0.0001,
              **kwargs):
     def stack_fn(x):
-        x = stack1(x, 64, 3, stride1=1, name='conv2', weight_decay=weight_decay)
+        x = stack1(x, 64, 3, stride1=1, name='conv2', trainable=False, weight_decay=weight_decay)
         x = stack1(x, 128, 4, name='conv3', weight_decay=weight_decay)
         x = stack1(x, 256, 6, name='conv4', weight_decay=weight_decay)
         x = stack1(x, 512, 3, name='conv5', weight_decay=weight_decay)
@@ -500,7 +500,7 @@ def ResNet50V2(include_top=True,
                weight_decay=0.0001,
                **kwargs):
     def stack_fn(x):
-        x = stack2(x, 64, 3, name='conv2', weight_decay=weight_decay)
+        x = stack2(x, 64, 3, name='conv2', trainable=False, weight_decay=weight_decay)
         x = stack2(x, 128, 4, name='conv3', weight_decay=weight_decay)
         x = stack2(x, 256, 6, name='conv4', weight_decay=weight_decay)
         x = stack2(x, 512, 3, stride1=1, name='conv5', weight_decay=weight_decay)
@@ -508,7 +508,7 @@ def ResNet50V2(include_top=True,
     return ResNet(stack_fn, True, True, 'resnet50v2',
                   include_top, weights,
                   input_tensor, input_shape,
-                  pooling, classes, weight_decay,
+                  pooling, classes,
                   **kwargs)
 
 
@@ -590,14 +590,4 @@ def ResNeXt101(include_top=True,
                   input_tensor, input_shape,
                   pooling, classes,
                   **kwargs)
-
-
-setattr(ResNet50, '__doc__', ResNet.__doc__)
-setattr(ResNet101, '__doc__', ResNet.__doc__)
-setattr(ResNet152, '__doc__', ResNet.__doc__)
-setattr(ResNet50V2, '__doc__', ResNet.__doc__)
-setattr(ResNet101V2, '__doc__', ResNet.__doc__)
-setattr(ResNet152V2, '__doc__', ResNet.__doc__)
-setattr(ResNeXt50, '__doc__', ResNet.__doc__)
-setattr(ResNeXt101, '__doc__', ResNet.__doc__)
 

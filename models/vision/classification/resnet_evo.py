@@ -30,6 +30,7 @@ from __future__ import print_function
 import tensorflow as tf
 import os
 import numpy as np
+from norm import EvoNorm2dS0
 
 layers = tf.keras.layers
 
@@ -154,10 +155,9 @@ def block2(x, filters, kernel_size=3, stride=1,
     # Returns
         Output tensor for the residual block.
     """
-    bn_axis = 3 if image_data_format == 'channels_last' else 1
-    preact = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name=name + '_preact_bn')(x)
-    preact = layers.Activation('relu', name=name + '_preact_relu')(preact)
+#    bn_axis = 3 if image_data_format == 'channels_last' else 1
 
+    preact = EvoNorm2dS0(x.shape[-1], groups=32)(x)
     if conv_shortcut is True:
         shortcut = layers.Conv2D(4 * filters, 1, strides=stride, use_bias=False, padding='SAME',
                         kernel_initializer='he_normal',
@@ -170,15 +170,12 @@ def block2(x, filters, kernel_size=3, stride=1,
                         kernel_initializer='he_normal',
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_1_conv')(preact)
-    x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name=name + '_1_bn')(x)
-    x = layers.Activation('relu', name=name + '_1_relu')(x)
-
+    x = EvoNorm2dS0(filters, groups=32)(x)
     x = layers.Conv2D(filters, kernel_size, strides=stride, padding='SAME', use_bias=False,
                         kernel_initializer='he_normal',
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_2_conv')(x)
-    x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name=name + '_2_bn')(x)
-    x = layers.Activation('relu', name=name + '_2_relu')(x)
+    x = EvoNorm2dS0(filters, groups=32)(x)
 
     x = layers.Conv2D(4 * filters, 1, use_bias=False, padding='SAME',
                         kernel_initializer='he_normal',
@@ -385,8 +382,7 @@ def ResNet(stack_fn,
     x = stack_fn(x)
 
     if preact is True:
-        x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name='post_bn')(x)
-        x = layers.Activation('relu', name='post_relu')(x)
+        x = EvoNorm2dS0(x.shape[-1], groups=32)(x)
 
     if include_top:
         x = layers.GlobalAveragePooling2D(name='avg_pool')(x)

@@ -22,6 +22,8 @@ def get_base_model(model_name, weights_path, weight_decay=1e-4):
         base_model = VGG19(weights=weights_path, include_top=False)
     elif model_name == 'ResNet50V1':
         base_model = awsdet.models.backbones.ResNet50(weights=None, include_top=False, weight_decay=weight_decay)
+    elif model_name == 'ResNet50V1_AWS':
+        base_model = awsdet.models.backbones.ResNet50V1(weights=None, include_top=False, weight_decay=weight_decay)
     elif model_name == 'ResNet50V2':
         base_model = awsdet.models.backbones.ResNet50V2(weights=None, include_top=False, weight_decay=weight_decay)
     elif model_name == "ResNet101V1":
