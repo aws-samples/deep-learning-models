@@ -236,12 +236,13 @@ def main():
         assert False, "Only wikitext-2 or wikitext-103 supported right now"
 
     train_dataset = train_dataset.filter(remove_none_values)
+    # WARNING: Set load_from_cache_file=False if you changed something about this dataset
     train_dataset = train_dataset.map(
         tokenize,
         batched=True,
         batch_size=1000,
         cache_file_name=f"/fsx/{data_args.pretrain_dataset}.cache",
-        load_from_cache_file=False,
+        # load_from_cache_file=False,
     )
     # Or load it in:
     # train_dataset = Dataset.from_file(f"/fsx/{data_args.pretrain_dataset}.cache")
@@ -252,16 +253,19 @@ def main():
     batch = batch.to_tensor(default_value=0, shape=[None, data_args.max_seq_length])  # Tensor
     gen(batch)
 
-    # Is this lazy evaluation?
-    # TODO: Convert to from_generator()
-    # Takes 18 secs for WikiText-2
-    # Takes many minutes??? for WikiText-103
-    # Track https://github.com/huggingface/nlp/issues/315 for a good lazy batching using `nlp`
-    logger.info("Creating tf_dataset from tensor_slices")
-    tf_dataset = tf.data.Dataset.from_tensor_slices(
-        ({x: train_dataset[x].to_tensor() for x in columns})
-    ).batch(train_args.per_gpu_batch_size)
-    logger.info("Finished creating tf_dataset from tensor_slices")
+    # 20 milliseconds for WikiText-2
+    # 20 milliseconds for WikiText-103
+    # Seems to be loading lazily!
+    logger.info("Creating gen_dataset from generator")
+    output_types = {"input_ids": tf.int64, "token_type_ids": tf.int64, "attention_mask": tf.int64}
+
+    def train_dataset_gen():
+        for i in range(len(train_dataset)):
+            yield train_dataset[i]
+
+    tf_dataset = tf.data.Dataset.from_generator(train_dataset_gen, output_types=output_types)
+    tf_dataset = tf_dataset.batch(train_args.per_gpu_batch_size)
+    logger.info("Finished creating gen_dataset from generator")
 
     wandb_run_name = None
 
