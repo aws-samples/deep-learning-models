@@ -4,10 +4,6 @@ import os.path as osp
 import sys
 from pathlib import Path
 
-import six
-
-from awsdet.utils.generic import is_str
-
 if sys.version_info <= (3, 3):
     FileNotFoundError = IOError
 else:
@@ -15,14 +11,14 @@ else:
 
 
 def is_filepath(x):
-    if is_str(x) or isinstance(x, Path):
+    if isinstance(x, str) or isinstance(x, Path):
         return True
     else:
         return False
 
 
 def fopen(filepath, *args, **kwargs):
-    if is_str(filepath):
+    if isinstance(filepath, str):
         return open(filepath, *args, **kwargs)
     elif isinstance(filepath, Path):
         return filepath.open(*args, **kwargs)
@@ -37,11 +33,7 @@ def mkdir_or_exist(dir_name, mode=0o777):
     if dir_name == '':
         return
     dir_name = osp.expanduser(dir_name)
-    if six.PY3:
-        os.makedirs(dir_name, mode=mode, exist_ok=True)
-    else:
-        if not osp.isdir(dir_name):
-            os.makedirs(dir_name, mode=mode)
+    os.makedirs(dir_name, mode=mode, exist_ok=True)
 
 
 def symlink(src, dst, overwrite=True, **kwargs):

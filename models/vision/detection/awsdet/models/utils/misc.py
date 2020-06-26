@@ -53,7 +53,6 @@ def calc_batch_padded_shape(meta):
     ---
         nd.ndarray. Tuple of (height, width)
     '''
-    # return tf.cast(tf.reduce_max(meta[:, 6:8], axis=0), tf.int32)
     return tf.cast(tf.reduce_max(meta[:, 6:8], axis=0), tf.float32)
 
 def calc_img_shapes(meta):
@@ -66,7 +65,6 @@ def calc_img_shapes(meta):
     ---
         nd.ndarray. [..., (height, width)]
     '''
-    # return tf.cast(meta[..., 3:5], tf.int32)
     return tf.cast(meta[..., 3:5], tf.float32)
 
 def calc_pad_shapes(meta):
@@ -79,6 +77,5 @@ def calc_pad_shapes(meta):
     ---
         nd.ndarray. [..., (height, width)]
     '''
-    # return tf.cast(meta[..., 6:8], tf.int32)
     return tf.cast(meta[..., 6:8], tf.float32)
 

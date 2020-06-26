@@ -1,7 +1,5 @@
 # Copyright (c) Open-MMLab. All rights reserved.
 from pathlib import Path
-
-from awsdet.utils.generic import is_list_of, is_str
 from .handlers import BaseFileHandler, JsonHandler, PickleHandler, YamlHandler
 
 file_handlers = {
@@ -11,6 +9,10 @@ file_handlers = {
     'pickle': PickleHandler(),
     'pkl': PickleHandler()
 }
+
+
+def is_str(x):
+    return isinstance(x, str)
 
 
 def load(file, file_format=None, **kwargs):
@@ -98,8 +100,10 @@ def _register_handler(handler, file_formats):
                 type(handler)))
     if isinstance(file_formats, str):
         file_formats = [file_formats]
-    if not is_list_of(file_formats, str):
-        raise TypeError('file_formats must be a str or a list of str')
+    if isinstance(file_formats, list):
+        for f in file_formats:
+            if not is_str(f):
+                raise TypeError('file_formats must be a str or a list of str')
     for ext in file_formats:
         file_handlers[ext] = handler
 

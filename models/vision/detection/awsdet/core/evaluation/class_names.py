@@ -1,10 +1,6 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
-import six
-def is_str(x):
-    """Whether the input is an string instance."""
-    return isinstance(x, six.string_types)
 
 def wider_face_classes():
     return ['face']
@@ -111,7 +107,7 @@ def get_classes(dataset):
         for alias in aliases:
             alias2name[alias] = name
 
-    if is_str(dataset):
+    if isinstance(dataset, str):
         if dataset in alias2name:
             labels = eval(alias2name[dataset] + '_classes()')
         else:
