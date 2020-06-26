@@ -50,11 +50,11 @@ class TensorboardLoggerHook(LoggerHook):
                     tf.summary.scalar(tag, record, step=runner.iter)
             self._image_log(runner)  
         self.writer.flush()
+        print('flushed summary writer buffer')
         self._s3_upload(runner)
-    
-    
-    
-    
+        print('wrote events to S3')
+
+
     def _image_log(self, runner):
         if self.image_interval and \
         self.every_n_inner_iters(runner, self.image_interval+self.interval):
@@ -63,16 +63,18 @@ class TensorboardLoggerHook(LoggerHook):
                     tag = '{}/{}'.format(var, runner.mode)
                     record = runner.log_buffer.val_history[var][-1]
                     tf.summary.image(tag, record, step=runner.iter+1)
-                    
+
+
     def _s3_upload(self, runner):
         if self.s3_dir and \
         self.every_n_inner_iters(runner, self.s3_interval):
             event_file = list(Path(self.log_dir).glob("events*"))
+            print(event_file)
             for file in event_file:
                 # self.s3.put(file, Path(self.s3_dir).joinpath(file.name))
                 _ = self.threadpool.submit(self.s3.put, file, 
                                            Path(self.s3_dir).joinpath(file.name))
-        
+
     @master_only
     def after_run(self, runner):
         self.writer.close()

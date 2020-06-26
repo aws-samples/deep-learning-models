@@ -15,8 +15,8 @@ sagemaker_user=dict(
     s3_bucket='mzanur-sagemaker',
     docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/mzanur-awsdet-ecr:awsdet',
     hvd_processes_per_host=8,
-    hvd_instance_type='ml.p3dn.24xlarge', # 'ml.p3.16xlarge',
-    hvd_instance_count=2, #1,
+    hvd_instance_type='ml.p3.16xlarge',
+    hvd_instance_count=1,
 )
 # settings for distributed training on sagemaker
 distributions=dict(
@@ -47,7 +47,7 @@ model = dict(
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1',
-        weights_path='weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
+        weights_path='resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5', # will be fully resolved to path in train script
         weight_decay=5e-5
     ),
     neck=dict(
@@ -87,6 +87,7 @@ model = dict(
 # model training and testing settings
 train_cfg = dict(
     weight_decay=5e-5,
+    sagemaker=True
 )
 test_cfg = dict(
 )
@@ -151,15 +152,35 @@ lr_config = dict(
     warmup_iters=500, 
     warmup_ratio=1.0 / 10,
     step=[8, 11])
-checkpoint_config = dict(interval=1, outdir='checkpoints')
-# yapf:disable
-log_config = dict(
+
+#TODO: add support for S3 checkpointing
+checkpoint_config=dict(
+    interval=1,
+    outdir='checkpoints')
+
+# log, tensorboard configuration
+log_config=dict(
     interval=50,
     hooks=[
-        dict(type='TextLoggerHook'),
-        dict(type='TensorboardLoggerHook', log_dir='/tmp/tensorboard')
-    ])
-# yapf:enable
+        dict(
+            type='TextLoggerHook'
+        ),
+        dict(
+            type='TensorboardLoggerHook',
+            log_dir=None,
+            image_interval=100,
+            s3_dir='{}/tensorboard/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
+        ),
+        dict(
+            type='Visualizer',
+            dataset_cfg=data['val'],
+            interval=100,
+            top_k=10,
+            run_on_sagemaker=True,
+        ),
+    ]
+)
+
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'
