@@ -16,6 +16,7 @@ nlp feature request: Select from dataset with arbitrary slices
 import datetime
 import logging
 import time
+from typing import Tuple
 
 import numpy as np
 import tensorflow as tf
@@ -132,6 +133,11 @@ def train_step(optimizer, gen, dis, ids, masked_ids, attention_mask, corruption_
     return loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds
 
 
+def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str, str]:
+    """ Returns the model_ckpt path and optimizer_ckpt path. """
+    return f"{prefix}-discriminator.ckpt", f"{prefix}-generator.ckpt", f"{prefix}-optimizer.npy"
+
+
 def main():
     parser = HfArgumentParser(
         (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
@@ -163,6 +169,16 @@ def main():
     gen = TFElectraForMaskedLM(config=gen_config)
     dis = TFElectraForPreTraining(config=dis_config)
     optimizer = get_adamw_optimizer(train_args)
+
+    loaded_optimizer_weights = None
+    if model_args.load_from == "checkpoint":
+        dis_ckpt, gen_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(
+            model_args.checkpoint_path
+        )
+        if hvd.rank() == 0:
+            dis.load_weights(dis_ckpt)
+            gen.load_weights(gen_ckpt)
+            loaded_optimizer_weights = np.load(optimizer_ckpt, allow_pickle=True)
 
     start_time = time.perf_counter()
 
@@ -250,6 +266,7 @@ def main():
     wandb_run_name = None
 
     tf_dataset_iter = iter(tf_dataset)
+    # TODO: Change for loop to iterate over batches
     for step in range(1, train_args.total_steps + 1):
         batch_dict = next(tf_dataset_iter)
         ids = batch_dict["input_ids"]
@@ -271,14 +288,18 @@ def main():
 
         if step == 1:
             # Horovod broadcast
-            hvd.broadcast_variables(dis.variables, root_rank=0)
+            if hvd.rank() == 0 and loaded_optimizer_weights is not None:
+                optimizer.set_weights(loaded_optimizer_weights)
             hvd.broadcast_variables(gen.variables, root_rank=0)
+            hvd.broadcast_variables(dis.variables, root_rank=0)
             hvd.broadcast_variables(optimizer.variables(), root_rank=0)
+            # TODO: Uncomment when for loop iterate over batches
+            # step = optimizer.get_weights()[0]
 
         if hvd.rank() == 0:
             is_final_step = step >= train_args.total_steps
             do_log = step % log_args.log_frequency == 0
-            do_checkpoint = (step > 0) and (
+            do_checkpoint = (step > 1) and (
                 (step % log_args.checkpoint_frequency == 0) or is_final_step
             )
             do_validation = False  # step % log_args.validation_frequency == 0
@@ -346,9 +367,9 @@ def main():
                 wandb.log({"step": step, **all_metrics})
 
             if do_checkpoint:
-                dis_model_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/discriminator-{run_name}-step{step}.ckpt"
-                gen_model_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/generator-{run_name}-step{step}.ckpt"
-                optimizer_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/optimizer-{run_name}-step{step}.npy"
+                dis_model_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/{run_name}-step{step}-discriminator.ckpt"
+                gen_model_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/{run_name}-step{step}-generator.ckpt"
+                optimizer_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/{run_name}-step{step}-optimizer.npy"
                 logger.info(
                     f"Saving discriminator model at {dis_model_ckpt}, generator model at {gen_model_ckpt}, optimizer at {optimizer_ckpt}"
                 )
