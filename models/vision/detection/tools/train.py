@@ -252,16 +252,16 @@ def main_sagemaker(args, cfg):
     _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)),
               training=False)
     # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
-    weights_path = cfg.model['backbone']['weights_path']
+
     # sagemaker specific path resolution
     import os, pathlib
     data_root = pathlib.Path(os.getenv('SM_CHANNEL_COCO')).joinpath('coco').as_posix()
     cfg.data.train['dataset_dir'] = data_root
     cfg.data.val['dataset_dir'] = data_root
-    weights_file = 'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
+    weights_file = cfg.model['backbone']['weights_path']
     weights_path = pathlib.Path(os.getenv('SM_CHANNEL_WEIGHTS')).joinpath(weights_file).as_posix()
     logger.info('Loading weights from: {}'.format(weights_path))
-    if osp.splitext(weights_path)[1] == '.h5': # older keras format from Keras model zoo 
+    if osp.splitext(weights_file)[1] == '.h5': # older keras format from Keras model zoo
         model.layers[0].layers[0].load_weights(weights_path, by_name=True, skip_mismatch=True)
     else: # SavedModel format assumed - extract weights
         backbone_model = tf.keras.models.load_model(weights_path)
