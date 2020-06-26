@@ -66,7 +66,7 @@ def parse_args():
 
     return args
 
-##### SAGEMAKER SPECIFIC HELPERS ##### TODO: move to utils
+ 
 def decompress_data():
     if get_dist_info()[1]==0:
         print("Decompressing Data")
@@ -109,7 +109,6 @@ def main_ec2(args, cfg):
 
     if args.autoscale_lr:
         # apply the linear scaling rule (https://arxiv.org/abs/1706.02677)
-        # total_bs = len(gpus) * cfg.data.imgs_per_gpu
         total_bs = get_dist_info()[2] * cfg.data.imgs_per_gpu
         cfg.optimizer['learning_rate'] = cfg.optimizer['learning_rate'] * total_bs / 8
 
@@ -198,7 +197,7 @@ def main_sagemaker(args, cfg):
     s3_path = cfg.sagemaker_job['s3_path']
     
     decompress_data() # setup data dirs based on SM CHANNELS
-    
+
     num_gpus = len(gpus)
     # update configs according to CLI args
     if args.work_dir is not None:
