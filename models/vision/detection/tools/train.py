@@ -109,7 +109,8 @@ def main_ec2(args, cfg):
 
     if args.autoscale_lr:
         # apply the linear scaling rule (https://arxiv.org/abs/1706.02677)
-        total_bs = len(gpus) * cfg.data.imgs_per_gpu
+        # total_bs = len(gpus) * cfg.data.imgs_per_gpu
+        total_bs = get_dist_info()[2] * cfg.data.imgs_per_gpu
         cfg.optimizer['learning_rate'] = cfg.optimizer['learning_rate'] * total_bs / 8
 
      # init distributed env first, since logger depends on the dist info.
@@ -207,7 +208,7 @@ def main_sagemaker(args, cfg):
 
     if args.autoscale_lr:
         # apply the linear scaling rule (https://arxiv.org/abs/1706.02677)
-        total_bs = len(gpus) * cfg.data.imgs_per_gpu
+        total_bs = get_dist_info()[2] * cfg.data.imgs_per_gpu
         cfg.optimizer['learning_rate'] = cfg.optimizer['learning_rate'] * total_bs / 8
 
     # init distributed env first, since logger depends on the dist info.
