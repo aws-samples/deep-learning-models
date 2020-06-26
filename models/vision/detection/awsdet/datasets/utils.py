@@ -38,8 +38,8 @@ def bbox_flip(bboxes, img_shape):
     '''
     w = img_shape[1]
     flipped = bboxes.copy()
-    flipped[..., 1] = w - bboxes[..., 3] - 1
-    flipped[..., 3] = w - bboxes[..., 1] - 1
+    flipped[..., 1] = w - bboxes[..., 3]
+    flipped[..., 3] = w - bboxes[..., 1]
     return flipped
 
 def impad_to_square(img, pad_size):

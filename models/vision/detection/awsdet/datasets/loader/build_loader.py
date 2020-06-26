@@ -50,17 +50,17 @@ def build_dataloader(dataset,
         
         tf_dataset = tf_dataset.map(lambda *args: args, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         tf_dataset = tf_dataset.prefetch(tf.data.experimental.AUTOTUNE)
-        
+
         tf_dataset = tf_dataset.padded_batch(
                             batch_size,
                             padded_shapes=(
                             tf.TensorShape([None, None, 3]), # image padded to largest in batch
                             tf.TensorShape([11]),            # image meta - no padding
-                            tf.TensorShape([100, 4]),       # bounding boxes, padded to longest
-                            tf.TensorShape([100])           # labels, padded to longest
+                            tf.TensorShape([None, 4]),       # bounding boxes, padded to longest
+                            tf.TensorShape([None])           # labels, padded to longest
                             ),
                             padding_values=(0.0, 0.0, 0.0, -1))
-        
+
         tf_dataset = tf_dataset.prefetch(tf.data.experimental.AUTOTUNE)
         return tf_dataset, generator.num_examples // batch_size
     else:
