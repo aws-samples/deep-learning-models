@@ -260,17 +260,22 @@ def main():
     logger.info("Creating tf_dataset from tensor_slices")
     tf_dataset = tf.data.Dataset.from_tensor_slices(
         ({x: train_dataset[x].to_tensor() for x in columns})
-    ).batch(train_args.per_gpu_batch_size)
+    )
     logger.info("Finished creating tf_dataset from tensor_slices")
+
+    buffer_size = 1000
+    tf_dataset = tf_dataset.shard(hvd.size(), hvd.rank())
+    tf_dataset = tf_dataset.repeat()
+    tf_dataset = tf_dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
+    tf_dataset = tf_dataset.batch(train_args.per_gpu_batch_size, drop_remainder=True)
+    tf_dataset = tf_dataset.prefetch(buffer_size=8)
 
     wandb_run_name = None
 
-    tf_dataset_iter = iter(tf_dataset)
-    # TODO: Change for loop to iterate over batches
-    for step in range(1, train_args.total_steps + 1):
-        batch_dict = next(tf_dataset_iter)
-        ids = batch_dict["input_ids"]
-        attention_mask = batch_dict["attention_mask"]
+    step = 1
+    for batch in tf_dataset:
+        ids = batch["input_ids"]
+        attention_mask = batch["attention_mask"]
         corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
         masked_ids = mask_ids(
             ids=ids, corruption_mask=corruption_mask, mask_id=tokenizer.mask_token_id
@@ -293,8 +298,7 @@ def main():
             hvd.broadcast_variables(gen.variables, root_rank=0)
             hvd.broadcast_variables(dis.variables, root_rank=0)
             hvd.broadcast_variables(optimizer.variables(), root_rank=0)
-            # TODO: Uncomment when for loop iterate over batches
-            # step = optimizer.get_weights()[0]
+            step = optimizer.get_weights()[0]
 
         if hvd.rank() == 0:
             is_final_step = step >= train_args.total_steps
@@ -376,6 +380,10 @@ def main():
                 dis.save_weights(dis_model_ckpt)
                 gen.save_weights(gen_model_ckpt)
                 np.save(optimizer_ckpt, optimizer.get_weights())
+
+        step += 1
+        if is_final_step:
+            break
 
 
 if __name__ == "__main__":
