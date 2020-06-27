@@ -107,9 +107,9 @@ CMD ["/bin/bash"]
 RUN pip install --no-cache-dir \
     mpi4py==3.0.3 \
     sagemaker-containers==2.8.6 \
-    transformers==git:https://github.com/huggingface/transformers.git@master \
+    git+https://github.com/huggingface/transformers.git@master \
     # Necessary to pickle tokenizers for nlp
-    tokenizers==0.8.0rc3 \
+    tokenizers==0.8.0 \
     nlp==0.3.0
 
 ###### Modifications specifically for EC2 connected to FSx for Lustre are below

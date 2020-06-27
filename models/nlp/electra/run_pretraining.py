@@ -62,8 +62,20 @@ def log_example(tokenizer, ids, masked_ids, mask, gen_ids, dis_preds):
 # TODO: Re-add validation step
 
 
+def generate_corruption_mask(ids, attention_mask):
+    mask = (
+        tf.cast(tf.random.uniform(shape=ids.shape) > 0.85, dtype=attention_mask.dtype)
+        * attention_mask
+    )
+    return mask
+
+
+def mask_ids(ids, corruption_mask, mask_id):
+    return tf.where(tf.cast(corruption_mask, tf.bool), tf.cast(mask_id, dtype=ids.dtype), ids)
+
+
 @tf.function
-def train_step(optimizer, gen, dis, ids, masked_ids, attention_mask, corruption_mask):
+def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int):
     """
     Attention mask refers to padding tokens.
         1 is a real token, 0 is a padding token.
@@ -74,6 +86,8 @@ def train_step(optimizer, gen, dis, ids, masked_ids, attention_mask, corruption_
         0: PAD
         103: MASK
     """
+    corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
+    masked_ids = mask_ids(ids=ids, corruption_mask=corruption_mask, mask_id=mask_token_id)
     with tf.GradientTape() as tape:
         ids = tf.cast(ids, tf.int64)
         corruption_mask = tf.cast(corruption_mask, tf.int64)
@@ -206,16 +220,6 @@ def main():
         else:
             run_name = f"{current_time}-{log_args.run_name}"
 
-    def generate_corruption_mask(ids, attention_mask):
-        mask = (
-            tf.cast(tf.random.uniform(shape=ids.shape) > 0.85, dtype=attention_mask.dtype)
-            * attention_mask
-        )
-        return mask
-
-    def mask_ids(ids, corruption_mask, mask_id):
-        return tf.where(tf.cast(corruption_mask, tf.bool), mask_id, ids)
-
     def remove_none_values(example):
         return example["text"] != ""
 
@@ -225,69 +229,85 @@ def main():
             example["text"], padding=True, truncation=True, max_length=data_args.max_seq_length
         )
 
-    portion = 100 / hvd.size()
-    start = int(hvd.rank() * portion)
-    end = int(start + portion)
-    if data_args.pretrain_dataset.startswith("wikitext"):
-        train_dataset = load_dataset(
-            "wikitext", f"{data_args.pretrain_dataset}-raw-v1", split=f"train[{start}%:{end}%]"
+    def get_nlp_dataset(name: str, split_type: str):
+        portion = 100 / hvd.size()
+        start = int(hvd.rank() * portion)
+        end = int(start + portion)
+        if name.startswith("wikitext"):
+            split_name = f"{split_type}[{start}%:{end}%]"
+            # Race condition when downloading the entire dataset
+            # Right now the entire wikitext dataset is downloaded to /root/.cache, which is specific
+            # to each pod. So we want to download the dataset only once on each pod.
+            # TODO: Have WikiText downloaded to a specific location on FSx. Then we won't have this
+            # race condition.
+            if hvd.local_rank() == 0:
+                nlp_dataset = load_dataset("wikitext", f"{name}-raw-v1", split=split_name)
+            # Barrier until dataset is downloaded
+            hvd.allreduce(tf.constant(1))
+            # Then shard the dataset found on disk
+            nlp_dataset = load_dataset("wikitext", f"{name}-raw-v1", split=split_name)
+
+        else:
+            assert False, "Only wikitext-2 or wikitext-103 supported right now"
+
+        nlp_dataset = nlp_dataset.filter(remove_none_values)
+        # WARNING: Set load_from_cache_file=False if you changed something about this dataset
+        nlp_dataset = nlp_dataset.map(
+            tokenize,
+            batched=True,
+            batch_size=1000,
+            cache_file_name=f"/fsx/{name}-{split_name}.cache",
+            # load_from_cache_file=False,
         )
-    else:
-        assert False, "Only wikitext-2 or wikitext-103 supported right now"
+        # Or load it in:
+        # train_dataset = Dataset.from_file(f"/fsx/{data_args.pretrain_dataset}.cache")
 
-    train_dataset = train_dataset.filter(remove_none_values)
-    # WARNING: Set load_from_cache_file=False if you changed something about this dataset
-    train_dataset = train_dataset.map(
-        tokenize,
-        batched=True,
-        batch_size=1000,
-        cache_file_name=f"/fsx/{data_args.pretrain_dataset}.cache",
-        # load_from_cache_file=False,
-    )
-    # Or load it in:
-    # train_dataset = Dataset.from_file(f"/fsx/{data_args.pretrain_dataset}.cache")
+        columns = ["input_ids", "token_type_ids", "attention_mask"]
+        nlp_dataset.set_format("tensorflow", columns=columns)
+        return nlp_dataset
 
-    columns = ["input_ids", "token_type_ids", "attention_mask"]
-    train_dataset.set_format("tensorflow", columns=columns)
-    batch = train_dataset[:5]["input_ids"]  # RaggedTensor
-    batch = batch.to_tensor(default_value=0, shape=[None, data_args.max_seq_length])  # Tensor
-    gen(batch)
+    train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
+    val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
 
     # 20 milliseconds for WikiText-2
     # 20 milliseconds for WikiText-103
     # Seems to be loading lazily!
-    logger.info("Creating gen_dataset from generator")
-    output_types = {"input_ids": tf.int64, "token_type_ids": tf.int64, "attention_mask": tf.int64}
+    def get_tf_lazy_dataset(nlp_dataset):
+        logger.info("Creating gen_dataset from generator")
+        output_types = {
+            "input_ids": tf.int64,
+            "token_type_ids": tf.int64,
+            "attention_mask": tf.int64,
+        }
 
-    def train_dataset_gen():
-        for i in range(len(train_dataset)):
-            yield train_dataset[i]
+        def nlp_dataset_gen():
+            for i in range(len(nlp_dataset)):
+                yield nlp_dataset[i]
 
-    tf_dataset = tf.data.Dataset.from_generator(train_dataset_gen, output_types=output_types)
-    tf_dataset = tf_dataset.batch(train_args.per_gpu_batch_size)
-    logger.info("Finished creating gen_dataset from generator")
+        tf_dataset = tf.data.Dataset.from_generator(nlp_dataset_gen, output_types=output_types)
+        tf_dataset = tf_dataset.batch(train_args.per_gpu_batch_size)
+        logger.info("Finished creating gen_dataset from generator")
+        return tf_dataset
+
+    tf_train_dataset = get_tf_lazy_dataset(train_dataset)
+    tf_val_dataset = get_tf_lazy_dataset(val_dataset)
 
     wandb_run_name = None
 
-    tf_dataset_iter = iter(tf_dataset)
+    tf_train_dataset_iter = iter(tf_train_dataset)
     # TODO: Change for loop to iterate over batches
     for step in range(1, train_args.total_steps + 1):
-        batch_dict = next(tf_dataset_iter)
+        batch_dict = next(tf_train_dataset_iter)
         ids = batch_dict["input_ids"]
         attention_mask = batch_dict["attention_mask"]
-        corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
-        masked_ids = mask_ids(
-            ids=ids, corruption_mask=corruption_mask, mask_id=tokenizer.mask_token_id
-        )
 
         loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds = train_step(
             optimizer=optimizer,
             gen=gen,
             dis=dis,
             ids=ids,
-            masked_ids=masked_ids,
             attention_mask=attention_mask,
-            corruption_mask=corruption_mask,
+            mask_token_id=tokenizer.mask_token_id,
         )
 
         if step == 1:
@@ -312,7 +332,7 @@ def main():
                 elapsed_time = time.perf_counter() - start_time  # Off for first log
                 it_s = log_args.log_frequency / elapsed_time
                 start_time = time.perf_counter()
-                log_example(tokenizer, ids, masked_ids, corruption_mask, gen_ids, dis_preds)
+                # log_example(tokenizer, ids, masked_ids, corruption_mask, gen_ids, dis_preds)
                 description = f"Step {step} -- gen_loss: {gen_loss:.3f}, dis_loss: {dis_loss:.3f}, gen_acc: {gen_acc:.3f}, dis_acc: {dis_acc:.3f}, it/s: {it_s:.3f}\n"
                 logger.info(description)
 
