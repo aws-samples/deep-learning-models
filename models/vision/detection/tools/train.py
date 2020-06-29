@@ -66,7 +66,7 @@ def parse_args():
 
     return args
 
-##### SAGEMAKER SPECIFIC HELPERS ##### TODO: move to utils
+ 
 def decompress_data():
     if get_dist_info()[1]==0:
         print("Decompressing Data")
@@ -109,7 +109,7 @@ def main_ec2(args, cfg):
 
     if args.autoscale_lr:
         # apply the linear scaling rule (https://arxiv.org/abs/1706.02677)
-        total_bs = len(gpus) * cfg.data.imgs_per_gpu
+        total_bs = get_dist_info()[2] * cfg.data.imgs_per_gpu
         cfg.optimizer['learning_rate'] = cfg.optimizer['learning_rate'] * total_bs / 8
 
      # init distributed env first, since logger depends on the dist info.
@@ -197,7 +197,7 @@ def main_sagemaker(args, cfg):
     s3_path = cfg.sagemaker_job['s3_path']
     
     decompress_data() # setup data dirs based on SM CHANNELS
-    
+
     num_gpus = len(gpus)
     # update configs according to CLI args
     if args.work_dir is not None:
@@ -207,7 +207,7 @@ def main_sagemaker(args, cfg):
 
     if args.autoscale_lr:
         # apply the linear scaling rule (https://arxiv.org/abs/1706.02677)
-        total_bs = len(gpus) * cfg.data.imgs_per_gpu
+        total_bs = get_dist_info()[2] * cfg.data.imgs_per_gpu
         cfg.optimizer['learning_rate'] = cfg.optimizer['learning_rate'] * total_bs / 8
 
     # init distributed env first, since logger depends on the dist info.
@@ -251,16 +251,16 @@ def main_sagemaker(args, cfg):
     _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)),
               training=False)
     # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
-    weights_path = cfg.model['backbone']['weights_path']
+
     # sagemaker specific path resolution
     import os, pathlib
     data_root = pathlib.Path(os.getenv('SM_CHANNEL_COCO')).joinpath('coco').as_posix()
     cfg.data.train['dataset_dir'] = data_root
     cfg.data.val['dataset_dir'] = data_root
-    weights_file = 'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
+    weights_file = cfg.model['backbone']['weights_path']
     weights_path = pathlib.Path(os.getenv('SM_CHANNEL_WEIGHTS')).joinpath(weights_file).as_posix()
     logger.info('Loading weights from: {}'.format(weights_path))
-    if osp.splitext(weights_path)[1] == '.h5': # older keras format from Keras model zoo 
+    if osp.splitext(weights_file)[1] == '.h5': # older keras format from Keras model zoo
         model.layers[0].layers[0].load_weights(weights_path, by_name=True, skip_mismatch=True)
     else: # SavedModel format assumed - extract weights
         backbone_model = tf.keras.models.load_model(weights_path)

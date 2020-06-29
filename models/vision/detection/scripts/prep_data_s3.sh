@@ -35,5 +35,10 @@ tar -cf coco.tar coco
 ############################################################
 
 aws s3 cp $BASE_DIR/data/coco.tar s3://${S3_BUCKET}/awsdet/data/coco/coco.tar
+
+#TODO: weights to be downloaded from common model zoo based on model name - remove resnet50 specific paths
 aws s3 cp $BASE_DIR/data/weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5 \
     s3://${S3_BUCKET}/awsdet/data/weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5
+
+aws s3 cp --recursive s3://mzanur-data/models/resnet50 \
+    s3://${S3_BUCKET}/awsdet/data/weights/resnet50/
