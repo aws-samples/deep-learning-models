@@ -52,7 +52,6 @@ class TensorboardLoggerHook(LoggerHook):
         self.writer.flush()
         print('flushed summary writer buffer')
         self._s3_upload(runner)
-        print('wrote events to S3')
 
 
     def _image_log(self, runner):
