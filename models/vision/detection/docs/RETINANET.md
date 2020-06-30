@@ -48,7 +48,7 @@ Training on N GPUs (V100s in our experiments) with a per-gpu batch size of M = N
 
   - SageMaker Setup
 
-    Follow AWSDet tutorial for your model at [AWSDet Tutorial](../tutorials/Tutorial.ipynb)
+    Follow AWSDet tutorial for your model at [AWSDet Tutorial](../tutorial/awsdet/Tutorial.ipynb)
   
   
 ### Training results
