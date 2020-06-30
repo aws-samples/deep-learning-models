@@ -54,6 +54,9 @@ Training on N GPUs (V100s in our experiments) with a per-gpu batch size of M = N
 
 
 ### Training results
+
+
+### Training results
 The results were obtained on SageMaker.
 12 epochs training:
 

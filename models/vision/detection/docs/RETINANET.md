@@ -74,4 +74,8 @@ The results were obtained on SageMaker (distributed training does not use EFA.) 
 
 ### Attribution
 
+<<<<<<< HEAD
 The code is heavily inspired by the excellent MMDetection toolbox [Open MMLab Detection Toolbox and Benchmark](https://github.com/open-mmlab/mmdetection)
+=======
+The code is heavily inspired by the excellent MMDetection toolbox [Open MMLab Detection Toolbox and Benchmark](https://github.com/open-mmlab/mmdetection)
+>>>>>>> c2717a578a214ff793872ce25de5731547d93742
