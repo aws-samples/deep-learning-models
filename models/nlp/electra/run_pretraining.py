@@ -232,12 +232,9 @@ def main():
 
     def get_nlp_dataset(name: str, split: str):
         if name.startswith("wikitext"):
-            # Race condition when downloading the entire dataset
-            # Right now the entire wikitext dataset is downloaded to /root/.cache, which is specific
-            # to each pod. So we want to download the dataset only once on each pod.
-            # TODO: Have WikiText downloaded to a specific location on FSx. Then we won't have this
-            # race condition.
-            if hvd.local_rank() == 0:
+            # Race condition when downloading the entire dataset. We download once to FSx, then each
+            # pod can read the same files.
+            if hvd.rank() == 0:
                 nlp_dataset = load_dataset(
                     "wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR
                 )
@@ -327,8 +324,8 @@ def main():
             hvd.broadcast_variables(optimizer.variables(), root_rank=0)
             step = optimizer.get_weights()[0]
 
+        is_final_step = step >= train_args.total_steps
         if hvd.rank() == 0:
-            is_final_step = step >= train_args.total_steps
             do_log = step % log_args.log_frequency == 0
             do_checkpoint = (step > 1) and (
                 (step % log_args.checkpoint_frequency == 0) or is_final_step
