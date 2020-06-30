@@ -38,8 +38,9 @@ def focal_loss(y_preds, y_true, alpha=0.25, gamma=2.0, label_smoothing=0.0, avg_
     oh_target = oh_target * (1 - label_smoothing) + 0.5 * label_smoothing
     avg_factor = tf.math.maximum(1.0, tf.cast(avg_factor, tf.float32))
     ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=oh_target, logits=y_preds)
-    pt = tf.where(positive_mask, pred_sigmoid, 1.0 - pred_sigmoid)
-    loss = tf.math.pow(1.0 - pt, gamma) * ce
+    positive_target = (1.0 - label_smoothing) + 0.5 * label_smoothing
+    pt = tf.where(positive_mask, pred_sigmoid, positive_target - pred_sigmoid)
+    loss = tf.math.pow(positive_target - pt, gamma) * ce
     weighted_loss = tf.where(positive_mask, alpha * loss, (1.0 - alpha) * loss)
     batch_loss_sum = tf.reduce_sum(weighted_loss)
     return batch_loss_sum / avg_factor
