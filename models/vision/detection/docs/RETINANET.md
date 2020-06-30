@@ -20,7 +20,8 @@ Training on N GPUs (V100s in our experiments) with a per-gpu batch size of M = N
 - Running this codebase does not require any custom op modifications and achieves good training efficiency
 
 ### To launch training
-- Data preprocessing
+
+- Data preprocessing (needs to be done only for EC2 training - SM training takes care of dataset setup for COCO)
   - We are using COCO 2017, you can download the data from [COCO data](http://cocodataset.org/#download).
   - The file folder needs to have the following directory structure:
   ```
@@ -35,25 +36,41 @@ Training on N GPUs (V100s in our experiments) with a per-gpu batch size of M = N
     val2017/
       # image files that are mentioned in corresponding json
   ```
-  - EC2 Setup [TODO]
-  - SageMaker Setup [TODO]
-  - Tensorboard Setup [TODO]
+  
+  
+  - EC2 Setup (single node training - instructions for multinode coming soon)
+  
+    Adjust configuration for your model and use the training script as follows:
+      ```
+      scripts/train_ec2_single_node.sh <NUM_GPUs> <path to config>
+      ```
+
+
+  - SageMaker Setup
+
+    Follow AWSDet tutorial for your model at [AWSDet Tutorial](../tutorials/Tutorial.ipynb)
+  
   
 ### Training results
-The results were obtained on SageMaker (distributed training does not use EFA.)
-12 epochs training:
 
-| Num_GPUs x Images_Per_GPU | Instance type | Training time | Box mAP | Notes |
+The results were obtained on SageMaker (distributed training does not use EFA.) Training times include the time to setup data/model as well as running evaluation at end of every epoch.
+
+12 epochs (COCO 2017 validation 1x) single scale training:
+
+| Num_GPUs x Images_Per_GPU | Instance type | Training time per epoch | Box mAP | Notes |
 | ------------------------- | ------------- | ------------: | ------: | ----- |
-| 8x2 | P3.16x | -h -- | xx.yy% | |
-| 8x4 | P3dn.24xl | -h -- | xx.yy% | |
-| 16x4 | P3dn.24xl | -h -- | xx.yy% | HP search not done |
-| 32x4 | P3dn.24xl | -h -- | xx.yy% | HP search not done |
-| 64x2 | P3dn.24xl | -h -- | xx.yy% | HP search not done |
+| (1x8)x2 | P3.16xl | 32m | xx.yy% |  |
+| (1x8)x4 | P3.16xl | 28m | xx.yy% |  |
+| (1x8)x4 | P3dn.24xl | 27m | xx.yy% |  |
+| (2x8)x4 | P3dn.24xl | 17m | 35.00% |  |
+| (4x8)x4 | P3dn.24xl | 11m | 34.70% |  |
+| (8x8)x4 | P3dn.24xl | 7m | 33.40% | unscaled LR 3e-3, 1000 warmup iters |
 
 
-### Example output
-[TODO]
+### Known Issues
+- Results are not deterministic - you can expect a delta of +/- 0.3 in mAP scores for training runs with the same settings
+- Not much hyperparameter tuning has been done, you may obtain better results with hyperparameter search and multiscale training
+
 
 ### Attribution
 

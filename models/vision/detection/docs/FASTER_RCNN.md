@@ -22,7 +22,8 @@ Training on N GPUs (V100s in our experiments) with a per-gpu batch size of M = N
 - Running this codebase does not require any custom op modifications and achieves good training efficiency
 
 ### To launch training
-- Data preprocessing
+
+- Data preprocessing (needs to be done only for EC2 training - SM training takes care of dataset setup for COCO)
   - We are using COCO 2017, you can download the data from [COCO data](http://cocodataset.org/#download).
   - The file folder needs to have the following directory structure:
   ```
@@ -37,10 +38,21 @@ Training on N GPUs (V100s in our experiments) with a per-gpu batch size of M = N
     val2017/
       # image files that are mentioned in corresponding json
   ```
-  - EC2 Setup [TODO]
-  - SageMaker Setup [TODO]
-  - Tensorboard Setup [TODO]
   
+  
+  - EC2 Setup (single node training - instructions for multinode coming soon)
+  
+    Adjust configuration for your model and use the training script as follows:
+      ```
+      scripts/train_ec2_single_node.sh <NUM_GPUs> <path to config>
+      ```
+
+
+  - SageMaker Setup
+
+    Follow AWSDet tutorial for your model at [AWSDet Tutorial](../tutorials/Tutorial.ipynb)
+
+
 ### Training results
 The results were obtained on SageMaker.
 12 epochs training:

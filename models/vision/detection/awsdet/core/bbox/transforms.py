@@ -90,10 +90,10 @@ def bbox_clip(box, window):
     """
     wy1, wx1, wy2, wx2 = tf.split(window, 4)
     y1, x1, y2, x2 = tf.split(box, 4, axis=1)
-    y1 = tf.maximum(y1, wy1)
-    x1 = tf.maximum(x1, wx1)
-    y2 = tf.minimum(y2, wy2)
-    x2 = tf.minimum(x2, wx2)
+    y1 = tf.maximum(tf.minimum(y1, wy2), wy1)
+    x1 = tf.maximum(tf.minimum(x1, wx2), wx1)
+    y2 = tf.maximum(tf.minimum(y2, wy2), wy1)
+    x2 = tf.maximum(tf.minimum(x2, wx2), wx1)
     clipped = tf.concat([y1, x1, y2, x2], axis=1)
     clipped.set_shape((clipped.shape[0], 4))
     return clipped
