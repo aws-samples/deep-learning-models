@@ -47,6 +47,7 @@ if is_wandb_available():
     import wandb
 
 logger = logging.getLogger(__name__)
+CACHE_DIR = "/fsx/nlp_cache"
 
 
 def log_example(tokenizer, ids, masked_ids, mask, gen_ids, dis_preds):
@@ -238,12 +239,14 @@ def main():
             # race condition.
             if hvd.local_rank() == 0:
                 nlp_dataset = load_dataset(
-                    "wikitext", f"{name}-raw-v1", split=split, cache_dir="/fsx/nlp_cache"
+                    "wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR
                 )
             # Barrier until dataset is downloaded
             hvd.allreduce(tf.constant(1))
             # Then shard the dataset found on disk
-            nlp_dataset = load_dataset("wikitext", f"{name}-raw-v1", split=split)
+            nlp_dataset = load_dataset(
+                "wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR
+            )
 
         else:
             assert False, "Only wikitext-2 or wikitext-103 supported right now"
@@ -254,7 +257,7 @@ def main():
             tokenize,
             batched=True,
             batch_size=1000,
-            cache_file_name=f"/fsx/{name}-{split}.cache",
+            cache_file_name=f"{CACHE_DIR}/{name}-{split}.cache",
             # load_from_cache_file=False,
         )
         # Or load it in:

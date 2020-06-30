@@ -84,7 +84,7 @@ python -m albert.launch_sagemaker \
 7. Enter the Docker container to debug and edit code.
 
 ```bash
-docker run -it -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
+docker run -it --privileged -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
 ```
 
 <!-- ### Training results
