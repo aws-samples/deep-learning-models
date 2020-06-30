@@ -229,23 +229,21 @@ def main():
             example["text"], padding=True, truncation=True, max_length=data_args.max_seq_length
         )
 
-    def get_nlp_dataset(name: str, split_type: str):
-        portion = 100 / hvd.size()
-        start = int(hvd.rank() * portion)
-        end = int(start + portion)
+    def get_nlp_dataset(name: str, split: str):
         if name.startswith("wikitext"):
-            split_name = f"{split_type}[{start}%:{end}%]"
             # Race condition when downloading the entire dataset
             # Right now the entire wikitext dataset is downloaded to /root/.cache, which is specific
             # to each pod. So we want to download the dataset only once on each pod.
             # TODO: Have WikiText downloaded to a specific location on FSx. Then we won't have this
             # race condition.
             if hvd.local_rank() == 0:
-                nlp_dataset = load_dataset("wikitext", f"{name}-raw-v1", split=split_name)
+                nlp_dataset = load_dataset(
+                    "wikitext", f"{name}-raw-v1", split=split, cache_dir="/fsx/nlp_cache"
+                )
             # Barrier until dataset is downloaded
             hvd.allreduce(tf.constant(1))
             # Then shard the dataset found on disk
-            nlp_dataset = load_dataset("wikitext", f"{name}-raw-v1", split=split_name)
+            nlp_dataset = load_dataset("wikitext", f"{name}-raw-v1", split=split)
 
         else:
             assert False, "Only wikitext-2 or wikitext-103 supported right now"
@@ -256,7 +254,7 @@ def main():
             tokenize,
             batched=True,
             batch_size=1000,
-            cache_file_name=f"/fsx/{name}-{split_name}.cache",
+            cache_file_name=f"/fsx/{name}-{split}.cache",
             # load_from_cache_file=False,
         )
         # Or load it in:
@@ -285,7 +283,12 @@ def main():
                 yield nlp_dataset[i]
 
         tf_dataset = tf.data.Dataset.from_generator(nlp_dataset_gen, output_types=output_types)
-        tf_dataset = tf_dataset.batch(train_args.per_gpu_batch_size)
+        buffer_size = 1000
+        tf_dataset = tf_dataset.shard(hvd.size(), hvd.rank())
+        tf_dataset = tf_dataset.repeat()
+        tf_dataset = tf_dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
+        tf_dataset = tf_dataset.batch(train_args.per_gpu_batch_size, drop_remainder=True)
+        tf_dataset = tf_dataset.prefetch(buffer_size=8)
         logger.info("Finished creating gen_dataset from generator")
         return tf_dataset
 
@@ -294,12 +297,14 @@ def main():
 
     wandb_run_name = None
 
-    tf_train_dataset_iter = iter(tf_train_dataset)
-    # TODO: Change for loop to iterate over batches
-    for step in range(1, train_args.total_steps + 1):
-        batch_dict = next(tf_train_dataset_iter)
-        ids = batch_dict["input_ids"]
-        attention_mask = batch_dict["attention_mask"]
+    step = 1
+    for batch in tf_train_dataset:
+        ids = batch["input_ids"]
+        attention_mask = batch["attention_mask"]
+        corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
+        masked_ids = mask_ids(
+            ids=ids, corruption_mask=corruption_mask, mask_id=tokenizer.mask_token_id
+        )
 
         loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds = train_step(
             optimizer=optimizer,
@@ -317,8 +322,7 @@ def main():
             hvd.broadcast_variables(gen.variables, root_rank=0)
             hvd.broadcast_variables(dis.variables, root_rank=0)
             hvd.broadcast_variables(optimizer.variables(), root_rank=0)
-            # TODO: Uncomment when for loop iterate over batches
-            # step = optimizer.get_weights()[0]
+            step = optimizer.get_weights()[0]
 
         if hvd.rank() == 0:
             is_final_step = step >= train_args.total_steps
@@ -400,6 +404,10 @@ def main():
                 dis.save_weights(dis_model_ckpt)
                 gen.save_weights(gen_model_ckpt)
                 np.save(optimizer_ckpt, optimizer.get_weights())
+
+        step += 1
+        if is_final_step:
+            break
 
 
 if __name__ == "__main__":
