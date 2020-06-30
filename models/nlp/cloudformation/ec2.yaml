@@ -13,10 +13,6 @@ Parameters:
     # from fsx.yaml
     Default: fs-123
     Type: String
-  LustreBucketName:
-    # from fsx.yaml
-    Default: dlmodels
-    Type: String
 
   # These parameters can be kept
   AvailabilityZone:
