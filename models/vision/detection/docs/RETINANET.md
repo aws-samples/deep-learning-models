@@ -66,9 +66,11 @@ The results were obtained on SageMaker (distributed training does not use EFA.) 
 | (4x8)x4 | P3dn.24xl | 11m | 34.70% |  |
 | (8x8)x4 | P3dn.24xl | 7m | 33.40% | unscaled LR 3e-3, 1000 warmup iters |
 
+
 ### Known Issues
 - Results are not deterministic - you can expect a delta of +/- 0.3 in mAP scores for training runs with the same settings
 - Not much hyperparameter tuning has been done, you may obtain better results with hyperparameter search and multiscale training
+
 
 ### Attribution
 
