@@ -278,7 +278,13 @@ def main():
             for i in range(len(nlp_dataset)):
                 yield nlp_dataset[i]
 
-        tf_dataset = tf.data.Dataset.from_generator(nlp_dataset_gen, output_types=output_types)
+        # from_generator() is bottlenecked by GIL.
+        # See https://stackoverflow.com/questions/47086599/parallelising-tf-data-dataset-from-generator
+        # So we parallelize it across CPU cores with interleave().
+        # https://stackoverflow.com/questions/52179857/parallelize-tf-from-generator-using-tf-contrib-data-parallel-interleave
+        tf_dataset = tf.data.Dataset.range(1).interleave(
+            lambda idx: tf.data.Dataset.from_generator(nlp_dataset_gen, output_types=output_types)
+        )
         buffer_size = 1000
         tf_dataset = tf_dataset.shard(hvd.size(), hvd.rank())
         tf_dataset = tf_dataset.repeat()
