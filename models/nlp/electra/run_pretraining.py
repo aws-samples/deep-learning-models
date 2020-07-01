@@ -232,19 +232,9 @@ def main():
 
     def get_nlp_dataset(name: str, split: str):
         if name.startswith("wikitext"):
-            # Race condition when downloading the entire dataset. We download once to FSx, then each
-            # pod can read the same files.
-            if hvd.rank() == 0:
-                nlp_dataset = load_dataset(
-                    "wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR
-                )
-            # Barrier until dataset is downloaded
-            hvd.allreduce(tf.constant(1))
-            # Then shard the dataset found on disk
             nlp_dataset = load_dataset(
                 "wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR
             )
-
         else:
             assert False, "Only wikitext-2 or wikitext-103 supported right now"
 
@@ -264,6 +254,12 @@ def main():
         nlp_dataset.set_format("tensorflow", columns=columns)
         return nlp_dataset
 
+    # Download the dataset on one rank, and barrier until it is complete
+    if hvd.rank() == 0:
+        train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
+        val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
+    hvd.allreduce(tf.constant(1))
+    # Then load the dataset from cache on all ranks
     train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
     val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
 
