@@ -85,6 +85,7 @@ class ModelArguments:
     load_optimizer_state: str = field(default="true", metadata={"choices": ["true", "false"]})
     hidden_dropout_prob: float = field(default=0.0)
     attention_probs_dropout_prob: float = field(default=0.0)
+    electra_tie_weights: str = field(default="true", metadata={"choices": ["true", "false"]})
     # TODO: Pre-layer norm is not yet supported in transformers. PR is at https://github.com/huggingface/transformers/pull/3929, but maintainers are unresponsive.
     # The difficulty of keeping a parallel fork means we'll disable this option temporarily.
     pre_layer_norm: str = field(

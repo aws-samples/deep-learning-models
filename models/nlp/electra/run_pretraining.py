@@ -194,7 +194,8 @@ def main():
     optimizer = get_adamw_optimizer(train_args)
 
     # Tie the weights
-    gen.electra.embeddings = dis.electra.embeddings
+    if model_args.electra_tie_weights == "true":
+        gen.electra.embeddings = dis.electra.embeddings
 
     loaded_optimizer_weights = None
     if model_args.load_from == "checkpoint":
