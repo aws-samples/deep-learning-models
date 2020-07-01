@@ -137,7 +137,15 @@ def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int):
         lmbda = 50
         loss = gen_loss + lmbda * dis_loss
 
+    # Be careful not to double-apply gradients by having duplicate embeddings in the variable list
+    # See https://github.com/tensorflow/tensorflow/issues/30712
     vars = gen.trainable_variables + dis.trainable_variables
+    # Tensor is unhashable, so can't do list(set(vars))
+    # Relies on all ranks doing the same list->dict->list ordering
+    # Ensure that this happens every time, not just during function tracing
+    # tf.print(f"vars has length {len(vars)} before dedupe")
+    vars = list({var.experimental_ref(): var for var in vars}.values())
+    # tf.print(f"vars has length {len(vars)} after dedupe")
     grads = tape.gradient(loss, vars)
     grads = [
         hvd.allreduce(grad, compression=hvd.Compression.fp16) if grad is not None else None
@@ -184,6 +192,9 @@ def main():
     gen = TFElectraForMaskedLM(config=gen_config)
     dis = TFElectraForPreTraining(config=dis_config)
     optimizer = get_adamw_optimizer(train_args)
+
+    # Tie the weights
+    gen.electra.embeddings = dis.electra.embeddings
 
     loaded_optimizer_weights = None
     if model_args.load_from == "checkpoint":
