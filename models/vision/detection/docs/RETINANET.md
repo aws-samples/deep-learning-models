@@ -59,7 +59,7 @@ The results were obtained on SageMaker (distributed training does not use EFA.) 
 
 | Num_GPUs x Images_Per_GPU | Instance type | Training time per epoch | Box mAP | Notes |
 | ------------------------- | ------------- | ------------: | ------: | ----- |
-| (1x8)x2 | P3.16xl | 32m | xx.yy% |  |
+| (1x8)x2 | P3.16xl | 32m | 35.20% |  |
 | (1x8)x4 | P3.16xl | 28m | xx.yy% |  |
 | (1x8)x4 | P3dn.24xl | 27m | xx.yy% |  |
 | (2x8)x4 | P3dn.24xl | 17m | 35.00% |  |
@@ -73,9 +73,4 @@ The results were obtained on SageMaker (distributed training does not use EFA.) 
 
 
 ### Attribution
-
-<<<<<<< HEAD
 The code is heavily inspired by the excellent MMDetection toolbox [Open MMLab Detection Toolbox and Benchmark](https://github.com/open-mmlab/mmdetection)
-=======
-The code is heavily inspired by the excellent MMDetection toolbox [Open MMLab Detection Toolbox and Benchmark](https://github.com/open-mmlab/mmdetection)
->>>>>>> c2717a578a214ff793872ce25de5731547d93742
