@@ -76,6 +76,71 @@ def mask_ids(ids, corruption_mask, mask_id):
     return tf.where(tf.cast(corruption_mask, tf.bool), tf.cast(mask_id, dtype=ids.dtype), ids)
 
 
+def forward(gen, dis, ids, masked_ids, attention_mask, corruption_mask):
+    ids = tf.cast(ids, tf.int64)
+    corruption_mask = tf.cast(corruption_mask, tf.int64)
+
+    # Generator loss
+    (gen_logits,) = gen(
+        {"input_ids": masked_ids, "attention_mask": attention_mask}
+    )  # [bsz, seq_len, vocab_size]
+    gen_loss = tf.keras.losses.sparse_categorical_crossentropy(
+        y_true=tf.boolean_mask(ids, corruption_mask),  # [bsz * n_masks, vocab_size]
+        y_pred=tf.boolean_mask(gen_logits, corruption_mask),  # [bsz * n_masks]
+        from_logits=True,
+    )  # [bsz * n_masks]
+    gen_loss = tf.reduce_mean(gen_loss)  # [1]
+
+    # Generator accuracy
+    # argmax returns tf.int64 by default
+    adv_ids = tf.argmax(gen_logits, axis=-1, output_type=ids.dtype)  # [bsz, seq_len]
+    ids_equal = tf.cast(adv_ids == ids, dtype=tf.int64)  # [bsz, seq_len]
+    gen_correct = tf.boolean_mask(ids_equal, corruption_mask)  # [bsz * n_masks]
+    gen_acc = tf.reduce_mean(tf.cast(gen_correct, dtype=tf.float32))  # [1]
+
+    # Discriminator loss
+    gen_ids = corruption_mask * adv_ids + (1 - corruption_mask) * ids  # [bsz, seq_len]
+    (dis_logits,) = dis({"input_ids": gen_ids, "attention_mask": attention_mask})  # [bsz, seq_len]
+    # If generator generates correct token, invert the loss
+    is_corrupted = tf.cast(gen_ids != ids, tf.int64)
+    dis_loss = tf.keras.losses.binary_crossentropy(
+        y_true=tf.boolean_mask(is_corrupted, attention_mask),
+        y_pred=tf.boolean_mask(dis_logits, attention_mask),
+        from_logits=True,
+    )
+    dis_loss = tf.reduce_mean(dis_loss)
+
+    # Discriminator accuracy
+    # TODO: Check that accuracy_mask is different
+    dis_probs = tf.math.sigmoid(dis_logits)  # [bsz, seq_len]
+    dis_preds = tf.cast(dis_probs > 0.5, dtype=corruption_mask.dtype)  # [bsz, seq_len] (bool)
+    dis_acc = tf.reduce_mean(
+        tf.cast(tf.cast(dis_preds, tf.bool) == (gen_ids != ids), dtype=tf.float32)
+    )  # gen_ids != ids is corrupted
+
+    # Generator is 30,000-way classification loss, while discriminator is binary classification.
+    lmbda = 50
+    loss = gen_loss + lmbda * dis_loss
+
+    return loss, gen_loss, dis_loss, gen_acc, dis_acc
+
+
+@tf.function
+def val_step(gen, dis, ids, attention_mask, mask_token_id: int):
+    corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
+    masked_ids = mask_ids(ids=ids, corruption_mask=corruption_mask, mask_id=mask_token_id)
+    loss, gen_loss, dis_loss, gen_acc, dis_acc = forward(
+        gen=gen,
+        dis=dis,
+        ids=ids,
+        masked_ids=masked_ids,
+        attention_mask=attention_mask,
+        corruption_mask=corruption_mask,
+    )
+    Output = namedtuple("Output", ["loss", "gen_loss", "dis_loss", "gen_acc", "dis_acc"])
+    return Output(loss=loss, gen_loss=gen_loss, dis_loss=dis_loss, gen_acc=gen_acc, dis_acc=dis_acc)
+
+
 @tf.function
 def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int):
     """
@@ -91,52 +156,14 @@ def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int):
     corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
     masked_ids = mask_ids(ids=ids, corruption_mask=corruption_mask, mask_id=mask_token_id)
     with tf.GradientTape() as tape:
-        ids = tf.cast(ids, tf.int64)
-        corruption_mask = tf.cast(corruption_mask, tf.int64)
-
-        # Generator loss
-        (gen_logits,) = gen(
-            {"input_ids": masked_ids, "attention_mask": attention_mask}
-        )  # [bsz, seq_len, vocab_size]
-        gen_loss = tf.keras.losses.sparse_categorical_crossentropy(
-            y_true=tf.boolean_mask(ids, corruption_mask),  # [bsz * n_masks, vocab_size]
-            y_pred=tf.boolean_mask(gen_logits, corruption_mask),  # [bsz * n_masks]
-            from_logits=True,
-        )  # [bsz * n_masks]
-        gen_loss = tf.reduce_mean(gen_loss)  # [1]
-
-        # Generator accuracy
-        # argmax returns tf.int64 by default
-        adv_ids = tf.argmax(gen_logits, axis=-1, output_type=ids.dtype)  # [bsz, seq_len]
-        ids_equal = tf.cast(adv_ids == ids, dtype=tf.int64)  # [bsz, seq_len]
-        gen_correct = tf.boolean_mask(ids_equal, corruption_mask)  # [bsz * n_masks]
-        gen_acc = tf.reduce_mean(tf.cast(gen_correct, dtype=tf.float32))  # [1]
-
-        # Discriminator loss
-        gen_ids = corruption_mask * adv_ids + (1 - corruption_mask) * ids  # [bsz, seq_len]
-        (dis_logits,) = dis(
-            {"input_ids": gen_ids, "attention_mask": attention_mask}
-        )  # [bsz, seq_len]
-        # If generator generates correct token, invert the loss
-        is_corrupted = tf.cast(gen_ids != ids, tf.int64)
-        dis_loss = tf.keras.losses.binary_crossentropy(
-            y_true=tf.boolean_mask(is_corrupted, attention_mask),
-            y_pred=tf.boolean_mask(dis_logits, attention_mask),
-            from_logits=True,
+        loss, gen_loss, dis_loss, gen_acc, dis_acc = forward(
+            gen=gen,
+            dis=dis,
+            ids=ids,
+            masked_ids=masked_ids,
+            attention_mask=attention_mask,
+            corruption_mask=corruption_mask,
         )
-        dis_loss = tf.reduce_mean(dis_loss)
-
-        # Discriminator accuracy
-        # TODO: Check that accuracy_mask is different
-        dis_probs = tf.math.sigmoid(dis_logits)  # [bsz, seq_len]
-        dis_preds = tf.cast(dis_probs > 0.5, dtype=corruption_mask.dtype)  # [bsz, seq_len] (bool)
-        dis_acc = tf.reduce_mean(
-            tf.cast(tf.cast(dis_preds, tf.bool) == (gen_ids != ids), dtype=tf.float32)
-        )  # gen_ids != ids is corrupted
-
-        # Generator is 30,000-way classification loss, while discriminator is binary classification.
-        lmbda = 50
-        loss = gen_loss + lmbda * dis_loss
 
     # Be careful not to double-apply gradients by having duplicate embeddings in the variable list
     # See https://github.com/tensorflow/tensorflow/issues/30712
@@ -297,7 +324,8 @@ def main():
         # So we parallelize it across CPU cores with interleave().
         # https://stackoverflow.com/questions/52179857/parallelize-tf-from-generator-using-tf-contrib-data-parallel-interleave
         tf_dataset = tf.data.Dataset.range(1).interleave(
-            lambda idx: tf.data.Dataset.from_generator(nlp_dataset_gen, output_types=output_types)
+            lambda idx: tf.data.Dataset.from_generator(nlp_dataset_gen, output_types=output_types),
+            # num_parallel_calls=10,
         )
         buffer_size = 1000
         tf_dataset = tf_dataset.shard(hvd.size(), hvd.rank())
@@ -317,12 +345,6 @@ def main():
     for batch in tf_train_dataset:
         ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
-        corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
-        masked_ids = mask_ids(
-            ids=ids, corruption_mask=corruption_mask, mask_id=tokenizer.mask_token_id
-        )
-
-        # loss, gen_loss, dis_loss, gen_acc, dis_acc = train_step(
         train_result = train_step(
             optimizer=optimizer,
             gen=gen,
@@ -347,7 +369,7 @@ def main():
             do_checkpoint = (step > 1) and (
                 (step % log_args.checkpoint_frequency == 0) or is_final_step
             )
-            do_validation = False  # step % log_args.validation_frequency == 0
+            do_validation = step % log_args.validation_frequency == 0
 
             if do_log:
                 elapsed_time = time.perf_counter() - start_time  # Off for first log
@@ -358,26 +380,22 @@ def main():
                 logger.info(description)
 
             if do_validation:
-                # TODO: Re-implement validation, but with less code duplication
-                # val_ids = get_batch_ids(dataset=train_dataset, bsz=bsz, seq_len=seq_len)
-                # val_masked_ids, val_mask = mask_ids(val_ids)
-                # (
-                #     val_loss,
-                #     val_gen_loss,
-                #     val_dis_loss,
-                #     val_gen_acc,
-                #     val_dis_acc,
-                #     val_gen_ids,
-                #     val_dis_preds,
-                # ) = val_step(
-                #     gen=gen, dis=dis, ids=val_ids, masked_ids=val_masked_ids, mask=val_mask
-                # )
+                batch = next(iter(tf_val_dataset))
+                val_ids = batch["input_ids"]
+                val_attention_mask = batch["attention_mask"]
+                print(val_ids.shape)
+                val_result = val_step(
+                    gen=gen,
+                    dis=dis,
+                    ids=val_ids,
+                    attention_mask=val_attention_mask,
+                    mask_token_id=tokenizer.mask_token_id,
+                )
                 # log_example(
                 #     tokenizer, val_ids, val_masked_ids, val_mask, val_gen_ids, val_dis_preds
                 # )
-                # description = f"VALIDATION, Step {step} -- val_gen_loss: {val_gen_loss:.3f}, val_dis_loss: {val_dis_loss:.3f}, val_gen_acc: {val_gen_acc:.3f}, val_dis_acc: {val_dis_acc:.3f}\n"
-                # logger.info(description)
-                pass
+                description = f"VALIDATION, Step {step} -- val_gen_loss: {val_result.gen_loss:.3f}, val_dis_loss: {val_result.dis_loss:.3f}, val_gen_acc: {val_result.gen_acc:.3f}, val_dis_acc: {val_result.dis_acc:.3f}\n"
+                logger.info(description)
 
             train_metrics = {
                 "train/loss": train_result.loss,
@@ -389,11 +407,11 @@ def main():
             all_metrics = {**train_metrics}
             if do_validation:
                 val_metrics = {
-                    "val/loss": val_loss,
-                    "val/gen_loss": val_gen_loss,
-                    "val/dis_loss": val_dis_loss,
-                    "val/gen_acc": val_gen_acc,
-                    "val/dis_acc": val_dis_acc,
+                    "val/loss": val_result.loss,
+                    "val/gen_loss": val_result.gen_loss,
+                    "val/dis_loss": val_result.dis_loss,
+                    "val/gen_acc": val_result.gen_acc,
+                    "val/dis_acc": val_result.dis_acc,
                 }
                 all_metrics = {**all_metrics, **val_metrics}
             if do_log:
