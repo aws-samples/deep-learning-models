@@ -76,7 +76,7 @@ def mask_ids(ids, corruption_mask, mask_id):
     return tf.where(tf.cast(corruption_mask, tf.bool), tf.cast(mask_id, dtype=ids.dtype), ids)
 
 
-def forward(gen, dis, ids, masked_ids, attention_mask, corruption_mask):
+def forward(gen, dis, ids, masked_ids, attention_mask, corruption_mask, return_preds=False):
     ids = tf.cast(ids, tf.int64)
     corruption_mask = tf.cast(corruption_mask, tf.int64)
 
@@ -122,23 +122,50 @@ def forward(gen, dis, ids, masked_ids, attention_mask, corruption_mask):
     lmbda = 50
     loss = gen_loss + lmbda * dis_loss
 
-    return loss, gen_loss, dis_loss, gen_acc, dis_acc
+    res = (loss, gen_loss, dis_loss, gen_acc, dis_acc)
+    if return_preds:
+        res += (gen_ids, dis_preds)
+    return res
 
 
 @tf.function
 def val_step(gen, dis, ids, attention_mask, mask_token_id: int):
     corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
     masked_ids = mask_ids(ids=ids, corruption_mask=corruption_mask, mask_id=mask_token_id)
-    loss, gen_loss, dis_loss, gen_acc, dis_acc = forward(
+    loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds = forward(
         gen=gen,
         dis=dis,
         ids=ids,
         masked_ids=masked_ids,
         attention_mask=attention_mask,
         corruption_mask=corruption_mask,
+        return_preds=True,
     )
-    Output = namedtuple("Output", ["loss", "gen_loss", "dis_loss", "gen_acc", "dis_acc"])
-    return Output(loss=loss, gen_loss=gen_loss, dis_loss=dis_loss, gen_acc=gen_acc, dis_acc=dis_acc)
+    Output = namedtuple(
+        "Output",
+        [
+            "loss",
+            "gen_loss",
+            "dis_loss",
+            "gen_acc",
+            "dis_acc",
+            "corruption_mask",
+            "masked_ids",
+            "gen_ids",
+            "dis_preds",
+        ],
+    )
+    return Output(
+        loss=loss,
+        gen_loss=gen_loss,
+        dis_loss=dis_loss,
+        gen_acc=gen_acc,
+        dis_acc=dis_acc,
+        corruption_mask=corruption_mask,
+        masked_ids=masked_ids,
+        gen_ids=gen_ids,
+        dis_preds=dis_preds,
+    )
 
 
 @tf.function
@@ -375,7 +402,6 @@ def main():
                 elapsed_time = time.perf_counter() - start_time  # Off for first log
                 it_s = log_args.log_frequency / elapsed_time
                 start_time = time.perf_counter()
-                # log_example(tokenizer, ids, masked_ids, corruption_mask, gen_ids, dis_preds)
                 description = f"Step {step} -- gen_loss: {train_result.gen_loss:.3f}, dis_loss: {train_result.dis_loss:.3f}, gen_acc: {train_result.gen_acc:.3f}, dis_acc: {train_result.dis_acc:.3f}, it/s: {it_s:.3f}\n"
                 logger.info(description)
 
@@ -391,9 +417,14 @@ def main():
                     attention_mask=val_attention_mask,
                     mask_token_id=tokenizer.mask_token_id,
                 )
-                # log_example(
-                #     tokenizer, val_ids, val_masked_ids, val_mask, val_gen_ids, val_dis_preds
-                # )
+                log_example(
+                    tokenizer,
+                    val_ids,
+                    val_result.masked_ids,
+                    val_result.corruption_mask,
+                    val_result.gen_ids,
+                    val_result.dis_preds,
+                )
                 description = f"VALIDATION, Step {step} -- val_gen_loss: {val_result.gen_loss:.3f}, val_dis_loss: {val_result.dis_loss:.3f}, val_gen_acc: {val_result.gen_acc:.3f}, val_dis_acc: {val_result.dis_acc:.3f}\n"
                 logger.info(description)
 
