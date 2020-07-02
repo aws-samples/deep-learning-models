@@ -4,7 +4,7 @@ TensorFlow 2.1 implementation of pretraining and finetuning scripts for BERT.
 
 The original paper: [BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding](https://arxiv.org/pdf/1810.04805.pdf)
 
-Pretraining consists of two phases. We use mixed-batch training. 
+Pretraining consists of two phases. We use mixed-batch training.
 
 * Phase1: We pretrain 14064 steps with a total batch size of 32K for maximum sequence length of 128 across 8 p3dn.24xlarge nodes.
 * Phase2: We pretrain 6248 steps with a total batch size of 8K for maximum sequence length of 512 across 8 p3dn.24xlarge nodes.
@@ -168,5 +168,5 @@ python -m albert.launch_sagemaker \
 9. Enter the Docker container to debug and edit code.
 
 ```bash
-docker run -it -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
+docker run -it --privileged -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
 ```
