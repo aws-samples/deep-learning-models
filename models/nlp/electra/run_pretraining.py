@@ -16,6 +16,7 @@ nlp feature request: Select from dataset with arbitrary slices
 import datetime
 import logging
 import time
+from collections import namedtuple
 from typing import Tuple
 
 import numpy as np
@@ -153,7 +154,8 @@ def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int):
     ]
     optimizer.apply_gradients(zip(grads, vars))
 
-    return loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds
+    Output = namedtuple("Output", ["loss", "gen_loss", "dis_loss", "gen_acc", "dis_acc"])
+    return Output(loss=loss, gen_loss=gen_loss, dis_loss=dis_loss, gen_acc=gen_acc, dis_acc=dis_acc)
 
 
 def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str, str]:
@@ -320,7 +322,8 @@ def main():
             ids=ids, corruption_mask=corruption_mask, mask_id=tokenizer.mask_token_id
         )
 
-        loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds = train_step(
+        # loss, gen_loss, dis_loss, gen_acc, dis_acc = train_step(
+        train_result = train_step(
             optimizer=optimizer,
             gen=gen,
             dis=dis,
@@ -351,7 +354,7 @@ def main():
                 it_s = log_args.log_frequency / elapsed_time
                 start_time = time.perf_counter()
                 # log_example(tokenizer, ids, masked_ids, corruption_mask, gen_ids, dis_preds)
-                description = f"Step {step} -- gen_loss: {gen_loss:.3f}, dis_loss: {dis_loss:.3f}, gen_acc: {gen_acc:.3f}, dis_acc: {dis_acc:.3f}, it/s: {it_s:.3f}\n"
+                description = f"Step {step} -- gen_loss: {train_result.gen_loss:.3f}, dis_loss: {train_result.dis_loss:.3f}, gen_acc: {train_result.gen_acc:.3f}, dis_acc: {train_result.dis_acc:.3f}, it/s: {it_s:.3f}\n"
                 logger.info(description)
 
             if do_validation:
@@ -377,11 +380,11 @@ def main():
                 pass
 
             train_metrics = {
-                "train/loss": loss,
-                "train/gen_loss": gen_loss,
-                "train/dis_loss": dis_loss,
-                "train/gen_acc": gen_acc,
-                "train/dis_acc": dis_acc,
+                "train/loss": train_result.loss,
+                "train/gen_loss": train_result.gen_loss,
+                "train/dis_loss": train_result.dis_loss,
+                "train/gen_acc": train_result.gen_acc,
+                "train/dis_acc": train_result.dis_acc,
             }
             all_metrics = {**train_metrics}
             if do_validation:
