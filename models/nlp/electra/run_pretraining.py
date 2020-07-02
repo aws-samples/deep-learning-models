@@ -14,6 +14,7 @@ nlp feature request: Select from dataset with arbitrary slices
 """
 
 import datetime
+import glob
 import logging
 import time
 from typing import Tuple
@@ -36,6 +37,7 @@ from common.arguments import (
     ModelArguments,
     TrainingArguments,
 )
+from common.datasets import get_electra_dataset
 from common.optimizers import get_adamw_optimizer
 from common.utils import TqdmLoggingHandler, is_wandb_available
 from electra.utils import colorize_dis, colorize_gen
@@ -120,7 +122,7 @@ def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int):
         is_corrupted = tf.cast(gen_ids != ids, tf.int64)
         dis_loss = tf.keras.losses.binary_crossentropy(
             y_true=tf.boolean_mask(is_corrupted, attention_mask),
-            y_pred=tf.boolean_mask(dis_logits, attention_mask),
+            y_pred=tf.boolean_mask(tf.reshape(dis_logits, [1, 128]), attention_mask),
             from_logits=True,
         )
         dis_loss = tf.reduce_mean(dis_loss)
@@ -266,15 +268,6 @@ def main():
         nlp_dataset.set_format("tensorflow", columns=columns)
         return nlp_dataset
 
-    # Download the dataset on one rank, and barrier until it is complete
-    if hvd.rank() == 0:
-        train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
-        val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
-    hvd.allreduce(tf.constant(1))
-    # Then load the dataset from cache on all ranks
-    train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
-    val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
-
     # 20 milliseconds for WikiText-2
     # 20 milliseconds for WikiText-103
     # Seems to be loading lazily!
@@ -306,8 +299,41 @@ def main():
         logger.info("Finished creating gen_dataset from generator")
         return tf_dataset
 
-    tf_train_dataset = get_tf_lazy_dataset(train_dataset)
-    tf_val_dataset = get_tf_lazy_dataset(val_dataset)
+    logger.info(f"Training with {data_args.pretrain_dataset} dataset")
+
+    if data_args.pretrain_dataset == "wikibooks":
+        train_glob = f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/training/*.tfrecord*"
+        validation_glob = f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/test/*.tfrecord*"
+        train_filenames = glob.glob(train_glob)
+        validation_filenames = glob.glob(validation_glob)
+        logger.info(
+            f"Number of train files {len(train_filenames)}, number of validation files {len(validation_filenames)}"
+        )
+
+        tf_train_dataset = get_electra_dataset(
+            filenames=train_filenames,
+            max_seq_length=data_args.max_seq_length,
+            max_predictions_per_seq=data_args.max_predictions_per_seq,
+            per_gpu_batch_size=train_args.per_gpu_batch_size,
+        )
+
+        tf_val_dataset = get_electra_dataset(
+            filenames=validation_filenames,
+            max_seq_length=data_args.max_seq_length,
+            max_predictions_per_seq=data_args.max_predictions_per_seq,
+            per_gpu_batch_size=train_args.per_gpu_batch_size,
+        )
+    else:
+        # Download the dataset on one rank, and barrier until it is complete
+        if hvd.rank() == 0:
+            train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
+            val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
+        hvd.allreduce(tf.constant(1))
+        # Then load the dataset from cache on all ranks
+        train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
+        val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
+        tf_train_dataset = get_tf_lazy_dataset(train_dataset)
+        tf_val_dataset = get_tf_lazy_dataset(val_dataset)
 
     wandb_run_name = None
 

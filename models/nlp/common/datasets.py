@@ -204,3 +204,60 @@ def get_mlm_dataset(
     dataset = dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
 
     return dataset
+
+
+# TODO: Combine get_electra_dataset and get_mlm_dataset into one get_dataset
+def get_electra_dataset(
+    *,
+    filenames: List[str],
+    max_seq_length: int,
+    max_predictions_per_seq: int,
+    per_gpu_batch_size: int,
+    buffer_size: int = 1000,
+) -> "tf.data.Dataset":
+    """ Reads the dataset from TFRecords and returns it.
+    Returns a dataset that includes batching, but not gradient accumulation.
+    """
+
+    def _parse_function(example_proto):
+        # Parse the input `tf.Example` proto using the dictionary above.
+        return tf.io.parse_single_example(example_proto, name_to_features)
+
+    name_to_features = {
+        "input_ids": tf.io.FixedLenFeature([max_seq_length], tf.int64),  # corresponds to input_ids
+        "token_type_ids": tf.io.FixedLenFeature(
+            [max_seq_length], tf.int64
+        ),  # corresponds to token_type_ids
+        "attention_mask": tf.io.FixedLenFeature(
+            [max_seq_length], tf.int64
+        ),  # corresponds to attention_mask
+    }
+
+    # Example input pipeline here: https://github.com/NVIDIA/DeepLearningExamples/blob/master/TensorFlow/LanguageModeling/BERT/run_pretraining.py#L443
+    # 2048 TFRecord files here
+    assert len(filenames) > 0, f"Filenames is an empty list"
+    # Shard and shuffle the filenames
+    dataset = tf.data.Dataset.from_tensor_slices(filenames)
+    dataset = dataset.shard(hvd.size(), hvd.rank())
+    dataset = dataset.shuffle(buffer_size=len(filenames), reshuffle_each_iteration=True)
+    dataset = dataset.repeat()
+
+    # `cycle_length` is the number of parallel files that get read
+    num_cpu_threads = 2 * 96
+    cycle_length = min(num_cpu_threads, len(filenames))
+    # file_to_dataset_func = lambda file: tf.data.TFRecordDataset(file).map(_parse_function)
+    file_to_dataset_func = lambda file: tf.data.TFRecordDataset(file)
+    dataset = dataset.interleave(
+        file_to_dataset_func,
+        cycle_length=cycle_length,
+        block_length=1,
+        num_parallel_calls=cycle_length,
+    )
+    # Map and batch will be automatically fused together, see https://www.tensorflow.org/api_docs/python/tf/data/experimental/map_and_batch
+    dataset = dataset.map(_parse_function, num_parallel_calls=num_cpu_threads)
+    dataset = dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
+    dataset = dataset.batch(per_gpu_batch_size, drop_remainder=True)
+    # Shuffle the batches and prefetch some batches
+    dataset = dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
+
+    return dataset
