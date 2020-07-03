@@ -114,7 +114,7 @@ class FasterRCNN(TwoStageDetector):
         if training:
             s8 = tf.timestamp()
             rpn_inputs = (rpn_class_logits, rpn_deltas, gt_boxes, gt_class_ids, img_metas)
-            rpn_class_loss, rpn_bbox_loss = self.rpn_head.loss(rpn_inputs)
+            rpn_class_loss, rpn_bbox_loss = self.rpn_head.loss(*rpn_inputs)
             s9 = tf.timestamp()
             rcnn_inputs = (rcnn_class_logits, rcnn_deltas, rcnn_target_matchs,
                 rcnn_target_deltas, inside_weights, outside_weights) 

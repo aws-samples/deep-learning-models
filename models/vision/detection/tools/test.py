@@ -1,6 +1,7 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
+import time
 import argparse
 import os
 import os.path as osp
@@ -34,9 +35,6 @@ def load_checkpoint(model, filename):
 def evaluate(dataset, results):
     tmp_file = 'temp_0'
     result_files = results2json(dataset, results, tmp_file)
-
-    #res_types = ['bbox', 'segm'
-    #            ] if runner.model.module.with_mask else ['bbox']
     res_types = ['bbox']
     cocoGt = dataset.coco
     imgIds = cocoGt.getImgIds()
@@ -56,12 +54,11 @@ def evaluate(dataset, results):
             '{ap[0]:.3f} {ap[1]:.3f} {ap[2]:.3f} {ap[3]:.3f} '
             '{ap[4]:.3f} {ap[5]:.3f}').format(ap=cocoEval.stats[:6]))
 
-def cpu_test(model, dataset, show=False):
+def single_gpu_test(model, dataset, show=False):
     # create a loader for this runner
     tf_dataset, num_examples = build_dataloader(dataset, 1, 1, num_gpus=1, dist=False)
-    # num_examples=8
     results = []
-
+    start = time.time()
     for i, data_batch in enumerate(tf_dataset):
         if i >= num_examples:
             break
@@ -79,11 +76,10 @@ def cpu_test(model, dataset, show=False):
         #    print(b, l, s)
         #print(result)
         results.append(result)
+    print("Forward pass through test set took {}s".format(time.time() - start))
     evaluate(dataset, results)
     return results
 
-def single_gpu_test(model, data_loader, show=False):
-    raise NotImplementedError
 
 def parse_args():
     parser = argparse.ArgumentParser(description='MMDet TF test detector')
@@ -96,21 +92,10 @@ def parse_args():
         type=str)
     parser.add_argument(
         '--eval',
-        type=str,
-        nargs='+',
+        action='append',
         choices=['proposal', 'proposal_fast', 'bbox', 'segm', 'keypoints'],
         help='eval types')
-    parser.add_argument('--show', action='store_true', help='show results')
-    # parser.add_argument(
-    #     '--gpu_collect',
-    #     action='store_true',
-    #     help='whether to use gpu to collect results')
     parser.add_argument('--tmpdir', help='tmp dir for writing some results')
-    parser.add_argument(
-        '--launcher',
-        choices=['none'],
-        default='none',
-        help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
@@ -120,10 +105,10 @@ def parse_args():
 
 def main():
     args = parse_args()
-
-    assert args.out or args.show or args.json_out, \
-        ('Please specify at least one operation (save or show the results) '
-         'with the argument "--out" or "--show" or "--json_out"')
+    print(args)
+    assert args.out or args.json_out, \
+        ('Please specify at least one operation to save the results) '
+         'with the argument "--out" or "--json_out"')
 
     if args.out is not None and not args.out.endswith(('.pkl', '.pickle')):
         raise ValueError('The output file must be a pkl file.')
@@ -135,11 +120,7 @@ def main():
 
     cfg.model.pretrained = None
 
-    # init distributed env first, since logger depends on the dist info.
-    if args.launcher == 'none':
-        distributed = False
-    else:
-        raise NotImplementedError
+    distributed = False
 
     # build the dataloader
     # TODO: support multiple images per gpu (only minor changes are needed)
@@ -161,7 +142,7 @@ def main():
     model.CLASSES = dataset.CLASSES
 
     if not distributed:
-        outputs = cpu_test(model, dataset, args.show)
+        outputs = single_gpu_test(model, dataset)
     else:
         raise NotImplementedError
 
@@ -201,4 +182,10 @@ def main():
 
 
 if __name__ == '__main__':
+    """
+    Example usage: PYTHONPATH=$PYTHONPATH:$PWD python tools/test.py --json_out out.json \
+            --eval bbox configs/retinanet/retinanet_r50_fpn_1x_coco.py \
+            work_dirs/retinanet_r50_fpn_1x_amp_bn/011/retina_net
+    """
     main()
+

@@ -1,62 +1,54 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
+
 # model settings
 model = dict(
-    type='FasterRCNN',
+    type='RetinaNet',
     pretrained=None,
     backbone=dict(
         type='KerasBackbone',
-        model_name='ResNet50V2',
-        weights_path='weights/resnet50v2_weights_tf_dim_ordering_tf_kernels_notop.h5',
-        weight_decay=1e-5
+        model_name='ResNet50V1',
+        weights_path='weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
+        weight_decay=5e-5
     ),
     neck=dict(
         type='FPN',
+        in_channels=[('C2', 256), ('C3', 512), ('C4', 1024), ('C5', 2048)],
+        out_channels=256,
+        start_level=1,
+        add_extra_convs=True,
+        num_outs=5,
         interpolation_method='bilinear',
-        weight_decay=1e-5,
-    ),
-    rpn_head=dict(
-        type='RPNHead',
-        anchor_scales=[32, 64, 128, 256, 512],
-        anchor_ratios=[0.5, 1.0, 2.0],
-        anchor_feature_strides=[4, 8, 16, 32, 64],
-        target_means=[.0, .0, .0, .0],
-        target_stds= [1.0, 1.0, 1.0, 1.0],
-        num_rpn_deltas=256,
-        positive_fraction=0.5,
-        pos_iou_thr=0.7,
-        neg_iou_thr=0.3,
-        num_pre_nms_train=12000,
-        num_post_nms_train=2000,
-        num_pre_nms_test=12000,
-        num_post_nms_test=2000,
-        weight_decay=1e-5,
-        padded_img_shape=(1333, 1333)
-    ),
-    bbox_roi_extractor=dict(
-        type='PyramidROIAlign',
-        pool_shape=[7, 7],
-        pool_type='avg',
-        use_tf_crop_and_resize=True,
+        weight_decay=5e-5,
     ),
     bbox_head=dict(
-    type='BBoxHead',
-    num_classes=81,
-    pool_size=[7, 7],
-    target_means=[0., 0., 0., 0.],
-    target_stds=[0.1, 0.1, 0.2, 0.2],
-    min_confidence=0.001,
-    nms_threshold=0.7,
-    max_instances=100,
-    weight_decay=1e-5,
-    use_conv=True,
-    use_bn=False,
-    soft_nms_sigma=0.5)
+        type='RetinaHead',
+        num_classes=80,
+        stacked_convs=4,
+        feat_channels=256,
+        octave_base_scale=4,
+        scales_per_octave=3,
+        anchor_ratios=[0.5, 1.0, 2.0],
+        anchor_strides=[8, 16, 32, 64, 128],
+        target_means=[.0, .0, .0, .0],
+        target_stds=[1., 1., 1., 1.],
+        pos_iou_thr=0.5,
+        neg_iou_thr=0.4,
+        alpha=0.25,
+        gamma=2.0,
+        label_smoothing=0.0,
+        num_pre_nms=1000,
+        min_confidence=0.05, 
+        nms_threshold=0.75, # using soft nms
+        max_instances=100,
+        soft_nms_sigma=0.5,
+        weight_decay=5e-5
+    ),
 )
 # model training and testing settings
 train_cfg = dict(
-    weight_decay=1e-5,
+    weight_decay=5e-5,
 )
 test_cfg = dict(
 )
@@ -72,7 +64,7 @@ data = dict(
         subset='train',
         flip_ratio=0.5,
         pad_mode='fixed',
-        preproc_mode='tf',
+        preproc_mode='caffe',
         mean=(123.675, 116.28, 103.53),
         std=(1., 1., 1.),
         scale=(800, 1333)),
@@ -83,7 +75,7 @@ data = dict(
         subset='val',
         flip_ratio=0,
         pad_mode='fixed',
-        preproc_mode='tf',
+        preproc_mode='caffe',
         mean=(123.675, 116.28, 103.53),
         std=(1., 1., 1.),
         scale=(800, 1333)),
@@ -94,7 +86,7 @@ data = dict(
         subset='val',
         flip_ratio=0,
         pad_mode='fixed',
-        preproc_mode='tf',
+        preproc_mode='caffe',
         mean=(123.675, 116.28, 103.53),
         std=(1., 1., 1.),
         scale=(800, 1333)),
@@ -104,26 +96,27 @@ evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
     type='SGD',
-    learning_rate= 5e-3,
+    learning_rate=5e-3,
     momentum=0.9,
     nesterov=False,
 )
 # extra options related to optimizers
 optimizer_config = dict(
     amp_enabled=True,
+    gradient_clip=5.0,
 )
 
 # learning policy
 lr_config = dict(
     policy='step',
     warmup='linear',
-    warmup_iters=500, # 1000,
-    warmup_ratio=1.0 / 3,
+    warmup_iters=500, 
+    warmup_ratio=1.0 / 10,
     step=[8, 11])
 checkpoint_config = dict(interval=1, outdir='checkpoints')
 # yapf:disable
 log_config = dict(
-    interval=100,
+    interval=50,
     hooks=[
         dict(type='TextLoggerHook'),
         dict(type='TensorboardLoggerHook', log_dir='/tmp/tensorboard')
@@ -132,7 +125,8 @@ log_config = dict(
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'
-work_dir = './work_dirs/faster_rcnn_r50_fpn_1x_amp_bn'
+work_dir = './work_dirs/retinanet_r50_fpn_1x_amp_bn'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
+

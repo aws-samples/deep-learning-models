@@ -1,4 +1,5 @@
 # Copyright (c) Open-MMLab. All rights reserved.
+import os
 import os.path as osp
 import tensorflow as tf
 from s3fs import S3FileSystem
@@ -21,6 +22,9 @@ class TensorboardLoggerHook(LoggerHook):
         super(TensorboardLoggerHook, self).__init__(interval, ignore_last,
                                                     reset_flag)
         self.log_dir = log_dir
+        if log_dir is None and not (s3_dir is None):
+            # SageMaker setup
+            self.log_dir = Path(os.getenv('SM_OUTPUT_DATA_DIR')).as_posix()
         self.s3_dir = s3_dir
         self.s3_interval = s3_interval
         self.image_interval = image_interval
@@ -47,10 +51,8 @@ class TensorboardLoggerHook(LoggerHook):
             self._image_log(runner)  
         self.writer.flush()
         self._s3_upload(runner)
-    
-    
-    
-    
+
+
     def _image_log(self, runner):
         if self.image_interval and \
         self.every_n_inner_iters(runner, self.image_interval+self.interval):
@@ -59,7 +61,8 @@ class TensorboardLoggerHook(LoggerHook):
                     tag = '{}/{}'.format(var, runner.mode)
                     record = runner.log_buffer.val_history[var][-1]
                     tf.summary.image(tag, record, step=runner.iter+1)
-                    
+
+
     def _s3_upload(self, runner):
         if self.s3_dir and \
         self.every_n_inner_iters(runner, self.s3_interval):
@@ -68,7 +71,7 @@ class TensorboardLoggerHook(LoggerHook):
                 # self.s3.put(file, Path(self.s3_dir).joinpath(file.name))
                 _ = self.threadpool.submit(self.s3.put, file, 
                                            Path(self.s3_dir).joinpath(file.name))
-        
+
     @master_only
     def after_run(self, runner):
         self.writer.close()
