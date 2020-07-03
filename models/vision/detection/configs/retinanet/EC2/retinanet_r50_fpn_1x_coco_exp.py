@@ -43,7 +43,7 @@ model = dict(
         nms_threshold=0.75, # using soft nms
         max_instances=100,
         soft_nms_sigma=0.5,
-        weight_decay=5e-5
+        weight_decay=1e-4
     ),
 )
 # model training and testing settings

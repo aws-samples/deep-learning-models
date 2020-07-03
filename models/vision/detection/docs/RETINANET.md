@@ -49,8 +49,8 @@ Training on N GPUs (V100s in our experiments) with a per-gpu batch size of M = N
   - SageMaker Setup
 
     Follow AWSDet tutorial for your model at [AWSDet Tutorial](../tutorial/awsdet/Tutorial.ipynb)
-  
-  
+
+
 ### Training results
 
 The results were obtained on SageMaker (distributed training does not use EFA.) Training times include the time to setup data/model as well as running evaluation at end of every epoch.
@@ -59,23 +59,17 @@ The results were obtained on SageMaker (distributed training does not use EFA.) 
 
 | Num_GPUs x Images_Per_GPU | Instance type | Training time per epoch | Box mAP | Notes |
 | ------------------------- | ------------- | ------------: | ------: | ----- |
-| (1x8)x2 | P3.16xl | 32m | xx.yy% |  |
-| (1x8)x4 | P3.16xl | 28m | xx.yy% |  |
-| (1x8)x4 | P3dn.24xl | 27m | xx.yy% |  |
-| (2x8)x4 | P3dn.24xl | 17m | 35.00% |  |
-| (4x8)x4 | P3dn.24xl | 11m | 34.70% |  |
-| (8x8)x4 | P3dn.24xl | 7m | 33.40% | unscaled LR 3e-3, 1000 warmup iters |
+| (1x8)x2 | P3.16xl | 32m | 35.40% |  |
+| (1x8)x4 | P3.16xl | 28m | 35.40% |  |
+| (2x8)x4 | P3dn.24xl | 17m | 34.80% |  |
+| (4x8)x4 | P3dn.24xl | 11m | 34.80% |  |
+| (8x8)x4 | P3dn.24xl | 7m | 34.40% | 1000 warmup iters |
 
 
 ### Known Issues
-- Results are not deterministic - you can expect a delta of +/- 0.3 in mAP scores for training runs with the same settings
+- Results are not deterministic - you can expect a delta of +/- 0.2% in mAP scores for training runs with the same settings
 - Not much hyperparameter tuning has been done, you may obtain better results with hyperparameter search and multiscale training
 
 
 ### Attribution
-
-<<<<<<< HEAD
 The code is heavily inspired by the excellent MMDetection toolbox [Open MMLab Detection Toolbox and Benchmark](https://github.com/open-mmlab/mmdetection)
-=======
-The code is heavily inspired by the excellent MMDetection toolbox [Open MMLab Detection Toolbox and Benchmark](https://github.com/open-mmlab/mmdetection)
->>>>>>> c2717a578a214ff793872ce25de5731547d93742

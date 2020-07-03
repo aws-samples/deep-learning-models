@@ -287,10 +287,16 @@ class Runner(object):
     def run_train_step(self, data_batch):
         with tf.GradientTape() as tape:
             outputs = self.batch_processor(self.model, data_batch, train_mode=True)
+            if self._amp_enabled:
+                loss = self.optimizer.get_scaled_loss(outputs['loss'])
+            else:
+                loss = outputs['loss']
         var_list = self.model.trainable_variables
         tape = get_distributed_tape(tape) if self.world_size > 1 else tape
-        loss = outputs['loss']
+        # loss = outputs['loss']
         grads = tape.gradient(loss, var_list)
+        if self._amp_enabled:
+            grads = self.optimizer.get_unscaled_gradients(grads)
         grads = [grad if grad is not None else tf.zeros_like(var) for var, grad in zip(var_list, grads)]
         # all_are_finite = tf.reduce_all([tf.reduce_all(tf.math.is_finite(g)) for g in grads])
         if self.gradient_clip > 0.0:

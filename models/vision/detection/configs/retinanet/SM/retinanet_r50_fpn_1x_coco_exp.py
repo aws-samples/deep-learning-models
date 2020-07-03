@@ -15,7 +15,7 @@ sagemaker_user=dict(
     s3_bucket='mzanur-sagemaker',
     docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/mzanur-awsdet-ecr:awsdet',
     hvd_processes_per_host=8,
-    hvd_instance_type='ml.p3.16xlarge', # 'ml.p3dn.24xlarge',
+    hvd_instance_type='ml.p3dn.24xlarge',
     hvd_instance_count=1,
 )
 # settings for distributed training on sagemaker
@@ -84,7 +84,7 @@ model = dict(
         nms_threshold=0.7, # using soft nms
         max_instances=100,
         soft_nms_sigma=0.5,
-        weight_decay=5e-5
+        weight_decay=1e-4
     ),
 )
 # model training and testing settings

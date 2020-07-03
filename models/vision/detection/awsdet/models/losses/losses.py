@@ -56,7 +56,7 @@ def retinanet_bbox_loss(deltas, target_deltas, avg_factor=1.0):
         outside_weights: [batch * anchors, 4] weights for outside targets        
     '''
     loss = tf.math.abs(deltas - target_deltas)
-    avg_factor = tf.math.maximum(1.0, tf.cast(avg_factor, tf.float32))
+    avg_factor = tf.math.maximum(4.0, tf.cast(avg_factor, tf.float32)) # 4 coords per positive
     return tf.cast(tf.reduce_sum(loss) / avg_factor, tf.float32)
 
 
