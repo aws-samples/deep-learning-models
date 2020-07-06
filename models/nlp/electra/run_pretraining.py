@@ -78,9 +78,7 @@ def mask_ids(ids, corruption_mask, mask_id):
     return tf.where(tf.cast(corruption_mask, tf.bool), tf.cast(mask_id, dtype=ids.dtype), ids)
 
 
-def forward(
-    gen, dis, ids, masked_ids, attention_mask, corruption_mask, return_preds=False, seq_len=128
-):
+def forward(gen, dis, ids, masked_ids, attention_mask, corruption_mask, return_preds=False):
     ids = tf.cast(ids, tf.int64)
     corruption_mask = tf.cast(corruption_mask, tf.int64)
 
@@ -109,7 +107,7 @@ def forward(
     is_corrupted = tf.cast(gen_ids != ids, tf.int64)
     dis_loss = tf.keras.losses.binary_crossentropy(
         y_true=tf.boolean_mask(is_corrupted, attention_mask),
-        y_pred=tf.boolean_mask(tf.reshape(dis_logits, [1, seq_len]), attention_mask),
+        y_pred=tf.boolean_mask(dis_logits, attention_mask),
         from_logits=True,
     )
 
@@ -134,7 +132,7 @@ def forward(
 
 
 @tf.function
-def val_step(gen, dis, ids, attention_mask, mask_token_id: int, seq_len: int):
+def val_step(gen, dis, ids, attention_mask, mask_token_id: int):
     corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
     masked_ids = mask_ids(ids=ids, corruption_mask=corruption_mask, mask_id=mask_token_id)
     loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds = forward(
@@ -145,7 +143,6 @@ def val_step(gen, dis, ids, attention_mask, mask_token_id: int, seq_len: int):
         attention_mask=attention_mask,
         corruption_mask=corruption_mask,
         return_preds=True,
-        seq_len=seq_len,
     )
     Output = namedtuple(
         "Output",
@@ -175,7 +172,7 @@ def val_step(gen, dis, ids, attention_mask, mask_token_id: int, seq_len: int):
 
 
 @tf.function
-def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int, seq_len: int):
+def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int):
     """
     Attention mask refers to padding tokens.
         1 is a real token, 0 is a padding token.
@@ -196,7 +193,6 @@ def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int, seq
             masked_ids=masked_ids,
             attention_mask=attention_mask,
             corruption_mask=corruption_mask,
-            seq_len=seq_len,
         )
 
     # Be careful not to double-apply gradients by having duplicate embeddings in the variable list
@@ -410,7 +406,6 @@ def main():
             ids=ids,
             attention_mask=attention_mask,
             mask_token_id=tokenizer.mask_token_id,
-            seq_len=data_args.max_seq_length,
         )
 
         if step == 1:
