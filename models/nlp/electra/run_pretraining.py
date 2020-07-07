@@ -18,6 +18,7 @@ import glob
 import logging
 import time
 from collections import namedtuple
+from dataclasses import asdict
 from typing import Tuple
 
 import numpy as np
@@ -276,6 +277,7 @@ def main():
         handlers = [
             TqdmLoggingHandler(),
         ]
+        summary_writer = None  # Only create a writer if we make it through a successful step
         logging.basicConfig(level=level, format=format, handlers=handlers)
         wandb_run_name = None
 
@@ -481,11 +483,32 @@ def main():
                         "global_batch_size": hvd.size() * train_args.per_gpu_batch_size,
                         "per_gpu_batch_size": train_args.per_gpu_batch_size,
                         "max_seq_length": data_args.max_seq_length,
+                        "name": train_args.name,
+                        "number of gpus": hvd.size(),
+                        "pretrain dataset": data_args.pretrain_dataset,
                     }
                     wandb.init(config=config, project="electra")
                     wandb.run.save()
                     wandb_run_name = wandb.run.name
                 wandb.log({"step": step, **all_metrics})
+
+                # Create summary_writer after the first step
+            if summary_writer is None:
+                summary_writer = tf.summary.create_file_writer(
+                    f"{data_args.fsx_prefix}/logs/electra/{run_name}"
+                )
+                config = {
+                    **asdict(model_args),
+                    **asdict(data_args),
+                    **asdict(train_args),
+                    **asdict(log_args),
+                    "global_batch_size": train_args.per_gpu_batch_size * hvd.size(),
+                }
+
+            # Log to TensorBoard
+            with summary_writer.as_default():
+                for name, val in all_metrics.items():
+                    tf.summary.scalar(name, val, step=step)
 
             if do_checkpoint:
                 dis_model_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/{run_name}-step{step}-discriminator.ckpt"
