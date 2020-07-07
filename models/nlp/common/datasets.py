@@ -208,12 +208,7 @@ def get_mlm_dataset(
 
 # TODO: Combine get_electra_dataset and get_mlm_dataset into one get_dataset
 def get_electra_dataset(
-    *,
-    filenames: List[str],
-    max_seq_length: int,
-    max_predictions_per_seq: int,
-    per_gpu_batch_size: int,
-    buffer_size: int = 1000,
+    *, filenames: List[str], max_seq_length: int, per_gpu_batch_size: int, buffer_size: int = 1000,
 ) -> "tf.data.Dataset":
     """ Reads the dataset from TFRecords and returns it.
     Returns a dataset that includes batching, but not gradient accumulation.

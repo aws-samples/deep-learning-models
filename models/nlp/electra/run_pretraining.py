@@ -373,16 +373,18 @@ def main():
         tf_train_dataset = get_electra_dataset(
             filenames=train_filenames,
             max_seq_length=data_args.max_seq_length,
-            max_predictions_per_seq=data_args.max_predictions_per_seq,
             per_gpu_batch_size=train_args.per_gpu_batch_size,
         )
 
-        tf_val_dataset = get_electra_dataset(
-            filenames=validation_filenames,
-            max_seq_length=data_args.max_seq_length,
-            max_predictions_per_seq=data_args.max_predictions_per_seq,
-            per_gpu_batch_size=train_args.per_gpu_batch_size,
-        )
+        tf_train_dataset = tf_train_dataset.prefetch(buffer_size=8)
+
+        if hvd.rank() == 0:
+            tf_val_dataset = get_electra_dataset(
+                filenames=validation_filenames,
+                max_seq_length=data_args.max_seq_length,
+                per_gpu_batch_size=train_args.per_gpu_batch_size,
+            )
+            tf_val_dataset = tf_val_dataset.prefetch(buffer_size=8)
     else:
         # Download the dataset on one rank, and barrier until it is complete
         if hvd.rank() == 0:
