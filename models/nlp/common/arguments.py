@@ -71,8 +71,8 @@ class ModelArguments:
     """
 
     model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
-    model_type: str = field(default="albert", metadata={"choices": ["albert", "bert"]})
-    model_size: str = field(default="base", metadata={"choices": ["base", "large"]})
+    model_type: str = field(default="albert", metadata={"choices": ["albert", "bert", "electra"]})
+    model_size: str = field(default="base", metadata={"choices": ["base", "large", "small"]})
     load_from: str = field(
         default="scratch", metadata={"choices": ["scratch", "checkpoint", "huggingface"]}
     )
@@ -103,7 +103,8 @@ class ModelArguments:
         elif self.model_type == "bert":
             return f"bert-{self.model_size}-uncased"
         elif self.model_type == "electra":
-            assert False, "Not yet supported since there are two ELECTRA models"
+            # assert False, "Not yet supported since there are two ELECTRA models"
+            return f"google/electra-{self.model_size}-discriminator"
         else:
             assert False
 
