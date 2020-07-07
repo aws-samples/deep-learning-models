@@ -9,6 +9,7 @@ from awsdet.models.losses import losses
 from ..utils.misc import (calc_batch_padded_shape, calc_img_shapes, calc_pad_shapes)
 from ..registry import HEADS
 
+
 @HEADS.register_module
 class BBoxHead(tf.keras.Model):
     def __init__(self, 
@@ -97,6 +98,7 @@ class BBoxHead(tf.keras.Model):
                                         activation='linear',
                                         name='rcnn_delta_cv')
 
+
     @tf.function(experimental_relax_shapes=True)
     def call(self, inputs, training=True):
         '''
@@ -146,6 +148,7 @@ class BBoxHead(tf.keras.Model):
             deltas = tf.reshape(deltas, [-1, self.num_classes * 4])
             return logits, probs, deltas
 
+
     @tf.function(experimental_relax_shapes=True)
     def loss(self, inputs):
         """
@@ -157,12 +160,13 @@ class BBoxHead(tf.keras.Model):
         """
         rcnn_class_logits, rcnn_deltas, rcnn_target_matches, rcnn_target_deltas, inside_weights, outside_weights = inputs
         rcnn_class_loss = self.rcnn_class_loss(rcnn_class_logits, rcnn_target_matches, 
-                                               roi_deltas=self.num_rcnn_deltas, label_smoothing=self.label_smoothing)
+                                               avg_factor=self.num_rcnn_deltas, label_smoothing=self.label_smoothing)
         rcnn_bbox_loss = self.rcnn_bbox_loss(rcnn_deltas, rcnn_target_deltas, 
                                              inside_weights, outside_weights)
 
         return rcnn_class_loss, rcnn_bbox_loss
  
+
     def get_bboxes(self, rcnn_probs, rcnn_deltas, rois_list, img_metas):
         '''
         Args

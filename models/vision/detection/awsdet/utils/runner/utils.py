@@ -3,7 +3,6 @@ import sys
 import time
 from getpass import getuser
 from socket import gethostname
-from awsdet.utils.generic import is_str
 
 def get_host_info():
     return '{}@{}'.format(getuser(), gethostname())
@@ -34,7 +33,7 @@ def obj_from_dict(info, parent=None, default_args=None):
     assert isinstance(default_args, dict) or default_args is None
     args = info.copy()
     obj_type = args.pop('type')
-    if is_str(obj_type):
+    if isinstance(obj_type, str):
         if parent is not None:
             obj_type = getattr(parent, obj_type)
         else:

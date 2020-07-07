@@ -1,23 +1,21 @@
-# Copyright (c) Open-MMLab. All rights reserved.
+# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+# -*- coding: utf-8 -*-
 import logging
-import os.path as osp
 import time
+import json
+import os.path as osp
 import tensorflow as tf
+import numpy as np
 from . import hooks
 from .dist_utils import get_dist_info, get_distributed_tape, broadcast_weights
 from .hooks import (CheckpointHook, Hook, IterTimerHook, LrUpdaterHook, 
-                    lr_updater, OptimizerHook, WeightsMonitorHook)
+                    lr_updater, WeightsMonitorHook)
 from .log_buffer import LogBuffer
 from .priority import get_priority
 from .utils import get_host_info, get_time_str, obj_from_dict
 from awsdet.utils.misc import mkdir_or_exist
-from awsdet.utils.generic import is_list_of
 
-import six
-
-def is_str(x):
-    """Whether the input is an string instance."""
-    return isinstance(x, six.string_types)
 
 class Runner(object):
     """A training helper.
@@ -43,7 +41,8 @@ class Runner(object):
                  work_dir=None,
                  log_level=logging.INFO,
                  logger=None,
-                 amp_enabled=False):
+                 amp_enabled=False,
+                 gradient_clip=15.0):
         assert callable(batch_processor)
         self.model = model
         if optimizer is not None:
@@ -53,7 +52,7 @@ class Runner(object):
         self.batch_processor = batch_processor
 
         # create work_dir
-        if is_str(work_dir):
+        if isinstance(work_dir, str):
             self.work_dir = osp.abspath(work_dir)
             mkdir_or_exist(self.work_dir)
         elif work_dir is None:
@@ -80,64 +79,88 @@ class Runner(object):
         self._max_epochs = 0
         self._max_iters = 0
         self._amp_enabled = amp_enabled
+        self.gradient_clip = gradient_clip # <= 0.0 disables it
+
 
     @property
     def model_name(self):
-        """str: Name of the model, usually the module class name."""
+        """
+        Name of the model, usually the module class name.
+        """
         return self._model_name
 
 
     @property
     def local_rank(self):
-        """int: local rank of current process"""
+        """
+        Local rank of current process
+        """
         return self._local_rank
 
 
     @property
     def rank(self):
-        """int: Rank of current process. (distributed training)"""
+        """
+        Global rank of current process. (distributed training)
+        """
         return self._rank
 
     @property
     def world_size(self):
-        """int: Number of processes participating in the job.
-        (distributed training)"""
+        """
+        Number of processes participating in the job.
+        (distributed training)
+        """
         return self._world_size
 
     @property
     def local_size(self):
-        """int: Number of processes running in the same node as this runner.
-        (distributed training)"""
+        """
+        Number of processes running in the same node as this runner.
+        (distributed training)
+        """
         return self._local_size
 
     @property
     def hooks(self):
-        """list[:obj:`Hook`]: A list of registered hooks."""
+        """
+        A list of registered hooks.
+        """
         return self._hooks
 
     @property
     def epoch(self):
-        """int: Current epoch."""
+        """
+        Current epoch.
+        """
         return self._epoch
 
     @property
     def iter(self):
-        """int: Current iteration."""
+        """
+        Current iteration
+        """
         return self._iter
 
     @property
     def inner_iter(self):
-        """int: Iteration in an epoch."""
+        """
+        Iteration in an epoch.
+        """
         return self._inner_iter
 
     @property
     def max_epochs(self):
-        """int: Maximum training epochs."""
+        """
+        Maximum training epochs.
+        """
         return self._max_epochs
 
     @property
     def max_iters(self):
-        """int: Maximum training iterations."""
+        """
+        Maximum training iterations.
+        """
         return self._max_iters
 
     def _add_file_handler(self,
@@ -154,7 +177,8 @@ class Runner(object):
         return logger
 
     def init_logger(self, log_dir=None, level=logging.INFO):
-        """Init the logger.
+        """
+        Init the logger.
 
         Args:
             log_dir(str, optional): Log file directory. If not specified, no
@@ -174,7 +198,8 @@ class Runner(object):
         return logger
 
     def current_lr(self):
-        """Get current learning rates.
+        """
+        Get current learning rates.
 
         Returns:
             list: Current learning rate (#TODO: support individual LR for param groups)
@@ -185,7 +210,8 @@ class Runner(object):
         return float(self.optimizer.learning_rate.numpy())
 
     def register_hook(self, hook, priority='NORMAL'):
-        """Register a hook into the hook list.
+        """
+        Register a hook into the hook list.
 
         Args:
             hook (:obj:`Hook`): The hook to be registered.
@@ -221,34 +247,65 @@ class Runner(object):
         for hook in self._hooks:
             getattr(hook, fn_name)(self)
 
-    def load_checkpoint(self, filename):
-        self.logger.info('Loading checkpoint from %s...', filename)
-        self.model.load_weights(filename)
-        self.logger.info('Loaded weights from checkpoint: {}'.format(filename))
+
+    def load_checkpoint(self, checkpoint_dir):
+        filepath = osp.join(checkpoint_dir, self.model.name)
+        self.logger.info('Loading checkpoint from %s...', checkpoint_dir)
+        self.model.load_weights(filepath)
+        self.logger.info('Loaded weights from checkpoint: {}'.format(filepath))
+        opt_state_file = '{}.opt'.format(filepath)
+        if osp.exists(opt_state_file):
+            opt_weights = np.load(opt_state_file)
+            self.optimizer.set_weights(opt_weights)
+            self.logger.info('Loaded optimizer state from: {}'.format(opt_state_file))
+        runner_state_file = '{}.runner.json'.format(filepath)
+        if osp.exists(runner_state_file):
+            with open(runner_state_file, 'r') as f:
+                runner_state = json.load(f)
+                self._epoch = int(runner_state['epoch'])
+                self._iter = int(runner_state['iter'])
+                self.logger.info('Loaded runner state from: {}'.format(runner_state_file))
+
 
     def save_checkpoint(self, out_dir):
+        """
+        Save current running state of training - model state, optimizer state, and runner state
+        """
         filepath = osp.join(out_dir, self.model.name)
-        # save full model, including optimizer state
+        # save model
         self.model.save_weights(filepath, save_format='tf')
+        # save optimizer state
+        opt_state = self.optimizer.get_weights()
+        np.save('{}.opt'.format(filepath), opt_state)
+        # save runner state
+        with open('{}.runner.json'.format(filepath), 'w') as f:
+            json.dump({'epoch':'{}'.format(self.epoch+1), 'iter':'{}'.format(self.iter)}, f)
         self.logger.info('Saved checkpoint at: {}'.format(filepath))
+
 
     @tf.function(experimental_relax_shapes=True)
     def run_train_step(self, data_batch):
         with tf.GradientTape() as tape:
             outputs = self.batch_processor(self.model, data_batch, train_mode=True)
+            if self._amp_enabled:
+                loss = self.optimizer.get_scaled_loss(outputs['loss'])
+            else:
+                loss = outputs['loss']
         var_list = self.model.trainable_variables
         tape = get_distributed_tape(tape) if self.world_size > 1 else tape
-        loss = outputs['loss']
+        # loss = outputs['loss']
         grads = tape.gradient(loss, var_list)
-        grads = [
-            grad if grad is not None else tf.zeros_like(var)
-            for var, grad in zip(var_list, grads)
-        ]
+        if self._amp_enabled:
+            grads = self.optimizer.get_unscaled_gradients(grads)
+        grads = [grad if grad is not None else tf.zeros_like(var) for var, grad in zip(var_list, grads)]
         # all_are_finite = tf.reduce_all([tf.reduce_all(tf.math.is_finite(g)) for g in grads])
-        clipped_grads, global_norm = tf.clip_by_global_norm(grads, 15.0)
-        # tf.print(global_norm, all_are_finite)
-        self.optimizer.apply_gradients(zip(clipped_grads, var_list))
+        if self.gradient_clip > 0.0:
+            clipped_grads, global_norm = tf.clip_by_global_norm(grads, self.gradient_clip)
+            grads = clipped_grads
+        # if self.rank == 0: tf.print(global_norm, all_are_finite)
+        self.optimizer.apply_gradients(zip(grads, var_list))
         return outputs
+
 
     def run_eval_step(self, data_batch):
         '''
@@ -275,8 +332,16 @@ class Runner(object):
         self.call_hook('before_train_epoch')
         for i, data_batch in enumerate(tf_dataset[0]):
             self._inner_iter = i
+            prev_lr = self.current_lr()
             self.call_hook('before_train_iter')
+            # momentum correction (V2 SGD absorbs LR into the update term) TODO: write a hook for this
+            curr_lr = self.current_lr()
+            orig_momentum = self.optimizer._optimizer.momentum.numpy()
+            momentum_correction_factor = curr_lr / prev_lr
+            self.optimizer._optimizer.momentum = self.optimizer._optimizer.momentum * momentum_correction_factor
             outputs = self.run_train_step(data_batch)
+            # restore momentum
+            self.optimizer._optimizer.momentum = orig_momentum
             if self.broadcast: # broadcast once
                 broadcast_weights(self)
                 self.broadcast = False
@@ -290,7 +355,8 @@ class Runner(object):
             self.outputs = outputs
             self.call_hook('after_train_iter')
             self._iter += 1
-            if i > 0 and i % 1000 == 0:
+            debug_on_train_every_iter = 1000
+            if i > 0 and i % debug_on_train_every_iter == 0:
                 self.run_eval_step(data_batch)
             if i+1 >= self.num_examples: # for case where num_examples is deliberately made small to test
                 self._inner_iter = 0
@@ -320,7 +386,6 @@ class Runner(object):
             max_epochs (int): Total training epochs.
         """
         assert isinstance(tf_datasets, list)
-        assert is_list_of(workflow, tuple)
         assert len(tf_datasets) == len(workflow)
 
         self._max_epochs = max_epochs
@@ -353,6 +418,7 @@ class Runner(object):
         time.sleep(1)  # wait for some hooks like loggers to finish
         self.call_hook('after_run')
 
+
     def register_lr_hooks(self, lr_config):
         if isinstance(lr_config, LrUpdaterHook):
             self.register_hook(lr_config)
@@ -368,12 +434,14 @@ class Runner(object):
             raise TypeError('"lr_config" must be either a LrUpdaterHook object'
                             ' or dict, not {}'.format(type(lr_config)))
 
+
     def register_logger_hooks(self, log_config):
         log_interval = log_config['interval']
         for info in log_config['hooks']:
             logger_hook = obj_from_dict(
                 info, hooks, default_args=dict(interval=log_interval))
             self.register_hook(logger_hook, priority='VERY_LOW')
+
 
     def register_training_hooks(self,
                                 lr_config,
@@ -395,7 +463,6 @@ class Runner(object):
         if checkpoint_config is None:
             checkpoint_config = {}
         self.register_lr_hooks(lr_config)
-        # self.register_hook(self.build_hook(optimizer_config, OptimizerHook), priority='VERY_HIGH')
         self.register_hook(self.build_hook(checkpoint_config, CheckpointHook))
         self.register_hook(IterTimerHook())
         # self.register_hook(WeightsMonitorHook())

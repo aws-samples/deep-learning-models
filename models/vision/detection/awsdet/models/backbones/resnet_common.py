@@ -450,12 +450,13 @@ def ResNet101(include_top=True,
               input_shape=None,
               pooling=None,
               classes=1000,
+              weight_decay=0.0001,
               **kwargs):
     def stack_fn(x):
-        x = stack1(x, 64, 3, stride1=1, name='conv2')
-        x = stack1(x, 128, 4, name='conv3')
-        x = stack1(x, 256, 23, name='conv4')
-        x = stack1(x, 512, 3, name='conv5')
+        x = stack1(x, 64, 3, stride1=1, name='conv2', trainable=False, weight_decay=weight_decay)
+        x = stack1(x, 128, 4, name='conv3', weight_decay=weight_decay)
+        x = stack1(x, 256, 23, name='conv4', weight_decay=weight_decay)
+        x = stack1(x, 512, 3, name='conv5', weight_decay=weight_decay)
         return x
     return ResNet(stack_fn, False, True, 'resnet101',
                   include_top, weights,

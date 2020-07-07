@@ -57,11 +57,7 @@ class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin): # MaskTestMix
 
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
-        # unused
-        # self.rpn_assigner = build_assigner(self.train_cfg.rpn.assigner)
-        # self.rpn_sampler = build_sampler(self.train_cfg.rpn.sampler)
-        # self.rcnn_assigner = build_assigner(self.train_cfg.rcnn.assigner)
-        # self.rcnn_sampler = build_sampler(self.train_cfg.rcnn.sampler)
+
 
     @property
     def with_rpn(self):
