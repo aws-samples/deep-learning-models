@@ -362,8 +362,17 @@ def main():
     logger.info(f"Training with {data_args.pretrain_dataset} dataset")
 
     if data_args.pretrain_dataset == "wikibooks":
-        train_glob = f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/training/*.tfrecord*"
-        validation_glob = f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/test/*.tfrecord*"
+        if data_args.max_seq_length == 512:
+            train_glob = f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/training_seq_len_512/electra.tfrecord*"
+            validation_glob = f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/test_seq_len_512/electra.tfrecord*"
+        else:
+            train_glob = (
+                f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/training/electra.tfrecord*"
+            )
+            validation_glob = (
+                f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/test/electra.tfrecord*"
+            )
+
         train_filenames = glob.glob(train_glob)
         validation_filenames = glob.glob(validation_glob)
         logger.info(
@@ -401,6 +410,7 @@ def main():
 
     step = 1
     for batch in tf_train_dataset:
+        learning_rate = optimizer.learning_rate(step=tf.constant(step, dtype=tf.float32))
         ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         train_result = train_step(
@@ -460,6 +470,7 @@ def main():
                 logger.info(description)
 
             train_metrics = {
+                "learning_rate": learning_rate,
                 "train/loss": train_result.loss,
                 "train/gen_loss": train_result.gen_loss,
                 "train/dis_loss": train_result.dis_loss,
@@ -482,12 +493,11 @@ def main():
             if is_wandb_available():
                 if wandb_run_name is None:
                     config = {
-                        "global_batch_size": hvd.size() * train_args.per_gpu_batch_size,
-                        "per_gpu_batch_size": train_args.per_gpu_batch_size,
-                        "max_seq_length": data_args.max_seq_length,
-                        "name": train_args.name,
-                        "number of gpus": hvd.size(),
-                        "pretrain dataset": data_args.pretrain_dataset,
+                        **asdict(model_args),
+                        **asdict(data_args),
+                        **asdict(train_args),
+                        **asdict(log_args),
+                        "global_batch_size": train_args.per_gpu_batch_size * hvd.size(),
                     }
                     wandb.init(config=config, project="electra")
                     wandb.run.save()
