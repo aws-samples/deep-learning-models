@@ -78,7 +78,7 @@ python -m albert.launch_sagemaker \
     --total_steps=8144 \
     --warmup_steps=814 \
     --learning_rate=3e-5 \
-    --task_name=squadv2
+    --squad_version=squadv2
 ```
 
 7. Enter the Docker container to debug and edit code.

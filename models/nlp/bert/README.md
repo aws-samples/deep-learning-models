@@ -133,7 +133,7 @@ python -m albert.launch_sagemaker \
     --model_type=bert \
     --per_gpu_batch_size=6 \
     --model_size=base \
-    --task_name=squadv1 \
+    --squad_version=squadv1 \
     --learning_rate=5e-5 \
     --warmup_steps=365 \
     --total_steps=3649 \
@@ -156,7 +156,7 @@ python -m albert.launch_sagemaker \
     --model_type=bert \
     --per_gpu_batch_size=6 \
     --model_size=base \
-    --task_name=squadv2 \
+    --squad_version=squadv2 \
     --learning_rate=10.0e-5 \
     --warmup_steps=814 \
     --total_steps=8144 \
