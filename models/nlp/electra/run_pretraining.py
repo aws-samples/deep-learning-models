@@ -306,25 +306,26 @@ def main():
             example["text"], padding=True, truncation=True, max_length=data_args.max_seq_length
         )
 
-    def get_nlp_dataset(name: str, split: str):
-        if name.startswith("wikitext"):
-            dset = nlp.load_dataset("wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR)
-        else:
-            assert False, "Only wikitext-2 or wikitext-103 supported right now"
-
+    def get_nlp_dataset(name: str, split: str, shard: bool = True, from_cache: bool = True):
         text_cache_file_name = f"{CACHE_DIR}/{name}-{split}-text.cache"
         tokens_cache_file_name = f"{CACHE_DIR}/{name}-{split}-tokens.cache"
-        # We cache the raw text dataset
-        dset = dset.filter(remove_none_values, cache_file_name=text_cache_file_name)
-        # Now we cache the tokenized dataset
-        dset = dset.map(
-            tokenize, batched=True, batch_size=1000, cache_file_name=tokens_cache_file_name
-        )
+        if not from_cache:
+            dset = nlp.load_dataset("wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR)
+            # We cache the raw text dataset
+            dset = dset.filter(remove_none_values, cache_file_name=text_cache_file_name)
+            # Now we cache the tokenized dataset
+            dset = dset.map(
+                tokenize, batched=True, batch_size=1000, cache_file_name=tokens_cache_file_name
+            )
 
-        # Then the shards will happen inside each node
-        dset = dset.shard(hvd.size(), hvd.rank())
-        # Or load it in:
-        # train_dataset = Dataset.from_file(f"/fsx/{data_args.pretrain_dataset}.cache")
+        dset = nlp.Dataset.from_file(tokens_cache_file_name)
+
+        # Then shard
+        if shard:
+            cache_file_name = (
+                f"{CACHE_DIR}/shards/{name}-{split}-size{hvd.size()}-rank{hvd.rank()}.cache"
+            )
+            dset = dset.shard(hvd.size(), hvd.rank(), cache_file_name=cache_file_name)
 
         columns = ["input_ids", "token_type_ids", "attention_mask"]
         dset.set_format("tensorflow", columns=columns)
@@ -399,17 +400,17 @@ def main():
             tf_val_dataset = tf_val_dataset.prefetch(buffer_size=8)
     else:
         # Download the dataset on one rank, and barrier until it is complete
-        if hvd.rank() == 0:
-            train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
-            val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
-        barrier()
+        # if hvd.rank() == 0:
+        #     train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
+        #     val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
+        # barrier()
         # Then load the dataset from cache on all ranks
         train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
-        barrier()
-        val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
-        barrier()
         tf_train_dataset = get_tf_lazy_dataset(train_dataset)
-        tf_val_dataset = get_tf_lazy_dataset(val_dataset)
+
+        if hvd.rank() == 0:
+            val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation", shard=False)
+            tf_val_dataset = get_tf_lazy_dataset(val_dataset)
 
     wandb_run_name = None
 
