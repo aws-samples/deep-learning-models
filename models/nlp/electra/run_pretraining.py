@@ -54,6 +54,10 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = "/fsx/nlp_cache"
 
 
+def barrier():
+    hvd.allreduce(tf.constant(1))
+
+
 def log_example(tokenizer, ids, masked_ids, mask, gen_ids, dis_preds):
     logger.info(f"ORIGINAL:      '{tokenizer.decode(ids[0].numpy())}'")
     logger.info(f"MASKED:        '{tokenizer.decode(masked_ids[0].numpy())}'")
@@ -298,37 +302,33 @@ def main():
         return example["text"] != ""
 
     def tokenize(example):
-        # return tokenizer.batch_encode_plus(example['text'])
         return tokenizer(
             example["text"], padding=True, truncation=True, max_length=data_args.max_seq_length
         )
 
-    def get_nlp_dataset(name: str, split: str, shard: bool = True):
+    def get_nlp_dataset(name: str, split: str):
         if name.startswith("wikitext"):
-            nlp_dataset = nlp.load_dataset(
-                "wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR
-            )
+            dset = nlp.load_dataset("wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR)
         else:
             assert False, "Only wikitext-2 or wikitext-103 supported right now"
 
         text_cache_file_name = f"{CACHE_DIR}/{name}-{split}-text.cache"
         tokens_cache_file_name = f"{CACHE_DIR}/{name}-{split}-tokens.cache"
         # We cache the raw text dataset
-        nlp_dataset = nlp_dataset.filter(remove_none_values, cache_file_name=text_cache_file_name)
+        dset = dset.filter(remove_none_values, cache_file_name=text_cache_file_name)
         # Now we cache the tokenized dataset
-        nlp_dataset = nlp_dataset = nlp_dataset.map(
+        dset = dset.map(
             tokenize, batched=True, batch_size=1000, cache_file_name=tokens_cache_file_name
         )
 
         # Then the shards will happen inside each node
-        if shard:
-            nlp_dataset = nlp_dataset.shard(hvd.size(), hvd.rank())
+        dset = dset.shard(hvd.size(), hvd.rank())
         # Or load it in:
         # train_dataset = Dataset.from_file(f"/fsx/{data_args.pretrain_dataset}.cache")
 
         columns = ["input_ids", "token_type_ids", "attention_mask"]
-        nlp_dataset.set_format("tensorflow", columns=columns)
-        return nlp_dataset
+        dset.set_format("tensorflow", columns=columns)
+        return dset
 
     # 20 milliseconds for WikiText-2
     # 20 milliseconds for WikiText-103
@@ -402,10 +402,12 @@ def main():
         if hvd.rank() == 0:
             train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
             val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
-        hvd.allreduce(tf.constant(1))
+        barrier()
         # Then load the dataset from cache on all ranks
         train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
+        barrier()
         val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
+        barrier()
         tf_train_dataset = get_tf_lazy_dataset(train_dataset)
         tf_val_dataset = get_tf_lazy_dataset(val_dataset)
 
@@ -450,27 +452,26 @@ def main():
                 logger.info(description)
 
             if do_validation:
-                batch = next(iter(tf_val_dataset))
-                val_ids = batch["input_ids"]
-                val_attention_mask = batch["attention_mask"]
-                print(val_ids.shape)
-                val_result = val_step(
-                    gen=gen,
-                    dis=dis,
-                    ids=val_ids,
-                    attention_mask=val_attention_mask,
-                    mask_token_id=tokenizer.mask_token_id,
-                )
-                log_example(
-                    tokenizer,
-                    val_ids,
-                    val_result.masked_ids,
-                    val_result.corruption_mask,
-                    val_result.gen_ids,
-                    val_result.dis_preds,
-                )
-                description = f"VALIDATION, Step {step} -- val_gen_loss: {val_result.gen_loss:.3f}, val_dis_loss: {val_result.dis_loss:.3f}, val_gen_acc: {val_result.gen_acc:.3f}, val_dis_acc: {val_result.dis_acc:.3f}\n"
-                logger.info(description)
+                for batch in tf_val_dataset.take(1):
+                    val_ids = batch["input_ids"]
+                    val_attention_mask = batch["attention_mask"]
+                    val_result = val_step(
+                        gen=gen,
+                        dis=dis,
+                        ids=val_ids,
+                        attention_mask=val_attention_mask,
+                        mask_token_id=tokenizer.mask_token_id,
+                    )
+                    log_example(
+                        tokenizer,
+                        val_ids,
+                        val_result.masked_ids,
+                        val_result.corruption_mask,
+                        val_result.gen_ids,
+                        val_result.dis_preds,
+                    )
+                    description = f"VALIDATION, Step {step} -- val_gen_loss: {val_result.gen_loss:.3f}, val_dis_loss: {val_result.dis_loss:.3f}, val_gen_acc: {val_result.gen_acc:.3f}, val_dis_acc: {val_result.dis_acc:.3f}\n"
+                    logger.info(description)
 
             train_metrics = {
                 "learning_rate": learning_rate,
