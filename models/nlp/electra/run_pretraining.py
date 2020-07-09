@@ -21,9 +21,9 @@ from collections import namedtuple
 from dataclasses import asdict
 from typing import Tuple
 
+import nlp
 import numpy as np
 import tensorflow as tf
-from nlp import load_dataset
 from transformers import (
     ElectraConfig,
     ElectraTokenizer,
@@ -303,23 +303,26 @@ def main():
             example["text"], padding=True, truncation=True, max_length=data_args.max_seq_length
         )
 
-    def get_nlp_dataset(name: str, split: str):
+    def get_nlp_dataset(name: str, split: str, shard: bool = True):
         if name.startswith("wikitext"):
-            nlp_dataset = load_dataset(
+            nlp_dataset = nlp.load_dataset(
                 "wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR
             )
         else:
             assert False, "Only wikitext-2 or wikitext-103 supported right now"
 
-        nlp_dataset = nlp_dataset.filter(remove_none_values)
-        # WARNING: Set load_from_cache_file=False if you changed something about this dataset
-        nlp_dataset = nlp_dataset.map(
-            tokenize,
-            batched=True,
-            batch_size=1000,
-            cache_file_name=f"{CACHE_DIR}/{name}-{split}.cache",
-            # load_from_cache_file=False,
+        text_cache_file_name = f"{CACHE_DIR}/{name}-{split}-text.cache"
+        tokens_cache_file_name = f"{CACHE_DIR}/{name}-{split}-tokens.cache"
+        # We cache the raw text dataset
+        nlp_dataset = nlp_dataset.filter(remove_none_values, cache_file_name=text_cache_file_name)
+        # Now we cache the tokenized dataset
+        nlp_dataset = nlp_dataset = nlp_dataset.map(
+            tokenize, batched=True, batch_size=1000, cache_file_name=tokens_cache_file_name
         )
+
+        # Then the shards will happen inside each node
+        if shard:
+            nlp_dataset = nlp_dataset.shard(hvd.size(), hvd.rank())
         # Or load it in:
         # train_dataset = Dataset.from_file(f"/fsx/{data_args.pretrain_dataset}.cache")
 
@@ -346,12 +349,12 @@ def main():
         # See https://stackoverflow.com/questions/47086599/parallelising-tf-data-dataset-from-generator
         # So we parallelize it across CPU cores with interleave().
         # https://stackoverflow.com/questions/52179857/parallelize-tf-from-generator-using-tf-contrib-data-parallel-interleave
-        tf_dataset = tf.data.Dataset.range(1).interleave(
+        tf_dataset = tf.data.Dataset.range(10).interleave(
             lambda idx: tf.data.Dataset.from_generator(nlp_dataset_gen, output_types=output_types),
-            # num_parallel_calls=10,
+            cycle_length=10,
         )
         buffer_size = 1000
-        tf_dataset = tf_dataset.shard(hvd.size(), hvd.rank())
+        # tf_dataset = tf_dataset.shard(hvd.size(), hvd.rank())
         tf_dataset = tf_dataset.repeat()
         tf_dataset = tf_dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
         tf_dataset = tf_dataset.batch(train_args.per_gpu_batch_size, drop_remainder=True)
@@ -498,6 +501,7 @@ def main():
                         **asdict(train_args),
                         **asdict(log_args),
                         "global_batch_size": train_args.per_gpu_batch_size * hvd.size(),
+                        "n_gpus": hvd.size(),
                     }
                     wandb.init(config=config, project="electra")
                     wandb.run.save()
@@ -515,6 +519,7 @@ def main():
                     **asdict(train_args),
                     **asdict(log_args),
                     "global_batch_size": train_args.per_gpu_batch_size * hvd.size(),
+                    "n_gpus": hvd.size(),
                 }
 
             # Log to TensorBoard

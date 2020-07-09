@@ -96,7 +96,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
         scikit-learn==0.23.1 \
         wandb==0.9.1 \
         tensorflow-addons==0.9.1 \
-        colorama==0.4.3
+        colorama==0.4.3 \
+        pandas
 
 ENV HDF5_USE_FILE_LOCKING "FALSE"
 
@@ -108,9 +109,9 @@ RUN pip install --no-cache-dir \
     mpi4py==3.0.3 \
     sagemaker-containers==2.8.6 \
     git+https://github.com/huggingface/transformers.git@master \
+    git+https://github.com/huggingface/nlp.git@master \
     # Necessary to pickle tokenizers for nlp
-    tokenizers==0.8.0 \
-    nlp==0.3.0
+    tokenizers==0.8.0
 
 ###### Modifications specifically for EC2 connected to FSx for Lustre are below
 # When you use `docker run`, you'll need to run two commands manually:
