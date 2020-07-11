@@ -206,6 +206,13 @@ def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int):
     vars = list({var.experimental_ref(): var for var in vars}.values())
     # tf.print(f"vars has length {len(vars)} after dedupe")
     grads = tape.gradient(loss, vars)
+    # This sparse_as_dense speedup is absolutely necessary here, even though it doesn't make a difference for ALBERT
+    grads = [
+        tf.convert_to_tensor(grad)
+        if grad is not None and isinstance(grad, tf.IndexedSlices)
+        else grad
+        for grad in grads
+    ]
     grads = [
         hvd.allreduce(grad, compression=hvd.Compression.fp16) if grad is not None else None
         for grad in grads
