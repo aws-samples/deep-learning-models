@@ -11,7 +11,7 @@ python -m electra.run_pretraining \
     --weight_decay=0.01 \
     --warmup_steps=10000 \
     --total_steps=1000000 \
-    --log_frequency=20 \
+    --log_frequency=1 \
     --validation_frequency=20
 ```
 

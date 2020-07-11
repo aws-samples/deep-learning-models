@@ -109,9 +109,15 @@ RUN pip install --no-cache-dir \
     mpi4py==3.0.3 \
     sagemaker-containers==2.8.6 \
     git+https://github.com/huggingface/transformers.git@master \
-    git+https://github.com/huggingface/nlp.git@master \
-    # Necessary to pickle tokenizers for nlp
-    tokenizers==0.8.0
+    git+https://github.com/huggingface/nlp.git@master
+
+# Install tokenizers from master source
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+ENV PATH="$HOME/.cargo/bin:$PATH"
+RUN git clone https://github.com/huggingface/tokenizers /root/tokenizers && \
+    cd /root/tokenizers/bindings/python
+RUN PATH="$HOME/.cargo/bin:$PATH" pip install setuptools_rust
+RUN cd /root/tokenizers/bindings/python && PATH="$HOME/.cargo/bin:$PATH" python setup.py install
 
 ###### Modifications specifically for EC2 connected to FSx for Lustre are below
 # When you use `docker run`, you'll need to run two commands manually:

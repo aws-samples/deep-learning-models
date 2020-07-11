@@ -54,10 +54,6 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = "/fsx/nlp_cache"
 
 
-def barrier():
-    hvd.allreduce(tf.constant(1))
-
-
 def log_example(tokenizer, ids, masked_ids, mask, gen_ids, dis_preds):
     logger.info(f"ORIGINAL:      '{tokenizer.decode(ids[0].numpy())}'")
     logger.info(f"MASKED:        '{tokenizer.decode(masked_ids[0].numpy())}'")
@@ -323,6 +319,7 @@ def main():
         # Then shard
         if shard:
             cache_file_name = (
+                # f"/root/{name}-{split}-size{hvd.size()}-rank{hvd.rank()}.cache"
                 f"{CACHE_DIR}/shards/{name}-{split}-size{hvd.size()}-rank{hvd.rank()}.cache"
             )
             dset = dset.shard(hvd.size(), hvd.rank(), cache_file_name=cache_file_name)
@@ -399,11 +396,8 @@ def main():
             )
             tf_val_dataset = tf_val_dataset.prefetch(buffer_size=8)
     else:
-        # Download the dataset on one rank, and barrier until it is complete
-        # if hvd.rank() == 0:
-        #     train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
-        #     val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation")
-        # barrier()
+        # Assumes the datasets are already downloaded into the cache files specified in get_nlp_dataset()
+        # If not, call get_nlp_dataset(from_cache=False) on a single process to load them
         # Then load the dataset from cache on all ranks
         train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
         tf_train_dataset = get_tf_lazy_dataset(train_dataset)
