@@ -20,6 +20,8 @@ from awsdet.apis import (get_root_logger, set_random_seed, train_detector,)
 from awsdet.datasets import build_dataset, build_dataloader
 from awsdet.models import build_detector
 
+#tf.config.experimental_run_functions_eagerly(True)
+
 gpus = tf.config.experimental.list_physical_devices('GPU')
 
 ##### TENSORFLOW RUNTIME OPTIONS #####

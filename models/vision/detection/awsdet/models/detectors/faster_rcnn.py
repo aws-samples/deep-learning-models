@@ -14,6 +14,7 @@ from awsdet.models.detectors.test_mixins import RPNTestMixin, BBoxTestMixin
 
 from awsdet.core.bbox import bbox_target
 #from awsdet.datasets import dali
+import numpy as np
 
 
 @DETECTORS.register_module

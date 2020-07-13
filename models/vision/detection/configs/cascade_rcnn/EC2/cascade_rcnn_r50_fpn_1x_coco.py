@@ -3,7 +3,7 @@
 # -*- coding: utf-8 -*-
 # model settings
 model = dict(
-    type='FasterRCNN',
+    type='CascadeRCNN',
     pretrained=None,
     backbone=dict(
         type='KerasBackbone',
@@ -37,25 +37,65 @@ model = dict(
         num_post_nms_test=2000,
         weight_decay=1e-5,
     ),
-    bbox_roi_extractor=dict(
-        type='PyramidROIAlign',
-        pool_shape=[7, 7],
-        pool_type='avg',
-        use_tf_crop_and_resize=True,
-    ),
     bbox_head=dict(
-    type='BBoxHead',
-    num_classes=81,
-    pool_size=[7, 7],
-    target_means=[0., 0., 0., 0.],
-    target_stds=[0.1, 0.1, 0.2, 0.2],
-    min_confidence=0.001, 
-    nms_threshold=0.5,
-    max_instances=100,
-    weight_decay=1e-5,
-    use_conv=True,
-    use_bn=False,
-    soft_nms_sigma=0.5)
+        type='CascadeHead',
+        num_stages=3,
+        stage_loss_weights=[1, 0.5, 0.25],
+        iou_thresholds=[0.5, 0.6, 0.7],
+        reg_class_agnostic=True,
+        bbox_roi_extractor=dict(
+            type='PyramidROIAlign',
+            pool_shape=[7, 7],
+            pool_type='avg',
+            use_tf_crop_and_resize=True),
+        bbox_head=[
+            dict(
+                type='BBoxHead',
+                num_classes=81,
+                pool_size=[7, 7],
+                target_means=[0., 0., 0., 0.],
+                target_stds=[0.1, 0.1, 0.2, 0.2],
+                min_confidence=0.001, 
+                nms_threshold=0.5,
+                max_instances=512,
+                weight_decay=1e-5,
+                use_conv=True,
+                use_bn=False,
+                soft_nms_sigma=0.5,
+                reg_class_agnostic=True
+            ),
+            dict(
+                type='BBoxHead',
+                num_classes=81,
+                pool_size=[7, 7],
+                target_means=[0., 0., 0., 0.],
+                target_stds=[0.05, 0.05, 0.1, 0.1],
+                min_confidence=0.001, 
+                nms_threshold=0.5,
+                max_instances=512,
+                weight_decay=1e-5,
+                use_conv=True,
+                use_bn=False,
+                soft_nms_sigma=0.5,
+                reg_class_agnostic=True
+            ),
+            dict(
+                type='BBoxHead',
+                num_classes=81,
+                pool_size=[7, 7],
+                target_means=[0., 0., 0., 0.],
+                target_stds=[0.033, 0.033, 0.067, 0.067],
+                min_confidence=0.001, 
+                nms_threshold=0.5,
+                max_instances=512,
+                weight_decay=1e-5,
+                use_conv=True,
+                use_bn=False,
+                soft_nms_sigma=0.5,
+                reg_class_agnostic=True
+            )
+        ]
+    )
 )
 # model training and testing settings
 train_cfg = dict(
@@ -134,7 +174,7 @@ log_config = dict(
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'
-work_dir = './work_dirs/faster_rcnn_r50_fpn_1x_coco'
+work_dir = './work_dirs/cascade_rcnn_r50_fpn_1x_coco'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
