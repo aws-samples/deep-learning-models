@@ -21,11 +21,12 @@ class CocoDataset(object):
                  preproc_mode='caffe',
                  scale=(1024, 800),
                  train=False,
-                 debug=False):
-        """
-        Load a subset of the COCO dataset.
+                 debug=False,
+                 mask=False):
+        '''Load a subset of the COCO dataset.
         
-        Args:
+        Attributes
+        ---
             dataset_dir: The root directory of the COCO dataset.
             subset: What to load (train, val).
             flip_ratio: Float. The ratio of flipping an image and its bounding boxes.
@@ -33,9 +34,7 @@ class CocoDataset(object):
             mean: Tuple. Image mean.
             std: Tuple. Image standard deviation.
             scale: Tuple of two integers.
-        Returns:
-            A COCODataset instance
-        """
+        '''
 
         if subset not in ['train', 'val']:
             raise AssertionError('subset must be "train" or "val".')
@@ -73,17 +72,19 @@ class CocoDataset(object):
         self.img_transform = transforms.ImageTransform(scale, mean, std,
                                                        pad_mode)
         self.bbox_transform = transforms.BboxTransform()
+        self.mask_transform = transforms.MaskTransform(scale, pad_mode)
         self.train = train
         self.preproc_mode = preproc_mode
+        self.mask = mask
 
 
     def _filter_imgs(self, min_size=32):
-        """
-        Filter images too small or without ground truths.
+        '''Filter images too small or without ground truths.
         
-        Args:
+        Args
+        ---
             min_size: the minimal size of the image.
-        """
+        '''
         # Filter images without ground truths.
         all_img_ids = list(
             set([_['image_id'] for _ in self.coco.anns.values()]))
@@ -110,16 +111,17 @@ class CocoDataset(object):
         return ann_info
 
     def _parse_ann_info(self, ann_info):
-        """
-        Parse bbox annotation.
+        '''Parse bbox annotation.
         
-        Args:
+        Args
+        ---
             ann_info (list[dict]): Annotation info of an image.
             
-        Returns:
+        Returns
+        ---
             dict: A dict containing the following keys: bboxes, 
                 bboxes_ignore, labels.
-        """
+        '''
         gt_bboxes = []
         gt_labels = []
         gt_bboxes_ignore = []
@@ -162,10 +164,8 @@ class CocoDataset(object):
     def _tf_preprocessing(self, image):
         """
         [-1, 1] used by V2 implementations
-        Args:
-            image: numpy array
-        Returns:
-            Scaled image [-1.0, 1.0]
+        :param image:
+        :return:
         """
         return image/127.0 - 1.0
  
@@ -173,18 +173,15 @@ class CocoDataset(object):
     def _caffe_preprocessing(self, image):
         """
         BGR zero centered
-        Args:
-            image: numpy array
-        Returns:
-            Zero centered BGR image
+        :param image:
+        :return:
         """
         pixel_means = self.rgb_mean[::-1]
         channels = cv2.split(image)
         for i in range(3):
             channels[i] -= pixel_means[i]
         return cv2.merge(channels)
-
-
+    
     def _rgb_preprocessing(self, image):
         """
         RGB standardized
@@ -201,20 +198,23 @@ class CocoDataset(object):
 
 
     def __getitem__(self, idx):
-        """
-        Load the image and its bboxes for the given index.
+        '''Load the image and its bboxes for the given index.
         
-        Args:
+        Args
+        ---
             idx: the index of images.
-        Returns:
+            
+        Returns
+        ---
             tuple: A tuple containing the following items: image, 
                 bboxes, labels.
-        """
+        '''
         img_info = self.img_infos[idx]
         ann_info = self._load_ann_info(idx)
 
         # load the image.
-        bgr_img = cv2.imread(osp.join(self.image_dir, img_info['file_name']), cv2.IMREAD_COLOR).astype(np.float32)
+        bgr_img = cv2.imread(osp.join(self.image_dir, img_info['file_name']),
+                         cv2.IMREAD_COLOR).astype(np.float32)
         if self.preproc_mode == 'tf':
             rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
             img = self._tf_preprocessing(rgb_img)
@@ -224,7 +224,7 @@ class CocoDataset(object):
             rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
             img = self._rgb_preprocessing(rgb_img)
         else:
-            raise NotImplementedError("Preprocessing mode '{}' not supported".format(self.preproc_mode))
+            raise NotImplementedError
 
         ori_shape = img.shape
 
@@ -234,14 +234,21 @@ class CocoDataset(object):
         labels = ann['labels']
 
         flip = True if np.random.rand() < self.flip_ratio else False
-
+        
+        # load masks
+        if self.mask:
+            masks = np.array([self.mask_transform(self.coco.annToMask(i), flip=flip) \
+                     for i in ann_info])
+            masks = masks.astype(np.int32)
+        
         # Handle the image
         img, img_shape, scale_factor = self.img_transform(img, flip)
 
         pad_shape = img.shape
 
         # Handle the annotation.
-        bboxes, labels = self.bbox_transform(bboxes, labels, img_shape, scale_factor, flip)
+        bboxes, labels = self.bbox_transform(bboxes, labels, img_shape,
+                                             scale_factor, flip)
 
         # Handle the meta info.
         img_meta_dict = dict({
@@ -254,16 +261,22 @@ class CocoDataset(object):
 
         img_meta = utils.compose_image_meta(img_meta_dict)
         if self.train:
-            return img, img_meta, bboxes, labels
+            if self.mask:
+                return img, img_meta, bboxes, labels, masks
+            else:
+                return img, img_meta, bboxes, labels
         return img, img_meta
 
 
     def get_categories(self):
-        """
-        Get list of category names. 
-        Returns:
+        '''Get list of category names. 
+        
+        Returns
+        ---
             list: A list of category names.
-        """
-        # Note that the first item 'bg' means background.
-        return ['bg'] + [self.coco.loadCats(i)[0]["name"] for i in self.cat2label.keys()]
-
+            
+        Note that the first item 'bg' means background.
+        '''
+        return ['bg'] + [
+            self.coco.loadCats(i)[0]["name"] for i in self.cat2label.keys()
+        ]

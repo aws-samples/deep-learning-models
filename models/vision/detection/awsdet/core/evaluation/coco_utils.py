@@ -174,7 +174,7 @@ def det2json(dataset, results):
 def segm2json(dataset, results):
     bbox_json_results = []
     segm_json_results = []
-    for idx in range(len(dataset)):
+    for idx in range(len(results)):
         img_id = dataset.img_ids[idx]
         det, seg = results[idx]
         for label in range(len(det)):
@@ -183,9 +183,9 @@ def segm2json(dataset, results):
             for i in range(bboxes.shape[0]):
                 data = dict()
                 data['image_id'] = img_id
-                data['bbox'] = xyxy2xywh(bboxes[i])
+                data['bbox'] = yxyx2xywh(bboxes[i])
                 data['score'] = float(bboxes[i][4])
-                data['category_id'] = dataset.cat_ids[label]
+                data['category_id'] = dataset.cat_ids[label-1]
                 bbox_json_results.append(data)
 
             # segm results
@@ -199,11 +199,11 @@ def segm2json(dataset, results):
             for i in range(bboxes.shape[0]):
                 data = dict()
                 data['image_id'] = img_id
-                data['bbox'] = xyxy2xywh(bboxes[i])
+                data['bbox'] = yxyx2xywh(bboxes[i])
                 data['score'] = float(mask_score[i])
-                data['category_id'] = dataset.cat_ids[label]
-                if isinstance(segms[i]['counts'], bytes):
-                    segms[i]['counts'] = segms[i]['counts'].decode()
+                data['category_id'] = dataset.cat_ids[label-1]
+                data['segmentation'] = segms[i]
+                data['segmentation']['counts'] = data['segmentation']['counts'].decode()
                 data['segmentation'] = segms[i]
                 segm_json_results.append(data)
     return bbox_json_results, segm_json_results
@@ -219,7 +219,6 @@ def results2json(dataset, results, out_file):
     elif isinstance(results[0], tuple):
         json_results = segm2json(dataset, results)
         result_files['bbox'] = '{}.{}.json'.format(out_file, 'bbox')
-        result_files['proposal'] = '{}.{}.json'.format(out_file, 'bbox')
         result_files['segm'] = '{}.{}.json'.format(out_file, 'segm')
         dump(json_results[0], result_files['bbox'])
         dump(json_results[1], result_files['segm'])
