@@ -42,8 +42,7 @@ class Runner(object):
                  log_level=logging.INFO,
                  logger=None,
                  amp_enabled=False,
-                 gradient_clip=15.0,
-                 mask=False):
+                 gradient_clip=15.0):
         assert callable(batch_processor)
         self.model = model
         if optimizer is not None:
@@ -51,7 +50,6 @@ class Runner(object):
         else:
             self.optimizer = None
         self.batch_processor = batch_processor
-        self._mask = mask
 
         # create work_dir
         if isinstance(work_dir, str):
@@ -122,13 +120,6 @@ class Runner(object):
         (distributed training)
         """
         return self._local_size
-    
-    @property
-    def mask(self):
-        """
-        Return bool for iss runner is using masks
-        """
-        return self._mask
 
     @property
     def hooks(self):
@@ -306,17 +297,14 @@ class Runner(object):
         grads = tape.gradient(loss, var_list)
         if self._amp_enabled:
             grads = self.optimizer.get_unscaled_gradients(grads)
-        grads = [
-            grad if grad is not None else tf.zeros_like(var)
-            for var, grad in zip(var_list, grads)
-        ]
+        grads = [grad if grad is not None else tf.zeros_like(var) for var, grad in zip(var_list, grads)]
         # all_are_finite = tf.reduce_all([tf.reduce_all(tf.math.is_finite(g)) for g in grads])
         if self.gradient_clip > 0.0:
             clipped_grads, global_norm = tf.clip_by_global_norm(grads, self.gradient_clip)
             grads = clipped_grads
         # if self.rank == 0: tf.print(global_norm, all_are_finite)
         self.optimizer.apply_gradients(zip(grads, var_list))
-        return outputs, grads
+        return outputs
 
 
     def run_eval_step(self, data_batch):
@@ -326,10 +314,7 @@ class Runner(object):
         '''
         if self.rank != 0:
             return
-        if self.mask:
-            imgs, img_metas, gt_boxes, gt_class_ids, gt_masks = data_batch
-        else:
-            imgs, img_metas, gt_boxes, gt_class_ids = data_batch
+        imgs, img_metas, gt_boxes, gt_class_ids = data_batch
         detections_dict = self.batch_processor(self.model, (tf.expand_dims(imgs[0], axis=0), tf.expand_dims(img_metas[0], axis=0)), train_mode=False)
         for l, b in zip(gt_class_ids,gt_boxes):
             print('GT', l, b)
@@ -354,7 +339,7 @@ class Runner(object):
             orig_momentum = self.optimizer._optimizer.momentum.numpy()
             momentum_correction_factor = curr_lr / prev_lr
             self.optimizer._optimizer.momentum = self.optimizer._optimizer.momentum * momentum_correction_factor
-            outputs, grads = self.run_train_step(data_batch)
+            outputs = self.run_train_step(data_batch)
             # restore momentum
             self.optimizer._optimizer.momentum = orig_momentum
             if self.broadcast: # broadcast once
@@ -368,7 +353,6 @@ class Runner(object):
                 # add current learning rate for tensorboard as well
                 self.log_buffer.update({'learning_rate': self.current_lr()})
             self.outputs = outputs
-            self.grads = grads
             self.call_hook('after_train_iter')
             self._iter += 1
             debug_on_train_every_iter = 1000

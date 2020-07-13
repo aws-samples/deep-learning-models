@@ -13,8 +13,6 @@ import matplotlib.pyplot as plt
 from matplotlib import patches, lines
 from matplotlib.patches import Polygon
 import IPython.display
-import matplotlib
-matplotlib.use('Agg')
 
 def random_colors(N, bright=True):
     '''
@@ -252,8 +250,7 @@ coco_categories = {0: 'background',
  80: 'toothbrush'}
 
 def make_image(image, boxes, class_ids, class_names,
-                      figsize=(8, 8), scores=None,
-                      masks=None,
+                      figsize=(8, 8), scores=None, 
                       title="", ax=None):
     '''
     boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
@@ -302,13 +299,6 @@ def make_image(image, boxes, class_ids, class_names,
         caption = "{} {:.3f}".format(label, score) if score else label
         ax.text(x1 + 4, y1 + 24, caption,
                 color=color, size=18, backgroundcolor="none", fontweight='bold')
-        if masks is not None:
-            a_mask = masks[i].astype(np.float32)
-            a_mask *= 255
-            a_mask = np.concatenate([a_mask]*3, axis=-1)
-            a_mask *= color
-            a_mask /= 5
-            # image += a_mask
     
     plt.imshow(image.astype(np.uint8))
     fig.tight_layout(pad = 0.0)
@@ -318,4 +308,3 @@ def make_image(image, boxes, class_ids, class_names,
     data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
     # data = data[np.where(~np.all(data == 255, axis=1))]
     return data
-    
