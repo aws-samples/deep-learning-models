@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- RetinaNet model
+- docs under vision/detection directory has README with results and setup instructions per model
+- Generic AWSDet tutorial
+- Ability to use Keras released backbone or custom SavedModel format backbone
+- Ability to resume complete training state for object detection trainer to restart training from a saved trainer state
+
+### Changed
+- Directory structure has changed for vision models
+- Per model configurations for EC2 and SageMaker have been introduced
+- Now we have a single training entrypoint for both EC2 and SM training jobs
+- Changes to core to support single stage detectors
+
+### Removed
+- Duplicate code for schedulers, sagemaker trainers
+
+
+## [Unreleased]
+### Added
 - Changelog (this file).
 - BERT model.
 - Weights & Biases integration.

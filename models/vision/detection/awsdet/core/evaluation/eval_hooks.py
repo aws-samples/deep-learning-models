@@ -54,17 +54,13 @@ class DistEvalHook(Hook):
             if i >= num_examples:
                 break
             _, img_meta = data_batch
-            outputs = runner.model(data_batch, training=False) # runner.batch_processor(runner.model, data_batch, train_mode=False)
-            # print(outputs)
+            outputs = runner.model(data_batch, training=False)
             assert isinstance(outputs, dict)
             bboxes = outputs['bboxes']
             # map boxes back to original scale
             bboxes = transforms.bbox_mapping_back(bboxes, img_meta)
-            # print('>>>>', bboxes)
             labels = outputs['labels']
             scores = outputs['scores']
-            # print(labels)
-            # print(scores)
             result = transforms.bbox2result(bboxes, labels, scores, num_classes=self.dataset.CLASSES+1) # add background class
             results[i*runner.local_size+runner.local_rank] = result
             if runner.rank == 0:

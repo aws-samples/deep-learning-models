@@ -41,7 +41,7 @@ def set_random_seed(seed, deterministic=False):
 
     Args:
         seed (int): Seed to be used.
-        # deterministic (bool): TODO: check NVIDIA determinism
+        # deterministic (bool): unused - to be enabled through TF FLAGS in 2.2.0 (see tools/train.py)
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -63,7 +63,9 @@ def parse_losses(losses, local_batch_size):
     for _key, _value in log_vars.items():
         if 'loss' in _key:
             if 'reg_loss' not in _key:
-                loss_list.append(_value/local_batch_size) # horovod averages (not sums) gradients by default over workers
+                # https://github.com/horovod/horovod/issues/843
+                # horovod averages (not sums) gradients by default over workers
+                loss_list.append(_value/local_batch_size)
             else:
                 loss_list.append(_value)
     total_loss = sum(loss_list) 
@@ -72,11 +74,7 @@ def parse_losses(losses, local_batch_size):
 
 
 @tf.function(experimental_relax_shapes=True)
-def batch_processor(model, data, train_mode, loss_weights = {'rpn_class_loss': 1., 
-                                                             'rpn_bbox_loss': 1., 
-                                                             'rcnn_class_loss': 1., 
-                                                             'rcnn_bbox_loss': 1.,
-                                                             'reg_loss': 1.}):
+def batch_processor(model, data, train_mode, loss_weights=None):
     """Process a data batch.
 
     This method is required as an argument of Runner, which defines how to
@@ -88,6 +86,7 @@ def batch_processor(model, data, train_mode, loss_weights = {'rpn_class_loss': 1
         data: Tuple of padded batch data - batch_imgs, batch_metas, batch_bboxes, batch_labels
         train_mode (bool): Training mode or not. It may be useless for some
             models.
+        loss_weights: dictionary of weights that can be assigned in multiloss scenario, for example, {'rpn_class_loss': 1., 'rpn_bbox_loss': 1.,...} 
 
     Returns:
         dict: A dict containing losses and log vars.
@@ -98,7 +97,8 @@ def batch_processor(model, data, train_mode, loss_weights = {'rpn_class_loss': 1
         reg_losses = tf.add_n(model.losses)
         local_batch_size = data[0].shape[0]
         losses['reg_loss'] = reg_losses
-        losses = {i:losses[i]*j for i,j in loss_weights.items()}
+        if not loss_weights is None:
+            losses = {i:losses[i]*j for i,j in loss_weights.items()}
         loss, log_vars = parse_losses(losses, local_batch_size)
         outputs = dict(loss=loss,
                        log_vars=log_vars,
@@ -182,26 +182,26 @@ def _dist_train(model,
     # build runner
     optimizer = build_optimizer(cfg.optimizer)
     if mixed_precision:
-        # broken in TF 2.1
-        # optimizer = tf.keras.mixed_precision.experimental.LossScaleOptimizer(optimizer, 'dynamic')
         optimizer = tf.train.experimental.enable_mixed_precision_graph_rewrite(optimizer, loss_scale='dynamic')
 
+    optimizer_config = cfg.optimizer_config
+    optimizer_config['amp_enabled'] = mixed_precision
+    gradient_clip = optimizer_config.get('gradient_clip', 15.0) # default is 15.0
 
     runner = Runner(model,
                     batch_processor,
                     optimizer,
                     cfg.work_dir,
                     logger=logger,
-                    amp_enabled=mixed_precision)
-    # workaround to make the .log and .log.json filenames the same
+                    amp_enabled=mixed_precision,
+                    gradient_clip=gradient_clip)
+ 
     runner.timestamp = timestamp
-    optimizer_config = cfg.optimizer_config
-    optimizer_config['amp_enabled'] = mixed_precision
     # register hooks
     runner.register_training_hooks(cfg.lr_config, optimizer_config,
                                    cfg.checkpoint_config, cfg.log_config)
     # register eval hooks
-    if validate and runner.rank < runner.local_size: # register this dist eval hook only for Node 0
+    if validate:
         val_dataset_cfg = cfg.data.val
         eval_cfg = cfg.get('evaluation', {})
         runner.register_hook(CocoDistEvalmAPHook(val_dataset_cfg, **eval_cfg))
@@ -236,10 +236,6 @@ def _non_dist_train(model,
 
     # build runner
     optimizer = build_optimizer(cfg.optimizer)
-    # broken in TF2.1
-    # if mixed_precision:
-    #     optimizer = tf.keras.mixed_precision.experimental.LossScaleOptimizer(optimizer, 1024.0) # "dynamic")
-
     runner = Runner(model,
                     batch_processor,
                     optimizer,
