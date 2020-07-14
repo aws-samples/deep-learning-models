@@ -59,7 +59,7 @@ model = dict(
     ),
     mask_head=dict(
         type='MaskHead',
-        num_classes=80,
+        num_classes=81,
         weight_decay=1e-5,
         use_bn=False,
     ),

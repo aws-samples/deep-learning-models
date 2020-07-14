@@ -1,4 +1,4 @@
-# Faster RCNN
+# Faster RCNN/Mask RCNN
 
 TensorFlow 2.x based Faster RCNN implementation using Feature Pyramid Networks and ResNet50 backbone
 
@@ -11,6 +11,8 @@ This implementation of Faster RCNN is focused on increasing training throughput 
 The implementation achieves fast training times through usage of multi image batches per GPU, mixed precision training, and TensorFlow autograph feature. The code is fully TF 2.x compatible and supports debugging in Eager mode as well.
 
 Additionally, the backbone is easily swappable, and TF Keras pretrained weights can be used for initializing the backbone weights.
+
+Our implementation provides an optional mask head, which can be enables by supplying a mask head configuration in the configuration file. An example default configuration can be found in the configuration files.
 
 ### Status
 
@@ -60,12 +62,12 @@ Training on N GPUs (V100s in our experiments) with a per-gpu batch size of M = N
 The results were obtained on SageMaker.
 12 epochs training:
 
-| Num_GPUs x Images_Per_GPU | Instance type | Training time | Box mAP | Notes |
-| ------------------------- | ------------- | ------------: | ------: | ----- |
-| 8x4 | P3dn.24xl | 5h 15 | 36.40% | |
-| 16x4 | P3dn.24xl | 2h 50 | 36.30% | |
-| 32x4 | P3dn.24xl | 1h 27 | 35.70% | HP search not done |
-| 64x2 | P3dn.24xl | 0h 56 | 35.50% | HP search not done |
+| Num_GPUs x Images_Per_GPU | Instance type | Training time | Box mAP | Seg mAP | Notes |
+| ------------------------- | ------------- | ------------: | ------: | ------: | ----- |
+| 8x4 | P3dn.24xl | 5h 15 | 36.40% | - | |
+| 16x4 | P3dn.24xl | 2h 50 | 36.30% | - | |
+| 32x4 | P3dn.24xl | 1h 27 | 35.70% | - | HP search not done |
+| 64x2 | P3dn.24xl | 0h 56 | 35.50% | - | HP search not done |
 
 
 ### Example output

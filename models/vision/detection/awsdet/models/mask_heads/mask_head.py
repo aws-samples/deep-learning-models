@@ -38,10 +38,8 @@ class MaskHead(tf.keras.Model):
                                                        kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
                                                        name="mask_deconv")
         self._masks = tf.keras.layers.Conv2D(self.num_classes, (1, 1),
-                                             kernel_initializer=tf.keras.initializers.VarianceScaling(scale=2.0, 
-                                                                                                       mode='fan_out'),
+                                             kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.001),
                                              kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
-                                             activation=tf.keras.activations.sigmoid,
                                              strides=1, name="mask_output")
     
     @tf.function(experimental_relax_shapes=True)
