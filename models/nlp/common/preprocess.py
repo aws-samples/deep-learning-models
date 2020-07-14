@@ -48,7 +48,9 @@ from common.datasets import get_electra_dataset
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--max_seq_length", type=int, default=512)
-parser.add_argument("--dataset", choices=["wikitext-2", "wikitext-103", "wikipedia"])
+parser.add_argument(
+    "--dataset", choices=["wikitext-2", "wikitext-103", "wikipedia", "bookcorpus", "wikibooks"]
+)
 parser.add_argument("--cache_folder", default=None)
 parser.add_argument("--shards", type=int, default=1)
 parser.add_argument("--tfrecord_folder", default="/tmp")
@@ -62,9 +64,17 @@ start_time = time.perf_counter()
 print(f"Loading dataset: {args.dataset}")
 if args.dataset.startswith("wikitext"):
     dset = nlp.load_dataset("wikitext", f"{args.dataset}-raw-v1", split="train")
-else:
+elif args.dataset == "wikipedia":
     dset = nlp.load_dataset("wikipedia", "20200501.en", split="train")
     dset.drop(columns=["title"])
+elif args.dataset == "bookcorpus":
+    dset = nlp.load_dataset("bookcorpus", split="train")
+elif args.dataset == "wikibooks":
+    dset_wikipedia = nlp.load_dataset("wikipedia", "20200501.en", split="train")
+    dset_books = nlp.load_dataset("bookcorpus", split="train")
+    dset = nlp.Dataset.from_concat([dset_wikipedia, dset_books])
+else:
+    assert False
 print("Loaded dataset:", dset, dset[0])
 print("Filtering empty lines")
 dset = dset.filter(lambda ex: len(ex["text"]) > 0)
