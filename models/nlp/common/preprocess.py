@@ -1,12 +1,18 @@
 """
 Inspiration from https://github.com/google-research/electra/blob/master/build_pretraining_dataset.py
+23 seconds for WikiText-2 (2M tokens, 84k sentences)
+25 minutes for WikiText-103 (103M tokens, 4.1M sentences)
+?? minutes for Wikipedia (2500M tokens, ?? sentences)
+
+The steps are:
+1) Download data
+2) Filter empty lines (112k it/s)
+3) Replace newlines with space (121k it/s)
+4) Split on periods into sentences (66k it/s)
+5) Pre-tokenize sentences and join into examples (12k it/s)
+6) Convert example tokens into ids (0.15k it/s) -> because of casting ndarray to list?
 
 TODO: Parse into documents.
-I might accidentally cross document boundaries with this technique.
-How many examples should I generate?
-Assert we don't generate any examples less than 512
-
-Common mistakes: Can't serialize example? Try VarLenFeature, that means your examples aren't all the same length.
 
 To directly inspect a TFRecord without knowing the spec:
 tfds = tf.data.TFRecordDataset(filenames=[filename])
@@ -21,20 +27,35 @@ features = {
 }
 """
 
+import argparse
 import random
+import time
 from functools import partial
 
 import nlp
-import numpy as np
 import tensorflow as tf
 from transformers import BertTokenizerFast
 
 from common.datasets import get_electra_dataset
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--max_seq_length", type=int, default=512)
+parser.add_argument("--dataset", choices=["wikitext-2", "wikitext-103", "wikipedia"])
+parser.add_argument("--cache_file", default="/tmp/tmp.cache")
+parser.add_argument("--tfrecord_file", default="/tmp/tmp.tfrecord")
+parser
+args = parser.parse_args()
+
 load_from_cache_file = True
 
-print("Loading dataset")
-dset = nlp.load_dataset("wikitext", "wikitext-103-raw-v1", split="train")
+start_time = time.perf_counter()
+
+print(f"Loading dataset: {args.dataset}")
+if args.dataset.startswith("wikitext"):
+    dset = nlp.load_dataset("wikitext", f"{args.dataset}-raw-v1", split="train")
+else:
+    dset = nlp.load_dataset("wikipedia", "20200501.en", split="train")
+
 print("Loaded dataset:", dset, dset[0])
 print("Filtering empty lines")
 dset = dset.filter(lambda ex: len(ex["text"]) > 0)
@@ -45,10 +66,6 @@ dset = dset.map(
     batched=True,
 )
 print("Replaced newlines with space:", dset, dset[0])
-
-
-def join_documents(batch):
-    """ Each document starts with a `= Title =`, and subheadings have two/three equals signs. """
 
 
 def split_into_sentences(batch):
@@ -93,7 +110,7 @@ def tokenize(batch):
     return {"tokens": tokenizer.tokenize_batch(batch["sentences"])}
 
 
-dset = dset.select(np.arange(0, 60000))
+# dset = dset.select(np.arange(0, 60000))
 print("Tokenizing sentences:")
 dset = dset.map(tokenize, batched=True, remove_columns=["sentences"])
 print("Tokenized sentences:", dset, dset[0])
@@ -153,7 +170,7 @@ def create_examples(batch, max_length):
 
 print("Creating examples")
 dset = dset.map(
-    partial(create_examples, max_length=512),
+    partial(create_examples, max_length=args.max_seq_length),
     batched=True,
     remove_columns=["tokens"],
     load_from_cache_file=load_from_cache_file,
@@ -170,41 +187,44 @@ def batch_ids_from_pretokenized(batch):
         is_pretokenized=True,
         padding="max_length",
         truncation=True,
-        max_length=512,
+        max_length=args.max_seq_length,
     )
     return ret_val
 
 
-cache_file = "/Users/nieljare/Desktop/wikitext2-encoded.cache"
 print("Padding, truncating, and encoding examples into ids")
 dset = dset.map(
     batch_ids_from_pretokenized,
     batched=True,
     remove_columns=["examples"],
-    cache_file_name=cache_file,
+    cache_file_name=args.cache_file,
     load_from_cache_file=load_from_cache_file,
 )
 print("Padded, truncated, and encoded examples into ids:", dset, dset[0])
 # dset = nlp.Dataset.from_file(cache_file)
 
-filename = "/tmp/dset.tfrecord"
-dset.export(filename)
+dset.export(args.tfrecord_file)
 
 ### Now read in a TFRecord to ensure exporting happened correctly ###
 
-max_seq_length = 512
 name_to_features = {
-    "input_ids": tf.io.FixedLenFeature([max_seq_length], tf.int64),  # corresponds to input_ids
+    "input_ids": tf.io.FixedLenFeature([args.max_seq_length], tf.int64),  # corresponds to input_ids
     "token_type_ids": tf.io.FixedLenFeature(
-        [max_seq_length], tf.int64
+        [args.max_seq_length], tf.int64
     ),  # corresponds to token_type_ids
     "attention_mask": tf.io.FixedLenFeature(
-        [max_seq_length], tf.int64,
+        [args.max_seq_length], tf.int64,
     ),  # corresponds to attention_mask
 }
 
 tfds = get_electra_dataset(
-    filenames=[filename], max_seq_length=512, per_gpu_batch_size=4, shard=False
+    filenames=[args.tfrecord_file],
+    max_seq_length=args.max_seq_length,
+    per_gpu_batch_size=4,
+    shard=False,
 )
 for batch in tfds.take(1):
     print(batch)
+
+elapsed = time.perf_counter() - start_time
+print(f"Total processing time: {elapsed:.3f} secss")
