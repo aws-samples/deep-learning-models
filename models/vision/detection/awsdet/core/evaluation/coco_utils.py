@@ -147,7 +147,7 @@ def proposal2json(dataset, results):
         for i in range(bboxes.shape[0]):
             data = dict()
             data['image_id'] = img_id
-            data['bbox'] = xyxy2xywh(bboxes[i])
+            data['bbox'] = yxyx2xywh(bboxes[i])
             data['score'] = float(bboxes[i][4])
             data['category_id'] = 1
             json_results.append(data)
@@ -183,9 +183,9 @@ def segm2json(dataset, results):
             for i in range(bboxes.shape[0]):
                 data = dict()
                 data['image_id'] = img_id
-                data['bbox'] = xyxy2xywh(bboxes[i])
+                data['bbox'] = yxyx2xywh(bboxes[i])
                 data['score'] = float(bboxes[i][4])
-                data['category_id'] = dataset.cat_ids[label]
+                data['category_id'] = dataset.cat_ids[label-1]
                 bbox_json_results.append(data)
 
             # segm results
@@ -199,11 +199,11 @@ def segm2json(dataset, results):
             for i in range(bboxes.shape[0]):
                 data = dict()
                 data['image_id'] = img_id
-                data['bbox'] = xyxy2xywh(bboxes[i])
+                data['bbox'] = yxyx2xywh(bboxes[i])
                 data['score'] = float(mask_score[i])
-                data['category_id'] = dataset.cat_ids[label]
-                if isinstance(segms[i]['counts'], bytes):
-                    segms[i]['counts'] = segms[i]['counts'].decode()
+                data['category_id'] = dataset.cat_ids[label-1]
+                data['segmentation'] = segms[i]
+                data['segmentation']['counts'] = data['segmentation']['counts'].decode()
                 data['segmentation'] = segms[i]
                 segm_json_results.append(data)
     return bbox_json_results, segm_json_results

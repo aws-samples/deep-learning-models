@@ -120,3 +120,6 @@ def rcnn_bbox_loss(roi_deltas, target_deltas, roi_inside_weights, roi_outside_we
                               dim=[0, 1])
     return loss
 
+def rcnn_mask_loss(gt_mask_crops, rcnn_masks, inside_weights, outside_weights):
+    loss = tf.nn.weighted_cross_entropy_with_logits(gt_mask_crops, rcnn_masks, inside_weights)
+    return tf.reduce_sum(loss*outside_weights)

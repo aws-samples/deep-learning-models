@@ -21,7 +21,8 @@ class CocoDataset(object):
                  preproc_mode='caffe',
                  scale=(1024, 800),
                  train=False,
-                 debug=False):
+                 debug=False,
+                 mask=False):
         """
         Load a subset of the COCO dataset.
         
@@ -73,8 +74,10 @@ class CocoDataset(object):
         self.img_transform = transforms.ImageTransform(scale, mean, std,
                                                        pad_mode)
         self.bbox_transform = transforms.BboxTransform()
+        self.mask_transform = transforms.MaskTransform(scale, pad_mode)
         self.train = train
         self.preproc_mode = preproc_mode
+        self.mask = mask
 
 
     def _filter_imgs(self, min_size=32):
@@ -234,7 +237,12 @@ class CocoDataset(object):
         labels = ann['labels']
 
         flip = True if np.random.rand() < self.flip_ratio else False
-
+    
+        if self.mask:
+            masks = np.array([self.mask_transform(self.coco.annToMask(i), flip=flip) \
+                     for i in ann_info])
+            masks = masks.astype(np.int32)
+        
         # Handle the image
         img, img_shape, scale_factor = self.img_transform(img, flip)
 
@@ -254,6 +262,8 @@ class CocoDataset(object):
 
         img_meta = utils.compose_image_meta(img_meta_dict)
         if self.train:
+            if self.mask:
+                return img, img_meta, bboxes, labels, masks
             return img, img_meta, bboxes, labels
         return img, img_meta
 

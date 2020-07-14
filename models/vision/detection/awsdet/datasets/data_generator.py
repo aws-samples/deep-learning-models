@@ -34,10 +34,13 @@ class DataGenerator:
                 # overfit hack  DEBUG
                 # img_idx = self.gpu_index * 100 + img_idx % 100 #DEBUG
                 if self.dataset.train:
-                    # print('Loading:', self.gpu_index, self.dataset.img_infos[img_idx]['file_name'])
-                    img, img_meta, bboxes, labels = self.dataset[img_idx]
-                    # print(self.gpu_index, img_meta)
-                    yield img, img_meta, bboxes, labels
+                    if self.dataset.mask:
+                        img, img_meta, bboxes, labels, mask = self.dataset[img_idx]
+                        yield img, img_meta, bboxes, labels, mask
+                    else:
+                        img, img_meta, bboxes, labels = self.dataset[img_idx]
+                        # print(self.gpu_index, img_meta)
+                        yield img, img_meta, bboxes, labels
                 else:
                     img, img_meta = self.dataset[img_idx]
                     yield img, img_meta

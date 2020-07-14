@@ -10,6 +10,8 @@ import pathlib
 import tarfile
 import numpy as np
 import tensorflow as tf
+import sys
+sys.path.append('.')
 
 from awsdet.utils.misc import Config, mkdir_or_exist
 from awsdet.utils.runner import init_dist, master_only, get_dist_info, get_barrier

@@ -5,6 +5,8 @@ import numpy as np
 
 from awsdet.datasets.utils import (imrescale, imnormalize, img_flip, 
                                   impad_to_multiple, impad_to_square,
+                                  impad_mask_to_square,
+                                  impad_mask_to_multiple,
                                   bbox_flip)
 
 class ImageTransform(object):
@@ -61,3 +63,28 @@ class BboxTransform(object):
         bboxes[:, 1::2] = np.clip(bboxes[:, 1::2], 0, img_shape[1])
             
         return bboxes, labels
+
+class MaskTransform(object):
+    '''
+    Preprocess a mask to match
+    the preprocessed image
+    1. rescale to match image
+    2. flip if needed
+    3. pad image
+    '''
+    def __init__(self,
+                 scale=(800, 1333),
+                 pad_mode='fixed'):
+        self.scale = scale
+        self.pad_mode = pad_mode
+        self.impad_size = max(scale) if pad_mode == 'fixed' else 64
+    
+    def __call__(self, mask, flip=False):
+        mask, scale_factor = imrescale(mask, self.scale)
+        if flip:
+            mask = img_flip(mask)
+        if self.pad_mode == 'fixed':
+            mask = impad_mask_to_square(mask, self.impad_size)
+        else:
+            mask = impad_mask_to_multiple(mask, self.impad_size)
+        return mask
