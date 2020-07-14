@@ -5,20 +5,41 @@ TODO: Parse into documents.
 I might accidentally cross document boundaries with this technique.
 How many examples should I generate?
 Assert we don't generate any examples less than 512
+
+Common mistakes: Can't serialize example? Try VarLenFeature, that means your examples aren't all the same length.
+
+To directly inspect a TFRecord without knowing the spec:
+tfds = tf.data.TFRecordDataset(filenames=[filename])
+for batch in tfds.take(1):
+    example_proto = tf.train.Example.FromString(batch.numpy())
+
+To attempt loading in a VarLenFeature to see if you didn't serialize everything the same length:
+features = {
+    "input_ids": tf.io.VarLenFeature(tf.int64),
+    "token_type_ids": tf.io.VarLenFeature(tf.int64),
+    "attention_mask": tf.io.VarLenFeature(tf.int64),
+}
 """
 
 import random
 from functools import partial
 
 import nlp
+import numpy as np
+import tensorflow as tf
 from transformers import BertTokenizerFast
+
+from common.datasets import get_electra_dataset
 
 load_from_cache_file = True
 
+print("Loading dataset")
 dset = nlp.load_dataset("wikitext", "wikitext-103-raw-v1", split="train")
 print("Loaded dataset:", dset, dset[0])
+print("Filtering empty lines")
 dset = dset.filter(lambda ex: len(ex["text"]) > 0)
 print("Filtered empty lines:", dset, dset[0])
+print("Replacing newlines with space")
 dset = dset.map(
     lambda batch: {"text": [text.strip().replace("\n", " ") for text in batch["text"]]},
     batched=True,
@@ -50,6 +71,7 @@ def split_into_sentences(batch):
     return {"sentences": sentences}
 
 
+print("Splitting into sentences")
 dset = dset.map(
     split_into_sentences,
     batched=True,
@@ -62,10 +84,17 @@ tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
 
 
 def tokenize(batch):
-
+    """ Tokenize via list comprehension in Python. """
     return {"tokens": [tokenizer.tokenize(example) for example in batch["sentences"]]}
 
 
+def tokenize(batch):
+    """ Tokenize via list comprehension in Rust. """
+    return {"tokens": tokenizer.tokenize_batch(batch["sentences"])}
+
+
+dset = dset.select(np.arange(0, 60000))
+print("Tokenizing sentences:")
 dset = dset.map(tokenize, batched=True, remove_columns=["sentences"])
 print("Tokenized sentences:", dset, dset[0])
 
@@ -122,6 +151,7 @@ def create_examples(batch, max_length):
     return {"examples": examples}
 
 
+print("Creating examples")
 dset = dset.map(
     partial(create_examples, max_length=512),
     batched=True,
@@ -129,19 +159,52 @@ dset = dset.map(
     load_from_cache_file=load_from_cache_file,
 )
 print("Created examples:", dset, dset[0])
-
-# TODO: Just use the normal __call__ so it will do the padding for us.
-def tokenize_from_pretokenized(ex):
-    string = tokenizer.decode(tokenizer.convert_tokens_to_ids(ex["examples"]))
-    return tokenizer(string, padding=True, truncation=True, max_length=512)
+# WARNING: Some of these examples are shorter than 512 sequence length.
+# View with [len(ex["examples"]) for ex in dset]
 
 
+def batch_ids_from_pretokenized(batch):
+    exs = batch["examples"]
+    ret_val = tokenizer(
+        [list(ex) for ex in exs],
+        is_pretokenized=True,
+        padding="max_length",
+        truncation=True,
+        max_length=512,
+    )
+    return ret_val
+
+
+cache_file = "/Users/nieljare/Desktop/wikitext2-encoded.cache"
+print("Padding, truncating, and encoding examples into ids")
 dset = dset.map(
-    tokenize_from_pretokenized,
+    batch_ids_from_pretokenized,
+    batched=True,
     remove_columns=["examples"],
-    cache_file_name="/Users/nieljare/Desktop/wikitext103-encoded.cache",
+    cache_file_name=cache_file,
     load_from_cache_file=load_from_cache_file,
 )
 print("Padded, truncated, and encoded examples into ids:", dset, dset[0])
+# dset = nlp.Dataset.from_file(cache_file)
 
-breakpoint()
+filename = "/tmp/dset.tfrecord"
+dset.export(filename)
+
+### Now read in a TFRecord to ensure exporting happened correctly ###
+
+max_seq_length = 512
+name_to_features = {
+    "input_ids": tf.io.FixedLenFeature([max_seq_length], tf.int64),  # corresponds to input_ids
+    "token_type_ids": tf.io.FixedLenFeature(
+        [max_seq_length], tf.int64
+    ),  # corresponds to token_type_ids
+    "attention_mask": tf.io.FixedLenFeature(
+        [max_seq_length], tf.int64,
+    ),  # corresponds to attention_mask
+}
+
+tfds = get_electra_dataset(
+    filenames=[filename], max_seq_length=512, per_gpu_batch_size=4, shard=False
+)
+for batch in tfds.take(1):
+    print(batch)

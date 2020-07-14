@@ -1,6 +1,5 @@
 from typing import List
 
-import horovod.tensorflow as hvd
 import numpy as np
 import tensorflow as tf
 from transformers import BertTokenizer, TFBertForPreTraining
@@ -147,6 +146,7 @@ def get_mlm_dataset(
     max_predictions_per_seq: int,
     per_gpu_batch_size: int,
     buffer_size: int = 1000,
+    shard: bool = True,
 ) -> "tf.data.Dataset":
     """ Reads the dataset from TFRecords and returns it.
     Returns a dataset that includes batching, but not gradient accumulation.
@@ -181,7 +181,10 @@ def get_mlm_dataset(
     assert len(filenames) > 0, f"Filenames is an empty list"
     # Shard and shuffle the filenames
     dataset = tf.data.Dataset.from_tensor_slices(filenames)
-    dataset = dataset.shard(hvd.size(), hvd.rank())
+    if shard:
+        import horovod.tensorflow as hvd
+
+        dataset = dataset.shard(hvd.size(), hvd.rank())
     dataset = dataset.shuffle(buffer_size=len(filenames), reshuffle_each_iteration=True)
     dataset = dataset.repeat()
 
@@ -208,7 +211,12 @@ def get_mlm_dataset(
 
 # TODO: Combine get_electra_dataset and get_mlm_dataset into one get_dataset
 def get_electra_dataset(
-    *, filenames: List[str], max_seq_length: int, per_gpu_batch_size: int, buffer_size: int = 1000,
+    *,
+    filenames: List[str],
+    max_seq_length: int,
+    per_gpu_batch_size: int,
+    buffer_size: int = 1000,
+    shard: bool = True,
 ) -> "tf.data.Dataset":
     """ Reads the dataset from TFRecords and returns it.
     Returns a dataset that includes batching, but not gradient accumulation.
@@ -233,7 +241,10 @@ def get_electra_dataset(
     assert len(filenames) > 0, f"Filenames is an empty list"
     # Shard and shuffle the filenames
     dataset = tf.data.Dataset.from_tensor_slices(filenames)
-    dataset = dataset.shard(hvd.size(), hvd.rank())
+    if shard:
+        import horovod.tensorflow as hvd
+
+        dataset = dataset.shard(hvd.size(), hvd.rank())
     dataset = dataset.shuffle(buffer_size=len(filenames), reshuffle_each_iteration=True)
     dataset = dataset.repeat()
 
