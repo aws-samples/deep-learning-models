@@ -129,12 +129,12 @@ class FasterRCNN(TwoStageDetector):
         if training and self.mask:
             fg_rois_list = self.mask_head.get_fg_rois_list(rois_list)
             mask_regions_list = self.mask_roi_extractor((fg_rois_list, rcnn_feature_maps, img_metas), training=training)
-            gt_mask_crops, fg_targets, weights = \
+            gt_mask_crops, mask_inside_weights, mask_outside_weights, fg_targets = \
                         self.mask_head.mask_target.get_mask_targets(gt_masks, fg_assignments, 
                                                                     rcnn_target_matchs, fg_rois_list, img_metas)
             rcnn_masks = self.mask_head(mask_regions_list)
             rcnn_masks = self.mask_head.mask_target.slice_masks(rcnn_masks, fg_targets)
-            mask_loss = self.mask_head.loss(gt_mask_crops, rcnn_masks, weights)
+            mask_loss = self.mask_head.loss(gt_mask_crops, rcnn_masks, mask_inside_weights, mask_outside_weights)
         if training:
             s8 = tf.timestamp()
             rpn_inputs = (rpn_class_logits, rpn_deltas, gt_boxes, gt_class_ids, img_metas)

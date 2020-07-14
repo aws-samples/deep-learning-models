@@ -41,6 +41,7 @@ class MaskHead(tf.keras.Model):
                                              kernel_initializer=tf.keras.initializers.VarianceScaling(scale=2.0, 
                                                                                                        mode='fan_out'),
                                              kernel_regularizer=tf.keras.regularizers.l2(self.weight_decay),
+                                             activation=tf.keras.activations.sigmoid,
                                              strides=1, name="mask_output")
     
     @tf.function(experimental_relax_shapes=True)
