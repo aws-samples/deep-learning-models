@@ -534,7 +534,10 @@ class ClsHead(tf.keras.Model):
                                       norm_cfg=norm_cfg,
                                       act_cfg=act_cfg,
                                       name='final_{}'.format(i))
-        self.classifier = layers.Dense(num_classes)
+        self.classifier = layers.Dense(num_classes,
+                kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.01),
+                kernel_regularizer=tf.keras.regularizers.l2(weight_decay), name='logits')
+
 
     def call(self, x_list, training=False):
         y = self.width_incr_layers[0](x_list[0], training=training)
@@ -544,6 +547,7 @@ class ClsHead(tf.keras.Model):
         y = self.final_layer(y)
         y = layers.GlobalAveragePooling2D()(y)
         y = self.classifier(y)
+        y = layers.Activation('softmax', dtype='float32')(y)
         return y
 
 
@@ -596,7 +600,7 @@ class HRNet(tf.keras.Model):
         return y
 
 
-def test_hrnet():
+def build_hrnet():
     # CONFIG
     model = dict(type='HRNet',
                  num_stages=4,
@@ -748,11 +752,12 @@ def test_hrnet():
     resume_from = None
 
     hrnet = HRNet(model)
-    # pass dummy data
+    # pass dummy data to init network
     x = tf.random.uniform([8, 224, 224, 3])
-    out = hrnet(x)
-    hrnet.summary()
-
+    _ = hrnet(x)
+    # hrnet.summary()
+    return hrnet
 
 if __name__ == "__main__":
-    test_hrnet()
+    build_hrnet()
+
