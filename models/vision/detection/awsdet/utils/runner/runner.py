@@ -314,7 +314,7 @@ class Runner(object):
         '''
         if self.rank != 0:
             return
-        imgs, img_metas, gt_boxes, gt_class_ids = data_batch
+        imgs, img_metas, gt_boxes, gt_class_ids, *gt_masks = data_batch
         detections_dict = self.batch_processor(self.model, (tf.expand_dims(imgs[0], axis=0), tf.expand_dims(img_metas[0], axis=0)), train_mode=False)
         for l, b in zip(gt_class_ids,gt_boxes):
             print('GT', l, b)
