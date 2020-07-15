@@ -14,6 +14,8 @@ import resnet_preprocessing
 import resnet
 import resnet_evo
 import darknet
+import hrnet
+
 
 class WarmupScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
     """
@@ -204,6 +206,9 @@ def main():
             model = resnet_evo.ResNet50V2(weights=None, weight_decay=FLAGS.l2_weight_decay, pooling='avg', classes=FLAGS.num_classes)
     elif FLAGS.model == 'darknet53':
         model = darknet.Darknet(weight_decay=FLAGS.l2_weight_decay)
+    elif FLAGS.model == 'hrnet_w32c':
+        model = hrnet.build_hrnet()
+        print('here...')
     model.summary()
     learning_rate = (FLAGS.learning_rate * hvd.size() * FLAGS.batch_size)/256 
     steps_per_epoch = int((FLAGS.train_dataset_size / (FLAGS.batch_size * hvd.size())))
