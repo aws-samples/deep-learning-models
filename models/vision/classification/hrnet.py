@@ -107,7 +107,7 @@ class BasicBlock(tf.keras.Model):
         x = self.conv_mod2(x, training=training)
 
         if self.downsample:
-            residual = self.downsample(x, training=training)
+            residual = self.downsample(residual, training=training)
 
         x = x + residual
         x = tf.nn.relu(x)
@@ -164,7 +164,7 @@ class Bottleneck(tf.keras.Model):
         x = self.conv_mod3(x, training=training)
 
         if self.downsample:
-            residual = self.downsample(x, training=training)
+            residual = self.downsample(residual, training=training)
 
         x = x + residual
         x = tf.nn.relu(x)
@@ -489,8 +489,8 @@ class Stage(tf.keras.Model):
     def call(self, x_list, training=False):
         out = x_list
         for module in self.modules:
-            out_list = module(out, training=training)
-        return out_list
+            out = module(out, training=training)
+        return out
 
 
 class ClsHead(tf.keras.Model):
@@ -614,8 +614,8 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.9,
-                         eps=1e-4,
+                         momentum=0.99,
+                         eps=1e-5,
                      ),
                      weight_decay=1e-5,
                  ),
@@ -630,8 +630,8 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.9,
-                         eps=1e-4,
+                         momentum=0.99,
+                         eps=1e-5,
                      ),
                      weight_decay=1e-5,
                  ),
@@ -646,8 +646,8 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.9,
-                         eps=1e-4,
+                         momentum=0.99,
+                         eps=1e-5,
                      ),
                      weight_decay=1e-5,
                  ),
@@ -662,8 +662,8 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.9,
-                         eps=1e-4,
+                         momentum=0.99,
+                         eps=1e-5,
                      ),
                      weight_decay=1e-5,
                  ),
@@ -678,8 +678,8 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.9,
-                         eps=1e-4,
+                         momentum=0.99,
+                         eps=1e-5,
                      ),
                      weight_decay=1e-5,
                  ),
@@ -691,8 +691,8 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.9,
-                         eps=1e-4,
+                         momentum=0.99,
+                         eps=1e-5,
                      ),
                      weight_decay=1e-5,
                  ))

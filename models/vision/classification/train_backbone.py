@@ -208,7 +208,7 @@ def main():
         model = darknet.Darknet(weight_decay=FLAGS.l2_weight_decay)
     elif FLAGS.model == 'hrnet_w32c':
         model = hrnet.build_hrnet()
-        print('here...')
+        model._set_inputs(tf.keras.Input(shape=(None, None, 3)))
     model.summary()
     learning_rate = (FLAGS.learning_rate * hvd.size() * FLAGS.batch_size)/256 
     steps_per_epoch = int((FLAGS.train_dataset_size / (FLAGS.batch_size * hvd.size())))
@@ -280,10 +280,10 @@ def main():
                     (epoch, average_training_accuracy, average_training_loss, average_validation_accuracy, average_validation_loss, scheduler(curr_step))
             print(info_str)
             logger.info(info_str)
-            if average_validation_accuracy > best_validation_accuracy:
-                logger.info("Found new best accuracy, saving checkpoint ...")
-                best_validation_accuracy = average_validation_accuracy
-                model.save('{}-best/{}'.format(FLAGS.model_dir, FLAGS.model))
+#            if average_validation_accuracy > best_validation_accuracy:
+#                logger.info("Found new best accuracy, saving checkpoint ...")
+#                best_validation_accuracy = average_validation_accuracy
+#                model.save('{}-best/{}'.format(FLAGS.model_dir, FLAGS.model))
     if hvd.rank() == 0:
         logger.info('Total Training Time: %f' % (time() - start_time))
 

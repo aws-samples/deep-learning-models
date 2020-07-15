@@ -267,3 +267,52 @@ def preprocess_image(image_buffer, bbox, output_height, output_width,
           image = tf.image.random_hue(image, max_delta=0.2)
           image = tf.clip_by_value(image, 0.0, 1.0)
   return image
+
+
+def distort_image(image):
+    image = tf.image.random_brightness(image, max_delta=32. / 255.)
+    image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
+    image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
+    image = tf.image.random_hue(image, max_delta=0.2)
+    image = tf.clip_by_value(image, 0.0, 1.0)
+    return image
+
+
+def preprocess_image(image_buffer, bbox, output_height, output_width,
+                     num_channels, is_training=False):
+  """Preprocesses the given image.
+
+  Preprocessing includes decoding, cropping, and resizing for both training
+  and eval images. Training preprocessing, however, introduces some random
+  distortion of the image to improve accuracy.
+
+  Args:
+    image_buffer: scalar string Tensor representing the raw JPEG image buffer.
+    bbox: 3-D float Tensor of bounding boxes arranged [1, num_boxes, coords]
+      where each coordinate is [0, 1) and the coordinates are arranged as
+      [ymin, xmin, ymax, xmax].
+    output_height: The height of the image after preprocessing.
+    output_width: The width of the image after preprocessing.
+    num_channels: Integer depth of the image buffer for decoding.
+    is_training: `True` if we're preprocessing the image for training and
+      `False` otherwise.
+
+  Returns:
+    A preprocessed image.
+  """
+  if is_training:
+    # For training, we want to randomize some of the distortions.
+    image = _decode_crop_and_flip(image_buffer, bbox, num_channels)
+    image = _resize_image(image, output_height, output_width)
+  else:
+    # For validation, we want to decode, resize, then just crop the middle.
+    image = tf.image.decode_jpeg(image_buffer, channels=num_channels)
+    image = _aspect_preserving_resize(image, _RESIZE_MIN)
+    image = _central_crop(image, output_height, output_width)
+
+  image.set_shape([output_height, output_width, num_channels])
+
+  image = _image_standardization(image, _CHANNEL_MEANS, _CHANNEL_STDS, num_channels)
+  if is_training:
+    tf.cond(tf.math.less(tf.random.uniform([]), 0.05), lambda: distort_image(image), lambda: image)
+  return image
