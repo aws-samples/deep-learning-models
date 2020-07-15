@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- Option in bbox target to return foreground assignments. Vector of indices of target within GT
+- Ability for eval hooks to automatically detect masks in runner
+- Mask target class that matches mask head output with GT masks
+- Option for coco dataset to return masks
+- Mask head and extractor options to faster RCNN
+- Mask loss
+- Mask head
+- Profiler hook
+- Mask rcnn configuration files
+
+
+### Changed
+- Background assignment in box target now uses while loop to handle rare case of too few backgrounds after initial duplicate assignment
+- Switched COCO utils segmentation assignment to use yxyx instead of xyxy
+- Matplotlib backend for visualization
+
+## [Unreleased]
+### Added
 - RetinaNet model
 - docs under vision/detection directory has README with results and setup instructions per model
 - Generic AWSDet tutorial

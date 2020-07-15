@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 from matplotlib import patches, lines
 from matplotlib.patches import Polygon
 import IPython.display
+import matplotlib
+matplotlib.use('Agg')
 
 def random_colors(N, bright=True):
     '''
