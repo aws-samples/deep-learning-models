@@ -369,6 +369,7 @@ def run_squad_and_get_results(
     # Discussion at https://github.com/tensorflow/tensorflow/issues/27120
     global train_step
     train_step = rewrap_tf_function(train_step)
+
     for step, batch in enumerate(train_dataset):
         learning_rate = schedule(step=tf.constant(step, dtype=tf.float32))
         loss, acc, exact_match, f1, precision, recall = train_step(
@@ -515,7 +516,13 @@ def main():
     else:
         # We only use run_name on rank 0, but need all ranks to pass a value in function args
         run_name = None
-    model = create_model(model_class=TFAutoModelForQuestionAnswering, model_args=model_args)
+
+    if model_args.load_from == "huggingface":
+        logger.info(f"Loading weights from Huggingface {model_args.model_desc}")
+        model = TFAutoModelForQuestionAnswering.from_pretrained(model_args.model_desc)
+    else:
+        model = create_model(model_class=TFAutoModelForQuestionAnswering, model_args=model_args)
+
     model.call = rewrap_tf_function(model.call)
     tokenizer = create_tokenizer(model_args.model_type)
 
