@@ -371,14 +371,14 @@ def main():
 
     if data_args.pretrain_dataset == "wikibooks":
         if data_args.max_seq_length == 512:
-            train_glob = f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/training_seq_len_512/electra.tfrecord*"
-            validation_glob = f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/test_seq_len_512/electra.tfrecord*"
+            train_glob = f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*"
+            validation_glob = f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*"
         else:
             train_glob = (
-                f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/training/electra.tfrecord*"
+                f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/training/electra.tfrecord*"
             )
             validation_glob = (
-                f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/test/electra.tfrecord*"
+                f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/test/electra.tfrecord*"
             )
 
         train_filenames = glob.glob(train_glob)
