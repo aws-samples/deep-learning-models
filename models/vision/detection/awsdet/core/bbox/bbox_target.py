@@ -38,7 +38,6 @@ class ProposalTarget:
         self.num_classes = num_classes
         self.reg_class_agnostic = reg_class_agnostic
     
-    @tf.function(experimental_relax_shapes=True)
     def build_targets(self, proposals_list, gt_boxes, gt_class_ids, img_metas):
         '''
         Generates detection targets for images. Subsamples proposals and

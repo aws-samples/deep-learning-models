@@ -42,7 +42,7 @@ model = dict(
         num_stages=3,
         stage_loss_weights=[1, 0.5, 0.25],
         iou_thresholds=[0.5, 0.6, 0.7],
-        reg_class_agnostic=True,
+        reg_class_agnostic=False,
         bbox_roi_extractor=dict(
             type='PyramidROIAlign',
             pool_shape=[7, 7],
@@ -62,7 +62,7 @@ model = dict(
                 use_conv=True,
                 use_bn=False,
                 soft_nms_sigma=0.5,
-                reg_class_agnostic=True
+                reg_class_agnostic=False
             ),
             dict(
                 type='BBoxHead',
@@ -77,7 +77,7 @@ model = dict(
                 use_conv=True,
                 use_bn=False,
                 soft_nms_sigma=0.5,
-                reg_class_agnostic=True
+                reg_class_agnostic=False
             ),
             dict(
                 type='BBoxHead',
@@ -92,7 +92,7 @@ model = dict(
                 use_conv=True,
                 use_bn=False,
                 soft_nms_sigma=0.5,
-                reg_class_agnostic=True
+                reg_class_agnostic=False
             )
         ]
     )
@@ -147,7 +147,7 @@ evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
     type='SGD',
-    learning_rate=1e-2,
+    learning_rate=1e-3,
     momentum=0.9,
     nesterov=False,
 )

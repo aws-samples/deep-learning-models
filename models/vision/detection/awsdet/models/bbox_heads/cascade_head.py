@@ -73,6 +73,7 @@ class CascadeHead(tf.keras.Model):
 
             All List lengths are == num_stages
         '''
+        '''
         logits = []
         probs = []
         deltas = []
@@ -80,16 +81,34 @@ class CascadeHead(tf.keras.Model):
         target_deltas = []
         in_weights = []
         out_weights = []
-        for bbox_head, bbox_target in zip(self.bbox_heads, self.bbox_targets):
+        '''
+
+        logits = tf.TensorArray(tf.float32, size=0, dynamic_size=True, infer_shape=True)
+        probs = tf.TensorArray(tf.float32, size=0, dynamic_size=True, infer_shape=True)
+        deltas = tf.TensorArray(tf.float32, size=0, dynamic_size=True, infer_shape=True)
+        target_matches = tf.TensorArray(tf.float32, size=0, dynamic_size=True, infer_shape=True)
+        target_deltas = tf.TensorArray(tf.float32, size=0, dynamic_size=True, infer_shape=True)
+        in_weights = tf.TensorArray(tf.float32, size=0, dynamic_size=True, infer_shape=True)
+        out_weights = tf.TensorArray(tf.float32, size=0, dynamic_size=True, infer_shape=True)
+
+        for i in range(self.num_stages):
             if training: # get target value for these proposal target label and target delta
                 rois_list, rcnn_target_matches, rcnn_target_deltas, inside_weights, outside_weights = bbox_target.build_targets(
                     proposals_list, gt_boxes, gt_class_ids, img_metas)
+                
+                '''
                 target_matches.append(rcnn_target_matches)
                 target_deltas.append(rcnn_target_deltas)
                 in_weights.append(inside_weights)
                 out_weights.append(outside_weights)
+                '''
+                target_matches = target_matches.write(0, rcnn_target_matches)
+                target_deltas = target_deltas.write(0, rcnn_target_deltas)
+                in_weights = in_weights.write(0, inside_weights)
+                out_weights = out_weights.write(0, outside_weights)
             else:
                 rois_list = proposals_list
+        
 
             rcnn_class_logits, rcnn_probs, rcnn_deltas  = self._forward_step(bbox_head,
                                                                                 rois_list,
@@ -97,37 +116,42 @@ class CascadeHead(tf.keras.Model):
                                                                                 rcnn_feature_maps,
                                                                                 training=training)
 
+            '''
             logits.append(rcnn_class_logits)
             probs.append(rcnn_probs)
             deltas.append(rcnn_deltas)
+            '''
+            logits = logits.write(0, rcnn_class_logits)
+            probs = probs.write(0, rcnn_probs)
+            deltas = deltas.write(0, rcnn_deltas)
 
-        '''
-        # apply rcnn deltas to bboxes and use them as new proposals for next stage
-        # TODO figure out better way to apply all deltas since get bboxes will only 
-        # work with a single image. 
-        batch_size = len(proposals_list)
-        roi_size = tf.cast(proposals_list[0].shape[0] / batch_size, tf.int32) # all rois get padded to max instances
-        num_classes = rcnn_class_logits.shape[1]
-        rcnn_probs = tf.cast(rcnn_probs, tf.float32)
-        rcnn_deltas = tf.cast(rcnn_deltas, tf.float32)
-        reshaped_probs = tf.reshape(rcnn_probs, [batch_size, roi_size, num_classes])
-        if bbox_head.reg_class_agnostic:
-            reshaped_deltas = tf.reshape(rcnn_deltas, [batch_size, roi_size, 4])
-        else:
-            reshaped_deltas = tf.reshape(rcnn_deltas, [batch_size, roi_size, num_classes * 4])
-        proposals_list = []
-        for i in range(batch_size):
-            detections_list = bbox_head.get_bboxes(reshaped_probs[i], reshaped_deltas[i], rois_list[i], tf.expand_dims(img_metas[i], 0))
-            proposals_list.append(detections_list[0][0])
+            '''
+            # apply rcnn deltas to bboxes and use them as new proposals for next stage
+            # TODO figure out better way to apply all deltas since get bboxes will only 
+            # work with a single image. 
+            batch_size = len(proposals_list)
+            roi_size = tf.cast(proposals_list[0].shape[0] / batch_size, tf.int32) # all rois get padded to max instances
+            num_classes = rcnn_class_logits.shape[1]
+            rcnn_probs = tf.cast(rcnn_probs, tf.float32)
+            rcnn_deltas = tf.cast(rcnn_deltas, tf.float32)
+            reshaped_probs = tf.reshape(rcnn_probs, [batch_size, roi_size, num_classes])
+            if bbox_head.reg_class_agnostic:
+                reshaped_deltas = tf.reshape(rcnn_deltas, [batch_size, roi_size, 4])
+            else:
+                reshaped_deltas = tf.reshape(rcnn_deltas, [batch_size, roi_size, num_classes * 4])
+            proposals_list = []
+            for i in range(batch_size):
+                detections_list = bbox_head.get_bboxes(reshaped_probs[i], reshaped_deltas[i], rois_list[i], tf.expand_dims(img_metas[i], 0))
+                proposals_list.append(detections_list[0][0])
 
-        print(proposals_list)
-        '''
+            print(proposals_list)
+            '''
 
-        detections_list = bbox_head.get_bboxes(rcnn_probs, rcnn_deltas, rois_list, img_metas)
-        proposals_list = []
-        for i in range(len(detections_list)):
-            proposals_list.append(detections_list[i][0])
-
+            detections_list = bbox_head.get_bboxes(rcnn_probs, rcnn_deltas, rois_list, img_metas)
+            proposals_list = []
+            for i in range(len(detections_list)):
+                proposals_list.append(detections_list[i][0])
+        
         return logits, probs, deltas, target_matches, target_deltas, in_weights, out_weights, rois_list
     
     @tf.function(experimental_relax_shapes=True)
