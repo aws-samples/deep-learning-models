@@ -253,8 +253,8 @@ def main():
 
     tokenizer = ElectraTokenizerFast.from_pretrained("bert-base-uncased")
 
-    gen_config = ElectraConfig.from_pretrained("google/electra-small-generator")
-    dis_config = ElectraConfig.from_pretrained("google/electra-small-discriminator")
+    gen_config = ElectraConfig.from_pretrained(f"google/electra-{model_args.model_size}-generator")
+    dis_config = ElectraConfig.from_pretrained(f"google/electra-{model_args.model_size}-discriminator")
 
     gen = TFElectraForMaskedLM(config=gen_config)
     dis = TFElectraForPreTraining(config=dis_config)

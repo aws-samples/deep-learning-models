@@ -172,4 +172,4 @@ def create_tokenizer(model_type: str) -> PreTrainedTokenizer:
     elif model_type == "electra":
         return BertTokenizer.from_pretrained("bert-base-uncased")
     else:
-        raise ValueError(f"model_type={model_type} must be one of ['albert', 'bert']")
+        raise ValueError(f"model_type={model_type} must be one of ['albert', 'bert', 'electra']")
