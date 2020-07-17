@@ -29,7 +29,11 @@ export ACCOUNT_ID=
 export REPO=
 export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:py37_tf211
 docker build -t ${IMAGE} .
-$(aws ecr get-login --no-include-email)
+aws ecr get-login-password \
+    --region us-east-1 \
+| docker login \
+    --username AWS \
+    --password-stdin ${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
 docker push ${IMAGE}
 ```
 
@@ -72,6 +76,7 @@ python -m albert.launch_sagemaker \
     --weight_decay=0.01 \
     --warmup_steps=10000 \
     --validation_frequency=10000 \
+    --pretrain_dataset=wikibooks \
     --total_steps=${TOTAL_STEPS} \
     --log_frequency=2000 \
     --run_name=${RUN_NAME} \

@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- ELECTRA model
 - RetinaNet model
 - docs under vision/detection directory has README with results and setup instructions per model
 - Generic AWSDet tutorial
