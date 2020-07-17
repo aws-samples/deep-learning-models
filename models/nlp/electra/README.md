@@ -11,8 +11,8 @@ The original paper: [ELECTRA: Pre-training Text Encoders as Discriminators Rathe
 SQuAD F1 score combines both precision and recall of each word in the predicted answer ranging between 0-100.
 
 | Model | Total Training Time | SQuAD v2.0 EM | SQuAD v2.0 F1 |
-| --- | --- | --- | --- | --- |
-| Electra-small | 8 hrs 26 mins | 68.27 | 71.56 |
+| --- | --- | --- | --- | 
+| Electra-small | 11 hrs 40 min | 68.27 | 71.56 |
 
 ### How To Launch Training
 
