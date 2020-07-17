@@ -16,7 +16,7 @@ import tensorflow as tf
 layers = tf.keras.layers
 
 
-class ConvModule(tf.keras.Model):
+class ConvModule(layers.Layer):
     """
     Module that combines convolutional layer, norm layer, and activation
     Order of layers is currently set to conv, norm, act
@@ -68,7 +68,7 @@ class ConvModule(tf.keras.Model):
         return x
 
 
-class BasicBlock(tf.keras.Model):
+class BasicBlock(layers.Layer):
     def __init__(self,
                  channels,
                  norm_cfg,
@@ -114,7 +114,7 @@ class BasicBlock(tf.keras.Model):
         return x
 
 
-class Bottleneck(tf.keras.Model):
+class Bottleneck(layers.Layer):
     def __init__(self,
                  channels,
                  norm_cfg,
@@ -171,7 +171,7 @@ class Bottleneck(tf.keras.Model):
         return x
 
 
-class HRModule(tf.keras.Model):
+class HRModule(layers.Layer):
     def __init__(self, cfg, module_idx, multiscale_output=True):
         super(HRModule, self).__init__()
         self.stage_name = cfg['name']
@@ -287,7 +287,7 @@ class HRModule(tf.keras.Model):
         return x_fuse
 
 
-class Stem(tf.keras.Model):
+class Stem(layers.Layer):
     def __init__(self, cfg):
         super(Stem, self).__init__()
         filters = cfg['channels']
@@ -323,7 +323,7 @@ class Stem(tf.keras.Model):
         return x
 
 
-class Transition(tf.keras.Model):
+class Transition(layers.Layer):
     def __init__(self, cfg, prev_layer_branches, prev_layer_channels, name=None):
         super(Transition, self).__init__(name=name)
         wd = cfg['weight_decay']
@@ -371,6 +371,7 @@ class Transition(tf.keras.Model):
                     new_transitions.append(convmod)
                 self.transition_layers.append(tf.keras.Sequential(new_transitions))
 
+
     def call(self, x, training=False):
         outputs = []
         for i, tl in enumerate(self.transition_layers):
@@ -382,7 +383,7 @@ class Transition(tf.keras.Model):
         return outputs
 
 
-class Front(tf.keras.Model):
+class Front(layers.Layer):
     def __init__(self, cfg, expansion=4):
         super(Front, self).__init__(name=cfg['name'])
         wd = cfg['weight_decay']
@@ -426,7 +427,7 @@ class Front(tf.keras.Model):
         return x
 
 
-class BottleneckStage(tf.keras.Model):
+class BottleneckStage(layers.Layer):
     def __init__(self,
                  channels,
                  num_blocks,
@@ -470,7 +471,7 @@ class BottleneckStage(tf.keras.Model):
         return x
 
 
-class Stage(tf.keras.Model):
+class Stage(layers.Layer):
     def __init__(self, cfg, multiscale_output=True):
         super(Stage, self).__init__(name=cfg['name'])
         self.num_modules = cfg['num_modules']
@@ -493,7 +494,7 @@ class Stage(tf.keras.Model):
         return out
 
 
-class ClsHead(tf.keras.Model):
+class ClsHead(layers.Layer):
     def __init__(self, cfg, expansion=4):
         super(ClsHead, self).__init__()
         channels = cfg['channels']
