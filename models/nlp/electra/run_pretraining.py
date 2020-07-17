@@ -299,7 +299,7 @@ def main():
                 f"{current_time}-{metadata}-{train_args.name if train_args.name else 'unnamed'}"
             )
         else:
-            run_name = f"{current_time}-{log_args.run_name}"
+            run_name = log_args.run_name
 
     def remove_none_values(example):
         return example["text"] != ""
