@@ -16,7 +16,7 @@ import tensorflow as tf
 layers = tf.keras.layers
 
 
-class ConvModule(tf.keras.Model):
+class ConvModule(layers.Layer):
     """
     Module that combines convolutional layer, norm layer, and activation
     Order of layers is currently set to conv, norm, act
@@ -29,7 +29,7 @@ class ConvModule(tf.keras.Model):
                  use_bias=False,
                  kernel_initializer=tf.keras.initializers.VarianceScaling(
                      2.0, mode='fan_out'),
-                 weight_decay=1e-4,
+                 weight_decay=5e-5,
                  norm_cfg=None,
                  act_cfg=None,
                  name=None):
@@ -68,13 +68,13 @@ class ConvModule(tf.keras.Model):
         return x
 
 
-class BasicBlock(tf.keras.Model):
+class BasicBlock(layers.Layer):
     def __init__(self,
                  channels,
                  norm_cfg,
                  act_cfg,
                  expansion=1,
-                 weight_decay=1e-4,
+                 weight_decay=5e-5,
                  name=None,
                  stride=1,
                  downsample=None):
@@ -114,13 +114,13 @@ class BasicBlock(tf.keras.Model):
         return x
 
 
-class Bottleneck(tf.keras.Model):
+class Bottleneck(layers.Layer):
     def __init__(self,
                  channels,
                  norm_cfg,
                  act_cfg,
                  expansion=4,
-                 weight_decay=1e-4,
+                 weight_decay=5e-5,
                  stride=1,
                  downsample=None,
                  name=None):
@@ -171,12 +171,12 @@ class Bottleneck(tf.keras.Model):
         return x
 
 
-class HRModule(tf.keras.Model):
+class HRModule(layers.Layer):
     def __init__(self, cfg, module_idx, multiscale_output=True):
         super(HRModule, self).__init__()
         self.stage_name = cfg['name']
         self.module_idx = module_idx
-        self.weight_decay = cfg.get('weight_decay', 1e-4)
+        self.weight_decay = cfg.get('weight_decay', 5e-5)
         self.norm_cfg = cfg.get('norm_cfg', None)
         self.act_cfg = cfg.get('act_cfg', None)
         self.num_branches = cfg['num_branches']
@@ -287,7 +287,7 @@ class HRModule(tf.keras.Model):
         return x_fuse
 
 
-class Stem(tf.keras.Model):
+class Stem(layers.Layer):
     def __init__(self, cfg):
         super(Stem, self).__init__()
         filters = cfg['channels']
@@ -323,7 +323,7 @@ class Stem(tf.keras.Model):
         return x
 
 
-class Transition(tf.keras.Model):
+class Transition(layers.Layer):
     def __init__(self, cfg, prev_layer_branches, prev_layer_channels, name=None):
         super(Transition, self).__init__(name=name)
         wd = cfg['weight_decay']
@@ -382,7 +382,7 @@ class Transition(tf.keras.Model):
         return outputs
 
 
-class Front(tf.keras.Model):
+class Front(layers.Layer):
     def __init__(self, cfg, expansion=4):
         super(Front, self).__init__(name=cfg['name'])
         wd = cfg['weight_decay']
@@ -426,13 +426,13 @@ class Front(tf.keras.Model):
         return x
 
 
-class BottleneckStage(tf.keras.Model):
+class BottleneckStage(layers.Layer):
     def __init__(self,
                  channels,
                  num_blocks,
                  expansion=4,
                  stride=1,
-                 weight_decay=1e-4,
+                 weight_decay=5e-5,
                  norm_cfg=None,
                  act_cfg=None):
         super(BottleneckStage, self).__init__()
@@ -470,7 +470,7 @@ class BottleneckStage(tf.keras.Model):
         return x
 
 
-class Stage(tf.keras.Model):
+class Stage(layers.Layer):
     def __init__(self, cfg, multiscale_output=True):
         super(Stage, self).__init__(name=cfg['name'])
         self.num_modules = cfg['num_modules']
@@ -493,11 +493,11 @@ class Stage(tf.keras.Model):
         return out
 
 
-class ClsHead(tf.keras.Model):
+class ClsHead(layers.Layer):
     def __init__(self, cfg, expansion=4):
         super(ClsHead, self).__init__()
         channels = cfg['channels']
-        weight_decay = cfg.get('weight_decay', 1e-4)
+        weight_decay = cfg.get('weight_decay', 5e-5)
         norm_cfg = cfg.get('norm_cfg', None)
         act_cfg = cfg.get('act_cfg', None)
         num_classes = cfg.get('num_classes', 1000)
@@ -614,10 +614,10 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.99,
+                         momentum=0.1,
                          eps=1e-5,
                      ),
-                     weight_decay=1e-5,
+                     weight_decay=5e-5,
                  ),
                  stage1=dict(
                      name='s1',
@@ -630,10 +630,10 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.99,
+                         momentum=0.1,
                          eps=1e-5,
                      ),
-                     weight_decay=1e-5,
+                     weight_decay=5e-5,
                  ),
                  stage2=dict(
                      name='s2',
@@ -646,10 +646,10 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.99,
+                         momentum=0.1,
                          eps=1e-5,
                      ),
-                     weight_decay=1e-5,
+                     weight_decay=5e-5,
                  ),
                  stage3=dict(
                      name='s3',
@@ -662,10 +662,10 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.99,
+                         momentum=0.1,
                          eps=1e-5,
                      ),
-                     weight_decay=1e-5,
+                     weight_decay=5e-5,
                  ),
                  stage4=dict(
                      name='s4',
@@ -678,10 +678,10 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.99,
+                         momentum=0.1,
                          eps=1e-5,
                      ),
-                     weight_decay=1e-5,
+                     weight_decay=5e-5,
                  ),
                  head=dict(
                      name='cls_head',
@@ -691,12 +691,12 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.99,
+                         momentum=0.1,
                          eps=1e-5,
                      ),
-                     weight_decay=1e-5,
+                     weight_decay=5e-5,
                  ))
-    train_cfg = dict(weight_decay=1e-5, )
+    train_cfg = dict(weight_decay=5e-5, )
     dataset_type = 'imagenet'
     dataset_mean = ()
     dataset_std = ()
