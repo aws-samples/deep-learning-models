@@ -34,17 +34,13 @@ features = {
 """
 
 import argparse
-import os
 import random
 import time
 from functools import partial
 from typing import List
 
 import nlp
-import tensorflow as tf
 from transformers import BertTokenizerFast
-
-from common.datasets import get_electra_dataset
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--max_seq_length", type=int, default=512)
@@ -72,7 +68,7 @@ elif args.dataset == "bookcorpus":
 elif args.dataset == "wikibooks":
     dset_wikipedia = nlp.load_dataset("wikipedia", "20200501.en", split="train")
     dset_books = nlp.load_dataset("bookcorpus", split="train")
-    dset = nlp.Dataset.from_concat([dset_wikipedia, dset_books])
+    dset = nlp.concatenate_datasets([dset_wikipedia, dset_books])
 else:
     assert False
 print("Loaded dataset:", dset, dset[0])
@@ -203,21 +199,15 @@ print("Created examples:", dset, dset[0])
 
 # This method is very slow (0.15 it/s, so 0.15k examples/sec
 # Improvement tracked in https://github.com/huggingface/transformers/issues/5729
-def batch_ids_from_pretokenized(batch):
-    exs = batch["examples"]
-    ret_val = tokenizer(
-        [list(ex) for ex in exs],
+print("Padding, truncating, and encoding examples into ids")
+dset = dset.map(
+    lambda batch: tokenizer(
+        batch["examples"],
         is_pretokenized=True,
         padding="max_length",
         truncation=True,
         max_length=args.max_seq_length,
-    )
-    return ret_val
-
-
-print("Padding, truncating, and encoding examples into ids")
-dset = dset.map(
-    batch_ids_from_pretokenized,
+    ),
     batched=True,
     remove_columns=["examples"],
     # cache_file_name=args.cache_file,
@@ -226,31 +216,31 @@ dset = dset.map(
 print("Padded, truncated, and encoded examples into ids:", dset, dset[0])
 # dset = nlp.Dataset.from_file(cache_file)
 
-tfrecord_files = [
-    os.path.join(args.tfrecord_folder, f"{args.dataset}_shard_{i}.tfrecord")
-    for i in range(args.shards)
-]
-for i in range(args.shards):
-    dset_shard = dset.shard(num_shards=args.shards, index=i)
-    dset_shard.export(tfrecord_files[i])
+# tfrecord_files = [
+#     os.path.join(args.tfrecord_folder, f"{args.dataset}_shard_{i}.tfrecord")
+#     for i in range(args.shards)
+# ]
+# for i in range(args.shards):
+#     dset_shard = dset.shard(num_shards=args.shards, index=i)
+#     dset_shard.export(tfrecord_files[i])
 
-### Now read in a TFRecord to ensure exporting happened correctly ###
+# ### Now read in a TFRecord to ensure exporting happened correctly ###
 
-name_to_features = {
-    "input_ids": tf.io.FixedLenFeature([args.max_seq_length], tf.int64),  # corresponds to input_ids
-    "token_type_ids": tf.io.FixedLenFeature(
-        [args.max_seq_length], tf.int64
-    ),  # corresponds to token_type_ids
-    "attention_mask": tf.io.FixedLenFeature(
-        [args.max_seq_length], tf.int64,
-    ),  # corresponds to attention_mask
-}
+# name_to_features = {
+#     "input_ids": tf.io.FixedLenFeature([args.max_seq_length], tf.int64),  # corresponds to input_ids
+#     "token_type_ids": tf.io.FixedLenFeature(
+#         [args.max_seq_length], tf.int64
+#     ),  # corresponds to token_type_ids
+#     "attention_mask": tf.io.FixedLenFeature(
+#         [args.max_seq_length], tf.int64,
+#     ),  # corresponds to attention_mask
+# }
 
-tfds = get_electra_dataset(
-    filenames=tfrecord_files, max_seq_length=args.max_seq_length, per_gpu_batch_size=4, shard=False,
-)
-for batch in tfds.take(1):
-    print(batch)
+# tfds = get_electra_dataset(
+#     filenames=tfrecord_files, max_seq_length=args.max_seq_length, per_gpu_batch_size=4, shard=False,
+# )
+# for batch in tfds.take(1):
+#     print(batch)
 
 elapsed = time.perf_counter() - start_time
 print(f"Total processing time: {elapsed:.3f} seconds")

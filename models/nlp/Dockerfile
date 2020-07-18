@@ -107,7 +107,7 @@ CMD ["/bin/bash"]
 ###### Modifications specifically for SageMaker are below
 RUN pip install --no-cache-dir \
     mpi4py==3.0.3 \
-    sagemaker-containers==2.8.6 \
+    sagemaker-training \
     git+https://github.com/huggingface/transformers.git@master \
     git+https://github.com/huggingface/nlp.git@master
 
