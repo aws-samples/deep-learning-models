@@ -40,12 +40,7 @@ import tensorflow as tf
 _R_MEAN = 123.68
 _G_MEAN = 116.78
 _B_MEAN = 103.94
-_R_STD = 58.393
-_G_STD = 57.12
-_B_STD = 57.375
-
 _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
-_CHANNEL_STDS = [_R_STD, _G_STD, _B_STD]
 
 # The lower bound for the smallest side of the image for aspect-preserving
 # resizing. For example, if an image is 500 x 1000, it will be resized to
@@ -71,10 +66,15 @@ def _decode_crop_and_flip(image_buffer, bbox, num_channels):
     3-D tensor with cropped image.
 
   """
-  # If no box is supplied, then we assume the bounding box is
+  # A large fraction of image datasets contain a human-annotated bounding box
+  # delineating the region of the image containing the object of interest.  We
+  # choose to create a new bounding box for the object which is a randomly
+  # distorted version of the human-annotated bounding box that obeys an
+  # allowed range of aspect ratios, sizes and overlap with the human-annotated
+  # bounding box. If no box is supplied, then we assume the bounding box is
   # the entire image.
-  sample_distorted_bounding_box = tf.raw_ops.SampleDistortedBoundingBoxV2(
-      image_size=tf.image.extract_jpeg_shape(image_buffer),
+  sample_distorted_bounding_box = tf.image.sample_distorted_bounding_box(
+      tf.image.extract_jpeg_shape(image_buffer),
       bounding_boxes=bbox,
       min_object_covered=0.1,
       aspect_ratio_range=[0.75, 1.33],
@@ -108,7 +108,7 @@ def _central_crop(image, crop_height, crop_width):
   Returns:
     3-D tensor with cropped image.
   """
-  shape = tf.shape(input=image)
+  shape = tf.shape(image)
   height, width = shape[0], shape[1]
 
   amount_to_be_cropped_h = (height - crop_height)
@@ -121,16 +121,21 @@ def _central_crop(image, crop_height, crop_width):
 
 def _mean_image_subtraction(image, means, num_channels):
   """Subtracts the given means from each image channel.
+
   For example:
     means = [123.68, 116.779, 103.939]
     image = _mean_image_subtraction(image, means)
+
   Note that the rank of `image` must be known.
+
   Args:
     image: a tensor of size [height, width, C].
     means: a C-vector of values to subtract from each channel.
     num_channels: number of color channels in the image that will be distorted.
+
   Returns:
     the centered image.
+
   Raises:
     ValueError: If the rank of `image` is unknown, if `image` has a rank other
       than three or if the number of channels in `image` doesn't match the
@@ -146,19 +151,6 @@ def _mean_image_subtraction(image, means, num_channels):
   means = tf.expand_dims(tf.expand_dims(means, 0), 0)
 
   return image - means
-
-
-def _image_standardization(image, means, stds, num_channels):
-  if image.get_shape().ndims != 3:
-    raise ValueError('Input must be of size [height, width, C>0]')
-
-  if len(means) != num_channels:
-    raise ValueError('len(means) must match the number of channels')
-
-  # We have a 1-D tensor of means and stds; convert to 3-D.
-  means = tf.broadcast_to(means, tf.shape(image))
-  stds = tf.broadcast_to(stds, tf.shape(image))
-  return (image - means) / stds
 
 
 def _smallest_size_at_least(height, width, resize_min):
@@ -203,7 +195,7 @@ def _aspect_preserving_resize(image, resize_min):
   Returns:
     resized_image: A 3-D tensor containing the resized image.
   """
-  shape = tf.shape(input=image)
+  shape = tf.shape(image)
   height, width = shape[0], shape[1]
 
   new_height, new_width = _smallest_size_at_least(height, width, resize_min)
@@ -229,6 +221,9 @@ def _resize_image(image, height, width):
   return tf.compat.v1.image.resize(
       image, [height, width], method=tf.image.ResizeMethod.BILINEAR,
       align_corners=False)
+#  return tf.image.resize_images(
+#      image, [height, width], method=tf.image.ResizeMethod.BILINEAR,
+#      align_corners=False)
 
 
 def preprocess_image(image_buffer, bbox, output_height, output_width,
@@ -265,62 +260,5 @@ def preprocess_image(image_buffer, bbox, output_height, output_width,
 
   image.set_shape([output_height, output_width, num_channels])
 
-  image = _image_standardization(image, _CHANNEL_MEANS, _CHANNEL_STDS, num_channels)
-  if is_training:
-      do_distort = tf.math.less(tf.random.uniform([]), 0.05)
-      if do_distort:
-          image = tf.image.random_brightness(image, max_delta=32. / 255.)
-          image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-          image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-          image = tf.image.random_hue(image, max_delta=0.2)
-          image = tf.clip_by_value(image, 0.0, 1.0)
-  return image
+  return _mean_image_subtraction(image, _CHANNEL_MEANS, num_channels)
 
-
-def distort_image(image):
-    image = tf.image.random_brightness(image, max_delta=32. / 255.)
-    image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-    image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-    image = tf.image.random_hue(image, max_delta=0.2)
-    image = tf.clip_by_value(image, 0.0, 1.0)
-    return image
-
-
-def preprocess_image(image_buffer, bbox, output_height, output_width,
-                     num_channels, is_training=False):
-  """Preprocesses the given image.
-
-  Preprocessing includes decoding, cropping, and resizing for both training
-  and eval images. Training preprocessing, however, introduces some random
-  distortion of the image to improve accuracy.
-
-  Args:
-    image_buffer: scalar string Tensor representing the raw JPEG image buffer.
-    bbox: 3-D float Tensor of bounding boxes arranged [1, num_boxes, coords]
-      where each coordinate is [0, 1) and the coordinates are arranged as
-      [ymin, xmin, ymax, xmax].
-    output_height: The height of the image after preprocessing.
-    output_width: The width of the image after preprocessing.
-    num_channels: Integer depth of the image buffer for decoding.
-    is_training: `True` if we're preprocessing the image for training and
-      `False` otherwise.
-
-  Returns:
-    A preprocessed image.
-  """
-  if is_training:
-    # For training, we want to randomize some of the distortions.
-    image = _decode_crop_and_flip(image_buffer, bbox, num_channels)
-    image = _resize_image(image, output_height, output_width)
-  else:
-    # For validation, we want to decode, resize, then just crop the middle.
-    image = tf.image.decode_jpeg(image_buffer, channels=num_channels)
-    image = _aspect_preserving_resize(image, _RESIZE_MIN)
-    image = _central_crop(image, output_height, output_width)
-
-  image.set_shape([output_height, output_width, num_channels])
-
-  image = _image_standardization(image, _CHANNEL_MEANS, _CHANNEL_STDS, num_channels)
-  if is_training:
-    tf.cond(tf.math.less(tf.random.uniform([]), 0.05), lambda: distort_image(image), lambda: image)
-  return image

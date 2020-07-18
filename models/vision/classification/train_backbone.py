@@ -11,6 +11,7 @@ from tqdm import tqdm
 from time import time
 import sys
 import resnet_preprocessing
+import imagenet_preprocessing
 import resnet
 import resnet_evo
 import darknet
@@ -63,7 +64,8 @@ def parse(record, is_training):
     # bbox = tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32, shape=[1, 1, 4])
     bbox = tf.stack([parsed['image/object/bbox/%s' % x].values for x in ['ymin', 'xmin', 'ymax', 'xmax']])
     bbox = tf.transpose(tf.expand_dims(bbox, 0), [0, 2, 1])
-    image = resnet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
+    # image = resnet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
+    image = imagenet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
     label = tf.cast(parsed['image/class/label'] - 1, tf.int32)
     one_hot_label = tf.one_hot(label, depth=1000, dtype=tf.int32)
     return image, one_hot_label
@@ -281,10 +283,10 @@ def main():
                     (epoch, average_training_accuracy, average_training_loss, average_validation_accuracy, average_validation_loss, scheduler(curr_step))
             print(info_str)
             logger.info(info_str)
-#            if average_validation_accuracy > best_validation_accuracy:
-#                logger.info("Found new best accuracy, saving checkpoint ...")
-#                best_validation_accuracy = average_validation_accuracy
-#                model.save('{}-best/{}'.format(FLAGS.model_dir, FLAGS.model))
+            if average_validation_accuracy > best_validation_accuracy:
+                logger.info("Found new best accuracy, saving checkpoint ...")
+                best_validation_accuracy = average_validation_accuracy
+                model.save('{}-best/{}'.format(FLAGS.model_dir, FLAGS.model))
     if hvd.rank() == 0:
         logger.info('Total Training Time: %f' % (time() - start_time))
 
