@@ -253,8 +253,8 @@ def main():
 
     tokenizer = ElectraTokenizerFast.from_pretrained("bert-base-uncased")
 
-    gen_config = ElectraConfig.from_pretrained("google/electra-small-generator")
-    dis_config = ElectraConfig.from_pretrained("google/electra-small-discriminator")
+    gen_config = ElectraConfig.from_pretrained(f"google/electra-{model_args.model_size}-generator")
+    dis_config = ElectraConfig.from_pretrained(f"google/electra-{model_args.model_size}-discriminator")
 
     gen = TFElectraForMaskedLM(config=gen_config)
     dis = TFElectraForPreTraining(config=dis_config)
@@ -299,7 +299,7 @@ def main():
                 f"{current_time}-{metadata}-{train_args.name if train_args.name else 'unnamed'}"
             )
         else:
-            run_name = f"{current_time}-{log_args.run_name}"
+            run_name = log_args.run_name
 
     def remove_none_values(example):
         return example["text"] != ""
@@ -371,14 +371,14 @@ def main():
 
     if data_args.pretrain_dataset == "wikibooks":
         if data_args.max_seq_length == 512:
-            train_glob = f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/training_seq_len_512/electra.tfrecord*"
-            validation_glob = f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/test_seq_len_512/electra.tfrecord*"
+            train_glob = f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*"
+            validation_glob = f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*"
         else:
             train_glob = (
-                f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/training/electra.tfrecord*"
+                f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/training/electra.tfrecord*"
             )
             validation_glob = (
-                f"/{data_args.fsx_prefix}/electra_pretraining_wikibooks/test/electra.tfrecord*"
+                f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/test/electra.tfrecord*"
             )
 
         train_filenames = glob.glob(train_glob)
