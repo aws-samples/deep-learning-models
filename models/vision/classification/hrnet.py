@@ -371,6 +371,7 @@ class Transition(layers.Layer):
                     new_transitions.append(convmod)
                 self.transition_layers.append(tf.keras.Sequential(new_transitions))
 
+
     def call(self, x, training=False):
         outputs = []
         for i, tl in enumerate(self.transition_layers):

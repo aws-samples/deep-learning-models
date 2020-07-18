@@ -225,6 +225,7 @@ def main():
     if not FLAGS.fp32:
         opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale=128.)
 
+
     loss_func = tf.keras.losses.CategoricalCrossentropy(label_smoothing=FLAGS.label_smoothing, reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE) 
 
     if hvd.rank() == 0:
