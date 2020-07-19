@@ -27,9 +27,8 @@ class ConvModule(layers.Layer):
                  stride,
                  padding='same',
                  use_bias=False,
-                 kernel_initializer=tf.keras.initializers.VarianceScaling(
-                     2.0, mode='fan_out'),
-                 weight_decay=5e-5,
+                 kernel_initializer=tf.keras.initializers.VarianceScaling(2.0, mode='fan_out'),
+                 weight_decay=1e-4,
                  norm_cfg=None,
                  act_cfg=None,
                  name=None):
@@ -48,8 +47,10 @@ class ConvModule(layers.Layer):
             bn_axis = norm_cfg.get('axis', -1)
             eps = norm_cfg.get('eps', 1e-5)
             momentum = norm_cfg.get('momentum', 0.997)
+            gamma_initializer = norm_cfg.get('gamma_init', 'ones')
             self.norm = layers.BatchNormalization(axis=bn_axis,
                                                   epsilon=eps,
+                                                  gamma_initializer=gamma_initializer,
                                                   momentum=momentum,
                                                   name=name + '_bn')
         self.act = None
@@ -59,7 +60,7 @@ class ConvModule(layers.Layer):
                                          '_{}'.format(act_cfg['type']))
 
 
-    def call(self, x, training=False):
+    def call(self, x, training=None):
         x = self.conv(x)
         if self.norm:
             x = self.norm(x, training=training)
@@ -74,7 +75,7 @@ class BasicBlock(layers.Layer):
                  norm_cfg,
                  act_cfg,
                  expansion=1,
-                 weight_decay=5e-5,
+                 weight_decay=1e-4,
                  name=None,
                  stride=1,
                  downsample=None):
@@ -101,7 +102,7 @@ class BasicBlock(layers.Layer):
 
         self.downsample = downsample
 
-    def call(self, x, training=False):
+    def call(self, x, training=None):
         residual = x
         x = self.conv_mod1(x, training=training)
         x = self.conv_mod2(x, training=training)
@@ -120,7 +121,7 @@ class Bottleneck(layers.Layer):
                  norm_cfg,
                  act_cfg,
                  expansion=4,
-                 weight_decay=5e-5,
+                 weight_decay=1e-4,
                  stride=1,
                  downsample=None,
                  name=None):
@@ -157,7 +158,7 @@ class Bottleneck(layers.Layer):
 
         self.downsample = downsample
 
-    def call(self, x, training=False):
+    def call(self, x, training=None):
         residual = x
         x = self.conv_mod1(x, training=training)
         x = self.conv_mod2(x, training=training)
@@ -176,7 +177,7 @@ class HRModule(layers.Layer):
         super(HRModule, self).__init__()
         self.stage_name = cfg['name']
         self.module_idx = module_idx
-        self.weight_decay = cfg.get('weight_decay', 5e-5)
+        self.weight_decay = cfg.get('weight_decay', 1e-4)
         self.norm_cfg = cfg.get('norm_cfg', None)
         self.act_cfg = cfg.get('act_cfg', None)
         self.num_branches = cfg['num_branches']
@@ -229,9 +230,7 @@ class HRModule(layers.Layer):
                                           act_cfg=self.act_cfg,
                                           name='fuse_{}_{}_{}'.format(
                                               self.stage_name, j, i))
-                    upsample = layers.UpSampling2D(size=(2**(j - i),
-                                                         2**(j - i)),
-                                                   interpolation='bilinear')
+                    upsample = layers.UpSampling2D(size=(2**(j-i),2**(j-i)), interpolation='nearest')
                     fuse_layer.append(tf.keras.Sequential([conv_mod, upsample]))
                 elif j == i:
                     fuse_layer.append(None)
@@ -267,18 +266,18 @@ class HRModule(layers.Layer):
         return fuse_layers
 
 
-    def call(self, x, training=False):
+    def call(self, x, training=None):
         for i in range(self.num_branches):
             x[i] = self.branches[i](x[i], training=training)
         if self.num_branches == 1:
-            return [x[0]]
+            return x
         x_fuse = []
         for i in range(len(self.fuse_layers)):
             y = x[0]
             if i > 0:
                 y = self.fuse_layers[i][0](x[0], training=training)
             for j in range(1, self.num_branches):
-                if i == j:
+                if i == j: # None layer case
                     y = y + x[j]
                 else:
                     y = y + self.fuse_layers[i][j](x[j], training=training)
@@ -317,10 +316,10 @@ class Stem(layers.Layer):
                                     act_cfg=cfg.get('act_cfg', None),
                                     name='stem_2')
 
-    def call(self, x, training=False):
-        x = self.conv_mod1(x, training=training)
-        x = self.conv_mod2(x, training=training)
-        return x
+    def call(self, x, training=None):
+        out = self.conv_mod1(x, training=training)
+        out = self.conv_mod2(out, training=training)
+        return out
 
 
 class Transition(layers.Layer):
@@ -348,7 +347,7 @@ class Transition(layers.Layer):
                                              i + 1))
                     self.transition_layers.append(convmod)
                 else:
-                    self.transition_layers.append(None)  # pass input as is
+                    self.transition_layers.append(None) # pass input as is
             else:
                 # this handles the new branch(es) in the current stage
                 new_transitions = []
@@ -372,7 +371,7 @@ class Transition(layers.Layer):
                 self.transition_layers.append(tf.keras.Sequential(new_transitions))
 
 
-    def call(self, x, training=False):
+    def call(self, x, training=None):
         outputs = []
         for i, tl in enumerate(self.transition_layers):
             if tl:
@@ -420,11 +419,10 @@ class Front(layers.Layer):
                            weight_decay=wd,
                            stride=1,
                            downsample=None))
+        self.stage = tf.keras.Sequential(self.blocks)
 
-    def call(self, x, training=False):
-        for block in self.blocks:
-            x = block(x, training=training)
-        return x
+    def call(self, x, training=None):
+        return self.stage(x, training=training)
 
 
 class BottleneckStage(layers.Layer):
@@ -433,7 +431,7 @@ class BottleneckStage(layers.Layer):
                  num_blocks,
                  expansion=4,
                  stride=1,
-                 weight_decay=5e-5,
+                 weight_decay=1e-4,
                  norm_cfg=None,
                  act_cfg=None):
         super(BottleneckStage, self).__init__()
@@ -464,11 +462,10 @@ class BottleneckStage(layers.Layer):
                            weight_decay=weight_decay,
                            stride=1,
                            downsample=None))
+        self.stage = tf.keras.Sequential(self.blocks)
 
-    def call(self, x, training=False):
-        for block in self.blocks:
-            x = block(x, training=training)
-        return x
+    def call(self, x, training=None):
+        return self.stage(x, training=training)
 
 
 class Stage(layers.Layer):
@@ -487,7 +484,8 @@ class Stage(layers.Layer):
                 cfg, module_idx, multiscale_output=multiscale_output)
             self.modules.append(hr_module)
 
-    def call(self, x_list, training=False):
+
+    def call(self, x_list, training=None):
         out = x_list
         for module in self.modules:
             out = module(out, training=training)
@@ -498,7 +496,7 @@ class ClsHead(layers.Layer):
     def __init__(self, cfg, expansion=4):
         super(ClsHead, self).__init__()
         channels = cfg['channels']
-        weight_decay = cfg.get('weight_decay', 5e-5)
+        weight_decay = cfg.get('weight_decay', 1e-4)
         norm_cfg = cfg.get('norm_cfg', None)
         act_cfg = cfg.get('act_cfg', None)
         num_classes = cfg.get('num_classes', 1000)
@@ -520,7 +518,7 @@ class ClsHead(layers.Layer):
                                     3,
                                     2,
                                     padding='same',
-                                    use_bias=False,
+                                    use_bias=True,
                                     weight_decay=weight_decay,
                                     norm_cfg=norm_cfg,
                                     act_cfg=act_cfg,
@@ -530,23 +528,24 @@ class ClsHead(layers.Layer):
                                       1,
                                       1,
                                       padding='same',
-                                      use_bias=False,
+                                      use_bias=True,
                                       weight_decay=weight_decay,
                                       norm_cfg=norm_cfg,
                                       act_cfg=act_cfg,
                                       name='final_{}'.format(i))
         self.classifier = layers.Dense(num_classes,
-                kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.01),
+                kernel_initializer=tf.keras.initializers.VarianceScaling(),
                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay), name='logits')
 
 
-    def call(self, x_list, training=False):
+    def call(self, x_list, training=None):
         y = self.width_incr_layers[0](x_list[0], training=training)
         for i in range(1, len(self.downsample_layers)+1):
             y = self.width_incr_layers[i](x_list[i], training=training) + self.downsample_layers[i-1](y, training=training)
 
         y = self.final_layer(y)
-        y = layers.GlobalAveragePooling2D()(y)
+        y = layers.AveragePooling2D(pool_size=(7, 7), strides=1)(y)
+        y = layers.Flatten()(y)
         y = self.classifier(y)
         y = layers.Activation('softmax', dtype='float32')(y)
         return y
@@ -580,30 +579,51 @@ class HRNet(tf.keras.Model):
         self.cls_head = ClsHead(head_cfg)
 
 
-    def call(self, x, training=False):
+    def call(self, x, training=None):
+        t0 = tf.timestamp()
         x = self.stem(x, training=training)
+        t1 = tf.timestamp()
         front = self.stages[0]
         stage1_output = front(x, training=training)
+        t2 = tf.timestamp()
         transition12 = self.transitions[0]
         stage2 = self.stages[1]
         stage1_transitions = transition12([stage1_output], training=training)
+        t3 = tf.timestamp()
         stage2_outputs = stage2(stage1_transitions, training=training)
+        t4 = tf.timestamp()
         transition23 = self.transitions[1]
         stage3 = self.stages[2]
         stage2_transitions = transition23(stage2_outputs, training=training)
+        t5 = tf.timestamp()
         stage3_outputs = stage3(stage2_transitions, training=training)
+        t6 = tf.timestamp()
         transition34 = self.transitions[2]
         stage4 = self.stages[3]
         stage3_transitions = transition34(stage3_outputs, training=training)
+        t7 = tf.timestamp()
         stage4_outputs = stage4(stage3_transitions, training=training)
+        t8 = tf.timestamp()
         # classification
         y = self.cls_head(stage4_outputs)
+        t9 = tf.timestamp()
+        """
+        tf.print('stem', t1-t0)
+        tf.print('stage1', t2-t1)
+        tf.print('trans12', t3-t2)
+        tf.print('stage2', t4-t3)
+        tf.print('trans23', t5-t4)
+        tf.print('stage3', t6-t5)
+        tf.print('trans34', t7-t6)
+        tf.print('stage4', t8-t7)
+        tf.print('head', t9-t8)
+        """
         return y
 
 
 def build_hrnet():
-    # CONFIG
-    model = dict(type='HRNet',
+    # CONFIG W32C
+    model_w32c = dict(type='HRNet',
                  num_stages=4,
                  stem=dict(
                      channels=64,
@@ -615,7 +635,7 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.1,
+                         momentum=0.9,
                          eps=1e-5,
                      ),
                      weight_decay=5e-5,
@@ -631,7 +651,7 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.1,
+                         momentum=0.9,
                          eps=1e-5,
                      ),
                      weight_decay=5e-5,
@@ -647,7 +667,7 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.1,
+                         momentum=0.9,
                          eps=1e-5,
                      ),
                      weight_decay=5e-5,
@@ -663,7 +683,7 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.1,
+                         momentum=0.9,
                          eps=1e-5,
                      ),
                      weight_decay=5e-5,
@@ -679,7 +699,7 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.1,
+                         momentum=0.9,
                          eps=1e-5,
                      ),
                      weight_decay=5e-5,
@@ -692,11 +712,110 @@ def build_hrnet():
                      norm_cfg=dict(
                          type='BN',
                          axis=-1,
-                         momentum=0.1,
+                         momentum=0.9,
                          eps=1e-5,
                      ),
                      weight_decay=5e-5,
                  ))
+
+    # CONFIG W18C
+    model_w18c = dict(type='HRNet',
+                 num_stages=4,
+                 stem=dict(
+                     channels=64,
+                     kernel_size=3,
+                     stride=2,
+                     padding='same',
+                     use_bias=False,
+                     act_cfg=dict(type='relu', ),
+                     norm_cfg=dict(
+                         type='BN',
+                         axis=-1,
+                         momentum=0.9,
+                         eps=1e-5,
+                     ),
+                     weight_decay=5e-5,
+                 ),
+                 stage1=dict(
+                     name='s1',
+                     num_modules=1,
+                     num_branches=1,
+                     num_blocks=(4, ),
+                     num_channels=(64, ),
+                     expansion = 4,
+                     act_cfg=dict(type='relu', ),
+                     norm_cfg=dict(
+                         type='BN',
+                         axis=-1,
+                         momentum=0.9,
+                         eps=1e-5,
+                     ),
+                     weight_decay=5e-5,
+                 ),
+                 stage2=dict(
+                     name='s2',
+                     num_modules=1,
+                     num_branches=2,
+                     num_blocks=(4, 4),
+                     num_channels=(18, 36),
+                     expansion = 1,
+                     act_cfg=dict(type='relu', ),
+                     norm_cfg=dict(
+                         type='BN',
+                         axis=-1,
+                         momentum=0.9,
+                         eps=1e-5,
+                     ),
+                     weight_decay=5e-5,
+                 ),
+                 stage3=dict(
+                     name='s3',
+                     num_modules=4,
+                     num_branches=3,
+                     num_blocks=(4, 4, 4),
+                     num_channels=(18, 36, 72),
+                     expansion = 1,
+                     act_cfg=dict(type='relu', ),
+                     norm_cfg=dict(
+                         type='BN',
+                         axis=-1,
+                         momentum=0.9,
+                         eps=1e-5,
+                     ),
+                     weight_decay=5e-5,
+                 ),
+                 stage4=dict(
+                     name='s4',
+                     num_modules=3,
+                     num_branches=4,
+                     num_blocks=(4, 4, 4, 4),
+                     num_channels=(18, 36, 72, 144),
+                     expansion = 1,
+                     act_cfg=dict(type='relu', ),
+                     norm_cfg=dict(
+                         type='BN',
+                         axis=-1,
+                         momentum=0.9,
+                         eps=1e-5,
+                     ),
+                     weight_decay=5e-5,
+                 ),
+                 head=dict(
+                     name='cls_head',
+                     channels=(32, 64, 128, 256),
+                     expansion = 4,
+                     act_cfg=dict(type='relu', ),
+                     norm_cfg=dict(
+                         type='BN',
+                         axis=-1,
+                         momentum=0.9,
+                         eps=1e-5,
+                     ),
+                     weight_decay=5e-5,
+                 ))
+
+
+
     train_cfg = dict(weight_decay=5e-5, )
     dataset_type = 'imagenet'
     dataset_mean = ()
@@ -752,7 +871,7 @@ def build_hrnet():
     work_dir = './work_dirs/hrnet_w32_cls'
     resume_from = None
 
-    hrnet = HRNet(model)
+    hrnet = HRNet(model_w32c)
     # pass dummy data to init network
     x = tf.random.uniform([8, 224, 224, 3])
     _ = hrnet(x)

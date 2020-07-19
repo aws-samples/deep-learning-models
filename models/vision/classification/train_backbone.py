@@ -246,7 +246,7 @@ def main():
  
     start_time = time()
     curr_step = tf.Variable(initial_value=0, dtype=tf.int32)
-    best_validation_accuracy = 0.0
+    best_validation_accuracy = 0.7 # only save 0.7 or higher checkpoints
     for epoch in range(FLAGS.num_epochs):
         if hvd.rank() == 0:
             print('Starting training Epoch %d/%d' % (epoch, FLAGS.num_epochs))
