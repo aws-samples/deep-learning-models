@@ -72,6 +72,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Ref InstanceName
+        - Key: AWSCop
+          Value: DevDesktop
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
