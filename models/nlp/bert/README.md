@@ -91,7 +91,7 @@ python -m albert.launch_sagemaker \
 python -m albert.launch_sagemaker \
     --source_dir=. \
     --entry_point=albert/run_pretraining.py \
-    --sm_job_name=bert-pretrain-phase1 \
+    --sm_job_name=bert-pretrain-phase2 \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=8 \
     --load_from=checkpoint \
@@ -113,7 +113,7 @@ python -m albert.launch_sagemaker \
     --log_frequency=100 \
     --squad_frequency=0 \
     --run_name=${PHASE2_RUN_NAME} \
-    --checkpoint_path=/fsx/checkpoints/albert/${RUN_NAME_PHASE1}-step${PHASE1_STEPS} \
+    --checkpoint_path=checkpoints/albert/${PHASE1_RUN_NAME}-step${PHASE1_STEPS} \
     --name=mybertphase2
 ```
 
@@ -129,7 +129,7 @@ python -m albert.launch_sagemaker \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=1 \
     --load_from=checkpoint \
-    --checkpoint_path=/fsx/checkpoints/albert/${RUN_NAME_PHASE2}-step${PHASE2_STEPS} \
+    --checkpoint_path=checkpoints/albert/${PHASE2_RUN_NAME}-step${PHASE2_STEPS} \
     --model_type=bert \
     --per_gpu_batch_size=6 \
     --model_size=base \
@@ -152,7 +152,7 @@ python -m albert.launch_sagemaker \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=1 \
     --load_from=checkpoint \
-    --checkpoint_path=/fsx/checkpoints/albert/${RUN_NAME_PHASE2}-step${PHASE2_STEPS} \
+    --checkpoint_path=checkpoints/albert/${PHASE2_RUN_NAME}-step${PHASE2_STEPS} \
     --model_type=bert \
     --per_gpu_batch_size=6 \
     --model_size=base \

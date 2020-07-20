@@ -16,6 +16,7 @@ nlp feature request: Select from dataset with arbitrary slices
 import datetime
 import glob
 import logging
+import os
 import time
 from collections import namedtuple
 from dataclasses import asdict
@@ -266,8 +267,9 @@ def main():
 
     loaded_optimizer_weights = None
     if model_args.load_from == "checkpoint":
+        checkpoint_path = os.path.join(data_args.fsx_prefix, model_args.checkpoint_path)
         dis_ckpt, gen_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(
-            model_args.checkpoint_path
+            checkpoint_path
         )
         if hvd.rank() == 0:
             dis.load_weights(dis_ckpt)

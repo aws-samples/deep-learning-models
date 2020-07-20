@@ -26,6 +26,7 @@ import datetime
 import gc
 import glob
 import logging
+import os
 import time
 from dataclasses import asdict
 from typing import Tuple
@@ -453,7 +454,8 @@ def main():
     model = create_model(model_class=TFAutoModelForPreTraining, model_args=model_args)
     tokenizer = create_tokenizer(model_args.model_type)
     if model_args.load_from == "checkpoint":
-        model_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(model_args.checkpoint_path)
+        checkpoint_path = os.path.join(data_args.fsx_prefix, model_args.checkpoint_path)
+        model_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(checkpoint_path)
         if hvd.rank() == 0:
             model.load_weights(model_ckpt)
             if model_args.load_optimizer_state == "true":
