@@ -96,7 +96,7 @@ python -m albert.launch_sagemaker \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=1 \
     --load_from=checkpoint \
-    --checkpoint_path=/fsx/checkpoints/electra/${RUN_NAME}-step${TOTAL_STEPS}-discriminator \
+    --checkpoint_path=checkpoints/electra/${RUN_NAME}-step${TOTAL_STEPS}-discriminator \
     --model_type=electra \
     --model_size=small \
     --per_gpu_batch_size=6 \
