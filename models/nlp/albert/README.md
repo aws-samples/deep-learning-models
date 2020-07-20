@@ -26,7 +26,10 @@ export ACCOUNT_ID=
 export REPO=
 export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:py37_tf211
 docker build -t ${IMAGE} .
+# AWS-CLI v1
 $(aws ecr get-login --no-include-email)
+# AWS-CLI v2
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
 docker push ${IMAGE}
 ```
 

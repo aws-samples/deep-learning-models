@@ -105,9 +105,17 @@ WORKDIR /fsx
 CMD ["/bin/bash"]
 
 ###### Modifications specifically for SageMaker are below
+# Install SSH on SageMaker machines
+RUN apt-get install -y --no-install-recommends openssh-client openssh-server
+RUN sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd
+RUN mkdir -p /root/.ssh/ && \
+    mkdir -p /var/run/sshd && \
+    ssh-keygen -q -t rsa -N '' -f /root/.ssh/id_rsa && \
+    cp /root/.ssh/id_rsa.pub /root/.ssh/authorized_keys && \
+    printf "Host *\n  StrictHostKeyChecking no\n" >> /root/.ssh/config
 RUN pip install --no-cache-dir \
     mpi4py==3.0.3 \
-    sagemaker-containers==2.8.6 \
+    sagemaker-training \
     git+https://github.com/huggingface/transformers.git@master \
     git+https://github.com/huggingface/nlp.git@master
 
