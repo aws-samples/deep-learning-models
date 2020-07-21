@@ -39,6 +39,7 @@ docker push ${IMAGE}
 export SAGEMAKER_ROLE=arn:aws:iam::${ACCOUNT_ID}:role/service-role/AmazonSageMaker-ExecutionRole-20200101T123
 export SAGEMAKER_IMAGE_NAME=${IMAGE}
 export SAGEMAKER_FSX_ID=fs-123
+export SAGEMAKER_FSX_MOUNT_NAME=fsx
 export SAGEMAKER_SUBNET_IDS=subnet-123
 export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
 ```

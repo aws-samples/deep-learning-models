@@ -49,6 +49,7 @@ if __name__ == "__main__":
         role=sm_args.role,
         image_name=sm_args.image_name,
         fsx_id=sm_args.fsx_id,
+        fsx_mount_name=sm_args.fsx_mount_name,
         subnet_ids=sm_args.subnet_ids,
         security_group_ids=sm_args.security_group_ids,
     )

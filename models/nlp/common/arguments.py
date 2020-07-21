@@ -173,6 +173,7 @@ class SageMakerArguments:
     role: str = field(default=None)
     image_name: str = field(default=None)
     fsx_id: str = field(default=None)
+    fsx_mount_name: str = field(default="fsx")
     subnet_ids: str = field(default=None, metadata={"help": "Comma-separated string"})
     security_group_ids: str = field(default=None, metadata={"help": "Comma-separated string"})
     instance_type: str = field(
@@ -187,6 +188,7 @@ class SageMakerArguments:
         self.role = self.role or os.environ["SAGEMAKER_ROLE"]
         self.image_name = self.image_name or os.environ["SAGEMAKER_IMAGE_NAME"]
         self.fsx_id = self.fsx_id or os.environ["SAGEMAKER_FSX_ID"]
+        self.fsx_mount_name = self.fsx_mount_name or os.environ["SAGEMAKER_FSX_MOUNT_NAME"]
         self.subnet_ids = self.subnet_ids or os.environ["SAGEMAKER_SUBNET_IDS"]
         self.security_group_ids = (
             self.security_group_ids or os.environ["SAGEMAKER_SECURITY_GROUP_IDS"]
