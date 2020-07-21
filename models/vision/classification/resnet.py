@@ -55,8 +55,7 @@ WEIGHTS_HASHES = {
                    '0f678c91647380debd923963594981b3')
 }
 
-
-def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True, 
+def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True, avg_down=True,
         image_data_format='channels_last', name=None, trainable=True,
         weight_decay=0.0001):
     """A residual block.
@@ -76,12 +75,19 @@ def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True,
     bn_axis = 3 if image_data_format == 'channels_last' else 1
 
     if conv_shortcut is True:
-        shortcut = layers.Conv2D(4 * filters, 1, strides=stride, use_bias=False, padding='SAME',
+        if not avg_down:
+            shortcut = layers.Conv2D(4 * filters, 1, strides=stride, use_bias=False, padding='SAME',
                                  kernel_initializer='he_normal',
                                  kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                  name=name + '_0_conv')(x)
+        else:
+            shortcut = layers.AveragePooling2D(1, strides=stride)(x) if stride > 1 else x
+            shortcut = layers.Conv2D(4 * filters, 1, strides=1, use_bias=False, padding='SAME',
+                                 kernel_initializer='he_normal',
+                                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
+                                 name=name + '_0_conv')(shortcut)
         shortcut = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
-                                             name=name + '_0_bn')(shortcut)
+                                name=name + '_0_bn')(shortcut)
     else:
         shortcut = x
 
@@ -116,7 +122,6 @@ def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True,
     x = layers.Add(name=name + '_add')([shortcut, x])
     x = layers.Activation('relu', name=name + '_out')(x)
     return x
-
 
 def stack1(x, filters, blocks, stride1=2, name=None, trainable=True, weight_decay=0.0001):
     """A set of stacked residual blocks.
@@ -301,6 +306,7 @@ def ResNet(stack_fn,
            weight_decay=0.0001,
            is_training=False,
            image_data_format='channels_last',
+           deep_stem=True,
            **kwargs):
     """Instantiates the ResNet, ResNetV2, and ResNeXt architecture.
 
@@ -372,9 +378,25 @@ def ResNet(stack_fn,
     bn_axis = 3 if image_data_format == 'channels_last' else 1
 
     x = layers.ZeroPadding2D(padding=((3, 3), (3, 3)), name='conv1_pad')(img_input)
-    x = layers.Conv2D(64, 7, strides=2, use_bias=False, name='conv1_conv', 
-            kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-            kernel_initializer='he_normal')(x)
+    if not deep_stem:
+        x = layers.Conv2D(64, 7, strides=2, use_bias=False, name='conv1_conv', 
+                kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
+                kernel_initializer='he_normal')(x)
+    else: # replace 7x7 with 3 3x3 convs to get same receptive field
+        x = layers.Conv2D(64, 3, strides=2, padding='SAME', use_bias=False, name='conv1_3x3_stem1',
+                kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
+                kernel_initializer='he_normal')(x)
+        x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name='conv1_3x3_1_bn')(x)
+        x = layers.Activation('relu', name='conv1_3x3_1_relu')(x)
+
+        x = layers.Conv2D(64, 3, strides=2, padding='SAME', use_bias=False, name='conv1_3x3_stem2',
+                kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
+                kernel_initializer='he_normal')(x)
+        x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name='conv1_3x3_2_bn')(x)
+        x = layers.Activation('relu', name='conv1_3x3_2_relu')(x)
+        x = layers.Conv2D(128, 3, strides=1, padding='SAME', use_bias=False, name='conv1_3x3_stem3',
+                kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
+                kernel_initializer='he_normal')(x)
 
     if preact is False:
         x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name='conv1_bn')(x)

@@ -10,6 +10,7 @@ import logging
 from tqdm import tqdm
 from time import time
 import sys
+# import augment
 import resnet_preprocessing
 import imagenet_preprocessing
 import resnet
@@ -51,7 +52,7 @@ class WarmupScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 
 @tf.function
-def parse(record, is_training, preprocess_style='imagenet'):
+def parse(record, is_training, preprocess_style='resnet'):
     features = {'image/encoded': tf.io.FixedLenFeature((), tf.string),
                 'image/class/label': tf.io.FixedLenFeature((), tf.int64),
                 'image/object/bbox/xmin': tf.io.VarLenFeature(dtype=tf.float32),
@@ -65,8 +66,9 @@ def parse(record, is_training, preprocess_style='imagenet'):
     bbox = tf.stack([parsed['image/object/bbox/%s' % x].values for x in ['ymin', 'xmin', 'ymax', 'xmax']])
     bbox = tf.transpose(tf.expand_dims(bbox, 0), [0, 2, 1])
     if preprocess_style == 'resnet':
+        augmenter = None # augment.AutoAugment()
         image = resnet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
-    elif preprocess_style == 'imagenet':
+    elif preprocess_style == 'imagenet': # used by hrnet
         image = imagenet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
 
     label = tf.cast(parsed['image/class/label'] - 1, tf.int32)
@@ -98,8 +100,10 @@ def add_cli_args():
                          help="""Path to save model with best accuracy""")
     cmdline.add_argument('-b', '--batch_size', default=128, type=int,
                          help="""Size of each minibatch per GPU""")
-    cmdline.add_argument('--num_epochs', default=100, type=int,
+    cmdline.add_argument('--num_epochs', default=120, type=int,
                          help="""Number of epochs to train for.""")
+    cmdline.add_argument('--schedule', default='cosine', type=str,
+                         help="""learning rate schedule""")
     cmdline.add_argument('-lr', '--learning_rate', default=0.1, type=float,
                          help="""Start learning rate.""")
     cmdline.add_argument('--momentum', default=0.9, type=float,
@@ -126,7 +130,33 @@ def add_cli_args():
                          help='Path to SavedModel format model directory from which to resume training')
     return cmdline
 
-def create_dataset(data_dir, batch_size, validation):
+# from https://github.com/tensorflow/tpu/blob/master/models/official/efficientnet/imagenet_input.py
+def mixup(self, batch_size, alpha, images, labels):
+    """Applies Mixup regularization to a batch of images and labels.
+    [1] Hongyi Zhang, Moustapha Cisse, Yann N. Dauphin, David Lopez-Paz
+      Mixup: Beyond Empirical Risk Minimization.
+      ICLR'18, https://arxiv.org/abs/1710.09412
+    Arguments:
+      batch_size: The input batch size for images and labels.
+      alpha: Float that controls the strength of Mixup regularization.
+      images: A batch of images of shape [batch_size, ...]
+      labels: A batch of labels of shape [batch_size, num_classes]
+    Returns:
+      A tuple of (images, labels) with the same dimensions as the input with
+      Mixup regularization applied.
+    """
+    mix_weight = tf.distributions.Beta(alpha, alpha).sample([batch_size, 1])
+    mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
+    images_mix_weight = tf.reshape(mix_weight, [batch_size, 1, 1, 1])
+    # Mixup on a single batch is implemented by taking a weighted sum with the
+    # same batch in reverse.
+    images_mix = (
+        images * images_mix_weight + images[::-1] * (1. - images_mix_weight))
+    labels_mix = labels * mix_weight + labels[::-1] * (1. - mix_weight)
+    return images_mix, labels_mix
+
+
+def create_dataset(data_dir, batch_size, validation, do_mixup=False):
     filenames = [os.path.join(data_dir, i) for i in os.listdir(data_dir)]
     data = tf.data.TFRecordDataset(filenames)
     if not validation:
@@ -138,6 +168,8 @@ def create_dataset(data_dir, batch_size, validation):
     # we drop remainder because we want same sized batches - this is because of allreduce being used to calculate
     # accuracy - validation accuracy may be slightly different than computing on all of validation data
     data = data.batch(batch_size, drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE)
+    if not validation and do_mixup:
+        data = data.map(functools.partial(mixup, batch_size, mixup_alpha), num_parallel_calls=tf.data.experimental.AUTOTUNE)
     return data
 
 @tf.function
@@ -223,9 +255,20 @@ def main():
     learning_rate = (FLAGS.learning_rate * hvd.size() * FLAGS.batch_size)/256 
     steps_per_epoch = int((FLAGS.train_dataset_size / (FLAGS.batch_size * hvd.size())))
 
-    scheduler = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-                    boundaries=[steps_per_epoch * 25, steps_per_epoch * 55, steps_per_epoch * 75], # 5 epochs for warmup
+
+    if FLAGS.schedule == 'piecewise':
+        scheduler = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+                    boundaries=[steps_per_epoch * 35, steps_per_epoch * 55, steps_per_epoch * 80], # 5 epochs for warmup
                     values=[learning_rate, learning_rate * 0.1, learning_rate * 0.01, learning_rate * 0.001])
+    elif FLAGS.schedule == 'cosine':
+        scheduler = tf.keras.experimental.CosineDecayRestarts(initial_learning_rate=learning_rate, # linearly scaled lr
+                    first_decay_steps=120*steps_per_epoch, t_mul=1, m_mul=1)
+
+
+#    scheduler = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+#                    # boundaries=[steps_per_epoch * 25, steps_per_epoch * 55, steps_per_epoch * 75], # 5 epochs for warmup
+#                    boundaries=[steps_per_epoch * 35, steps_per_epoch * 55, steps_per_epoch * 80], # 5 epochs for warmup
+#                    values=[learning_rate, learning_rate * 0.1, learning_rate * 0.01, learning_rate * 0.001])
 
     scheduler = WarmupScheduler(optimizer=scheduler, initial_learning_rate=learning_rate / hvd.size(), warmup_steps=steps_per_epoch * 5)
     opt = tf.keras.optimizers.SGD(learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True) # needs momentum correction term
