@@ -57,7 +57,7 @@ def launch_sagemaker_job(
     security_group_ids: List[str],
 ) -> None:
     """ Create a SageMaker job connected to FSx and Horovod. """
-    assert fsx_mount_name[0] == "/", "fsx_mount_name should not start with a '/'"
+    assert fsx_mount_name[0] != "/", "fsx_mount_name should not start with a '/'"
     hvd_processes_per_host = {"ml.p3dn.24xlarge": 8, "ml.p3.16xlarge": 8, "ml.g4dn.12xlarge": 4,}[
         instance_type
     ]
