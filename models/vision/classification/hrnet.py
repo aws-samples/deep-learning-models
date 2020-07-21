@@ -621,7 +621,7 @@ class HRNet(tf.keras.Model):
         return y
 
 
-def build_hrnet():
+def build_hrnet(model_name):
     # CONFIG W32C
     model_w32c = dict(type='HRNet',
                  num_stages=4,
@@ -871,7 +871,11 @@ def build_hrnet():
     work_dir = './work_dirs/hrnet_w32_cls'
     resume_from = None
 
-    hrnet = HRNet(model_w32c)
+    if model_name == 'hrnet_w18c':
+        hrnet = HRNet(model_w18c)
+    elif model_name == 'hrnet_w32c':
+        hrnet = HRNet(model_w32c)
+
     # pass dummy data to init network
     x = tf.random.uniform([8, 224, 224, 3])
     _ = hrnet(x)
@@ -879,5 +883,5 @@ def build_hrnet():
     return hrnet
 
 if __name__ == "__main__":
-    build_hrnet()
+    build_hrnet(model_name)
 
