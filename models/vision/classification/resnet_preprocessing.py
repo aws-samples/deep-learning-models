@@ -232,7 +232,7 @@ def _resize_image(image, height, width):
 
 
 def preprocess_image(image_buffer, bbox, output_height, output_width,
-                     num_channels, is_training=False):
+                     num_channels, augmenter=None, is_training=False):
   """Preprocesses the given image.
 
   Preprocessing includes decoding, cropping, and resizing for both training
@@ -267,7 +267,8 @@ def preprocess_image(image_buffer, bbox, output_height, output_width,
 
   image = _image_standardization(image, _CHANNEL_MEANS, _CHANNEL_STDS, num_channels)
   if is_training:
-      do_distort = tf.math.less(tf.random.uniform([]), 0.05)
+#      if augmenter: image = augmenter.distort(image)
+      do_distort = tf.math.less(tf.random.uniform([]), 0.25)
       if do_distort:
           image = tf.image.random_brightness(image, max_delta=32. / 255.)
           image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
