@@ -51,7 +51,7 @@ class WarmupScheduler(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 
 @tf.function
-def parse(record, is_training):
+def parse(record, is_training, preprocess_style='imagenet'):
     features = {'image/encoded': tf.io.FixedLenFeature((), tf.string),
                 'image/class/label': tf.io.FixedLenFeature((), tf.int64),
                 'image/object/bbox/xmin': tf.io.VarLenFeature(dtype=tf.float32),
@@ -64,8 +64,11 @@ def parse(record, is_training):
     # bbox = tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32, shape=[1, 1, 4])
     bbox = tf.stack([parsed['image/object/bbox/%s' % x].values for x in ['ymin', 'xmin', 'ymax', 'xmax']])
     bbox = tf.transpose(tf.expand_dims(bbox, 0), [0, 2, 1])
-    # image = resnet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
-    image = imagenet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
+    if preprocess_style == 'resnet':
+        image = resnet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
+    elif preprocess_style == 'imagenet':
+        image = imagenet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
+
     label = tf.cast(parsed['image/class/label'] - 1, tf.int32)
     one_hot_label = tf.one_hot(label, depth=1000, dtype=tf.int32)
     return image, one_hot_label
@@ -119,8 +122,8 @@ def add_cli_args():
                          train the full model from scratch. Must specify weights
                          path if flag is set.""",
                          action='store_true')
-    cmdline.add_argument('--weights_path', 
-                         help='Path to weights for pretrained model')
+    cmdline.add_argument('--resume_from', 
+                         help='Path to SavedModel format model directory from which to resume training')
     return cmdline
 
 def create_dataset(data_dir, batch_size, validation):
@@ -185,6 +188,10 @@ def main():
 
     cmdline = add_cli_args()
     FLAGS, unknown_args = cmdline.parse_known_args()
+
+    if FLAGS.fine_tune:
+        raise NotImplementedError('fine tuning functionality not available')
+
     if not FLAGS.xla_off:
         tf.config.optimizer.set_jit(True)
     if not FLAGS.fp32:
@@ -208,9 +215,10 @@ def main():
             model = resnet_evo.ResNet50V2(weights=None, weight_decay=FLAGS.l2_weight_decay, pooling='avg', classes=FLAGS.num_classes)
     elif FLAGS.model == 'darknet53':
         model = darknet.Darknet(weight_decay=FLAGS.l2_weight_decay)
-    elif FLAGS.model == 'hrnet_w32c':
-        model = hrnet.build_hrnet()
+    elif FLAGS.model in ['hrnet_w18c', 'hrnet_w32c']:
+        model = hrnet.build_hrnet(FLAGS.model)
         model._set_inputs(tf.keras.Input(shape=(None, None, 3)))
+
     model.summary()
     learning_rate = (FLAGS.learning_rate * hvd.size() * FLAGS.batch_size)/256 
     steps_per_epoch = int((FLAGS.train_dataset_size / (FLAGS.batch_size * hvd.size())))
@@ -229,6 +237,9 @@ def main():
     loss_func = tf.keras.losses.CategoricalCrossentropy(label_smoothing=FLAGS.label_smoothing, reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE) 
 
     if hvd.rank() == 0:
+        if FLAGS.resume_from:
+            model = tf.keras.models.load_model(FLAGS.resume_from)
+            print('loaded model from', FLAGS.resume_from)
         model_dir = os.path.join(FLAGS.model + datetime.datetime.now().strftime("_%Y-%m-%d_%H-%M-%S"))
         path_logs = os.path.join(os.getcwd(), model_dir, 'log.csv')
         os.mkdir(model_dir)
