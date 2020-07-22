@@ -16,6 +16,28 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class PathArguments:
+    train_dir: str = field(metadata={"help": "A folder containing TFRecords"})
+    val_dir: str = field(metadata={"help": "A folder containing TFRecords"})
+
+    filesystem_prefix: str = field(
+        default="/fsx",
+        metadata={
+            "choices": ["/fsx", "/opt/ml/input/data/training"],
+            "help": "Change to /opt/ml/input/data/training on SageMaker",
+        },
+    )
+    # TODO: Remove the choices; they are hints rather than restrictions.
+    log_dir: str = field(
+        default="logs/default", metadata={"help": "For example, 'logs/albert' or 'logs/squad'"},
+    )
+    checkpoint_dir: str = field(
+        default="checkpoints/default",
+        metadata={"help": "For example, 'checkpoints/albert' or 'checkpoints/squad'"},
+    )
+
+
+@dataclass
 class TrainingArguments:
     """ Related to the training loop. """
 
@@ -147,49 +169,6 @@ class LoggingArguments:
     squad_frequency: int = field(default=40000)
     fast_squad: str = field(default=None, metadata={"choices": ["true"]})
     dummy_eval: str = field(default=None, metadata={"choices": ["true"]})
-
-
-@dataclass
-class PathArguments:
-    train_dir: str = field(
-        metadata={
-            # "choices": [
-            #     f"albert_pretraining/tfrecords/train/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord",
-            #     f"albert_pretraining/tfrecords/validation/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord",
-            #     f"bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/training/*.tfrecord",
-            #     f"bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/validation/*.tfrecord",
-            #     f"electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*",
-            #     f"electra_pretraining_wikibooks/training/electra.tfrecord*",
-            # ],
-        }
-    )
-    val_dir: str
-
-    filesystem_prefix: str = field(
-        default="/fsx",
-        metadata={
-            "choices": ["/fsx", "/opt/ml/input/data/training"],
-            "help": "Change to /opt/ml/input/data/training on SageMaker",
-        },
-    )
-    # TODO: Remove the choices; they are hints rather than restrictions.
-    log_dir: str = field(
-        default="logs/default",
-        metadata={
-            "choices": ["logs/default", "logs/squad", "logs/albert", "logs/bert", "logs/electra"]
-        },
-    )
-    checkpoint_dir: str = field(
-        default="checkpoints/default",
-        metadata={
-            "choices": [
-                "checkpoints/default",
-                "checkpoints/albert",
-                "checkpoints/bert",
-                "checkpoints/electra",
-            ]
-        },
-    )
 
 
 @dataclass
