@@ -377,7 +377,7 @@ def main():
     pre_layer_norm = parse_bool(model_args.pre_layer_norm)
     fast_squad = parse_bool(log_args.fast_squad)
     dummy_eval = parse_bool(log_args.dummy_eval)
-    is_sagemaker = data_args.fsx_prefix.startswith("/opt/ml")
+    is_sagemaker = data_args.filesystem_prefix.startswith("/opt/ml")
     disable_tqdm = is_sagemaker
     global max_grad_norm
     max_grad_norm = train_args.max_grad_norm
@@ -428,7 +428,9 @@ def main():
         level = logging.INFO
         format = "%(asctime)-15s %(name)-12s: %(levelname)-8s %(message)s"
         handlers = [
-            logging.FileHandler(f"{data_args.fsx_prefix}/logs/albert/{run_name}.log"),
+            logging.FileHandler(
+                os.path.join(data_args.filesystem_prefix, f"logs/albert/{run_name}.log")
+            ),
             TqdmLoggingHandler(),
         ]
         logging.basicConfig(level=level, format=format, handlers=handlers)
@@ -454,7 +456,7 @@ def main():
     model = create_model(model_class=TFAutoModelForPreTraining, model_args=model_args)
     tokenizer = create_tokenizer(model_args.model_type)
     if model_args.load_from == "checkpoint":
-        checkpoint_path = os.path.join(data_args.fsx_prefix, model_args.checkpoint_path)
+        checkpoint_path = os.path.join(data_args.filesystem_prefix, model_args.checkpoint_path)
         model_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(checkpoint_path)
         if hvd.rank() == 0:
             model.load_weights(model_ckpt)
@@ -470,16 +472,28 @@ def main():
         assert (
             current_tuple in possible_tuples
         ), f"Incorrect data: {current_tuple} not in {possible_tuples}"
-        train_glob = f"{data_args.fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
-        validation_glob = f"{data_args.fsx_prefix}/albert_pretraining/tfrecords/validation/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
+        train_glob = os.path.join(
+            data_args.filesystem_prefix,
+            f"albert_pretraining/tfrecords/train/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord",
+        )
+        validation_glob = os.path.join(
+            data_args.filesystem_prefix,
+            f"albert_pretraining/tfrecords/validation/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord",
+        )
     if model_args.model_type == "bert":
         possible_tuples = set([(128, 20), (512, 80)])
         current_tuple = (data_args.max_seq_length, data_args.max_predictions_per_seq)
         assert (
             current_tuple in possible_tuples
         ), f"Incorrect data: {current_tuple} not in {possible_tuples}"
-        train_glob = f"{data_args.fsx_prefix}/bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/training/*.tfrecord"
-        validation_glob = f"{data_args.fsx_prefix}/bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/validation/*.tfrecord"
+        train_glob = os.path.join(
+            data_args.filesystem_prefix,
+            f"bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/training/*.tfrecord",
+        )
+        validation_glob = os.path.join(
+            data_args.filesystem_prefix,
+            f"bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/validation/*.tfrecord",
+        )
 
     train_filenames = glob.glob(train_glob)
     validation_filenames = glob.glob(validation_glob)
@@ -544,7 +558,7 @@ def main():
                 model=model,
                 tokenizer=tokenizer,
                 model_size=model_args.model_size,
-                fsx_prefix=data_args.fsx_prefix,
+                filesystem_prefix=data_args.filesystem_prefix,
                 step=i,
                 dataset=data_args.squad_version,
                 fast=log_args.fast_squad,
@@ -575,7 +589,9 @@ def main():
                     start_time = time.perf_counter()
 
             if do_checkpoint:
-                checkpoint_prefix = f"{data_args.fsx_prefix}/checkpoints/albert/{run_name}-step{i}"
+                checkpoint_prefix = os.path.join(
+                    data_args.filesystem_prefix, "checkpoints/albert/{run_name}-step{i}"
+                )
                 model_ckpt = f"{checkpoint_prefix}.ckpt"
                 optimizer_ckpt = f"{checkpoint_prefix}-optimizer.npy"
                 logger.info(f"Saving model at {model_ckpt}, optimizer at {optimizer_ckpt}")
@@ -599,7 +615,7 @@ def main():
             # Create summary_writer after the first step
             if summary_writer is None:
                 summary_writer = tf.summary.create_file_writer(
-                    f"{data_args.fsx_prefix}/logs/albert/{run_name}"
+                    os.path.join(data_args.filesystem_prefix, f"logs/albert/{run_name}")
                 )
                 config = {
                     **asdict(model_args),

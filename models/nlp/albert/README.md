@@ -91,6 +91,15 @@ python -m albert.launch_sagemaker \
 docker run -it --privileged -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
 ```
 
-<!-- ### Training results
+<!-- ### Training results. These will be posted shortly. -->
 
-These will be posted shortly. -->
+### Command-Line Parameters
+
+See `common/arguments.py` for a complete list. Here are the main ones:
+
+Loading from checkpoint:
+- `model_type`: One of "albert", "bert", "electra".
+- `model_size`: One of "small", "base", "large".
+- `load_from`: One of "scratch", "checkpoint", "huggingface". If checkpoint, then checkpoint_path is required.
+- `checkpoint_path`: For example: "/fsx/checkpoints/albert/2020...step125000". No .ckpt on the end.
+- `load_optimizer_state`: One of "true", "false".

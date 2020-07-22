@@ -72,7 +72,7 @@ class ModelArguments:
 
     model_dir: str = field(default=None, metadata={"help": "Unused, but passed by SageMaker"})
     model_type: str = field(default="albert", metadata={"choices": ["albert", "bert", "electra"]})
-    model_size: str = field(default="base", metadata={"choices": ["base", "large", "small"]})
+    model_size: str = field(default="base", metadata={"choices": ["small", "base", "large"]})
     load_from: str = field(
         default="scratch", metadata={"choices": ["scratch", "checkpoint", "huggingface"]}
     )
@@ -124,7 +124,7 @@ class DataTrainingArguments:
     # For ELECTRA we use dynamic masking, so all combos are valid
     max_seq_length: int = field(default=512)
     max_predictions_per_seq: int = field(default=20)
-    fsx_prefix: str = field(
+    filesystem_prefix: str = field(
         default="/fsx",
         metadata={
             "choices": ["/fsx", "/opt/ml/input/data/training"],

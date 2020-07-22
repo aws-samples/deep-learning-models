@@ -30,7 +30,7 @@ if __name__ == "__main__":
         for key, value in dataclasses.asdict(args).items():
             if value is not None:
                 hyperparameters[key] = value
-    hyperparameters["fsx_prefix"] = "/opt/ml/input/data/training"
+    hyperparameters["filesystem_prefix"] = "/opt/ml/input/data/training"
 
     instance_abbr = {
         "ml.p3dn.24xlarge": "p3dn",

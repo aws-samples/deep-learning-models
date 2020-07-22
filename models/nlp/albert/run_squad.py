@@ -225,7 +225,7 @@ def get_squad_results_while_pretraining(
     model: tf.keras.Model,
     tokenizer: PreTrainedTokenizer,
     model_size: str,
-    fsx_prefix: str,
+    filesystem_prefix: str,
     step: int,
     dataset: str,
     fast: bool = False,
@@ -268,7 +268,7 @@ def get_squad_results_while_pretraining(
             model=qa_model,
             tokenizer=tokenizer,
             run_name=squad_run_name,
-            fsx_prefix=fsx_prefix,
+            filesystem_prefix=filesystem_prefix,
             per_gpu_batch_size=per_gpu_batch_size,  # This will be less than 3, so no OOM errors
             checkpoint_frequency=None,
             validate_frequency=None,
@@ -291,7 +291,7 @@ def run_squad_and_get_results(
     model: tf.keras.Model,  # Must be QuestionAnswering model, not PreTraining
     tokenizer: PreTrainedTokenizer,
     run_name: str,
-    fsx_prefix: str,
+    filesystem_prefix: str,
     per_gpu_batch_size: int,
     checkpoint_frequency: Optional[int],
     validate_frequency: Optional[int],
@@ -305,7 +305,7 @@ def run_squad_and_get_results(
     checkpoint_frequency = checkpoint_frequency or 1000000
     validate_frequency = validate_frequency or 1000000
     evaluate_frequency = evaluate_frequency or 1000000
-    is_sagemaker = fsx_prefix.startswith("/opt/ml")
+    is_sagemaker = filesystem_prefix.startswith("/opt/ml")
     disable_tqdm = is_sagemaker
 
     schedule = LinearWarmupPolyDecaySchedule(
@@ -334,7 +334,7 @@ def run_squad_and_get_results(
     else:
         assert False, "--dataset must be one of ['squadv1', 'squadv2', 'debug']"
 
-    data_dir = f"{fsx_prefix}/squad_data"
+    data_dir = os.path.join(filesystem_prefix, "squad_data")
 
     train_dataset = get_dataset(
         tokenizer=tokenizer,
@@ -436,15 +436,15 @@ def run_squad_and_get_results(
                 print_eval_metrics(results=results, step=step, dataset=dataset)
 
             if do_checkpoint:
-                checkpoint_path = (
-                    f"{fsx_prefix}/checkpoints/albert-squad/{run_name}-step{step}.ckpt"
+                checkpoint_path = os.path.join(
+                    filesystem_prefix, f"checkpoints/albert-squad/{run_name}-step{step}.ckpt"
                 )
                 logger.info(f"Saving checkpoint at {checkpoint_path}")
                 model.save_weights(checkpoint_path)
 
             if summary_writer is None:
                 summary_writer = tf.summary.create_file_writer(
-                    f"{fsx_prefix}/logs/albert-squad/{run_name}"
+                    os.path.join(filesystem_prefix, f"logs/albert-squad/{run_name}")
                 )
             with summary_writer.as_default():
                 tf.summary.scalar("learning_rate", learning_rate, step=step)
@@ -508,7 +508,7 @@ def main():
     if hvd.rank() == 0:
         # Run name should only be used on one process to avoid race conditions
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        platform = "eks" if data_args.fsx_prefix == "/fsx" else "sm"
+        platform = "eks" if data_args.filesystem_prefix == "/fsx" else "sm"
         if log_args.run_name is None:
             run_name = f"{current_time}-{platform}-{model_args.model_type}-{model_args.model_size}-{data_args.squad_version}-{model_args.load_from}-{hvd.size()}gpus-{train_args.name}"
         else:
@@ -529,7 +529,7 @@ def main():
     loaded_optimizer_weights = None
     if model_args.load_from == "checkpoint":
         if hvd.rank() == 0:
-            checkpoint_path = os.path.join(data_args.fsx_prefix, model_args.checkpoint_path)
+            checkpoint_path = os.path.join(data_args.filesystem_prefix, model_args.checkpoint_path)
             logger.info(f"Loading weights from {checkpoint_path}.ckpt")
             model.load_weights(f"{checkpoint_path}.ckpt").expect_partial()
 
@@ -537,7 +537,7 @@ def main():
         model=model,
         tokenizer=tokenizer,
         run_name=run_name,
-        fsx_prefix=data_args.fsx_prefix,
+        filesystem_prefix=data_args.filesystem_prefix,
         per_gpu_batch_size=train_args.per_gpu_batch_size,
         checkpoint_frequency=log_args.checkpoint_frequency,
         validate_frequency=log_args.validation_frequency,

@@ -255,7 +255,9 @@ def main():
     tokenizer = ElectraTokenizerFast.from_pretrained("bert-base-uncased")
 
     gen_config = ElectraConfig.from_pretrained(f"google/electra-{model_args.model_size}-generator")
-    dis_config = ElectraConfig.from_pretrained(f"google/electra-{model_args.model_size}-discriminator")
+    dis_config = ElectraConfig.from_pretrained(
+        f"google/electra-{model_args.model_size}-discriminator"
+    )
 
     gen = TFElectraForMaskedLM(config=gen_config)
     dis = TFElectraForPreTraining(config=dis_config)
@@ -267,10 +269,8 @@ def main():
 
     loaded_optimizer_weights = None
     if model_args.load_from == "checkpoint":
-        checkpoint_path = os.path.join(data_args.fsx_prefix, model_args.checkpoint_path)
-        dis_ckpt, gen_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(
-            checkpoint_path
-        )
+        checkpoint_path = os.path.join(data_args.filesystem_prefix, model_args.checkpoint_path)
+        dis_ckpt, gen_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(checkpoint_path)
         if hvd.rank() == 0:
             dis.load_weights(dis_ckpt)
             gen.load_weights(gen_ckpt)
@@ -373,14 +373,21 @@ def main():
 
     if data_args.pretrain_dataset == "wikibooks":
         if data_args.max_seq_length == 512:
-            train_glob = f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*"
-            validation_glob = f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*"
-        else:
-            train_glob = (
-                f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/training/electra.tfrecord*"
+            train_glob = os.path.join(
+                data_args.filesystem_prefix,
+                f"electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*",
             )
-            validation_glob = (
-                f"{data_args.fsx_prefix}/electra_pretraining_wikibooks/test/electra.tfrecord*"
+            validation_glob = os.path.join(
+                data_args.filesystem_prefix,
+                f"electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*",
+            )
+        else:
+            train_glob = os.path.join(
+                data_args.filesystem_prefix,
+                "electra_pretraining_wikibooks/training/electra.tfrecord*",
+            )
+            validation_glob = os.path.join(
+                data_args.filesystem_prefix, "electra_pretraining_wikibooks/test/electra.tfrecord*"
             )
 
         train_filenames = glob.glob(train_glob)
@@ -516,7 +523,7 @@ def main():
                 # Create summary_writer after the first step
             if summary_writer is None:
                 summary_writer = tf.summary.create_file_writer(
-                    f"{data_args.fsx_prefix}/logs/electra/{run_name}"
+                    os.path.join(data_args.filesystem_prefix, f"logs/electra/{run_name}")
                 )
                 config = {
                     **asdict(model_args),
@@ -533,9 +540,18 @@ def main():
                     tf.summary.scalar(name, val, step=step)
 
             if do_checkpoint:
-                dis_model_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/{run_name}-step{step}-discriminator.ckpt"
-                gen_model_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/{run_name}-step{step}-generator.ckpt"
-                optimizer_ckpt = f"{data_args.fsx_prefix}/checkpoints/electra/{run_name}-step{step}-optimizer.npy"
+                dis_model_ckpt = os.path.join(
+                    data_args.filesystem_prefix,
+                    f"checkpoints/electra/{run_name}-step{step}-discriminator.ckpt",
+                )
+                gen_model_ckpt = os.path.join(
+                    data_args.filesystem_prefix,
+                    f"checkpoints/electra/{run_name}-step{step}-generator.ckpt",
+                )
+                optimizer_ckpt = os.path.join(
+                    data_args.filesystem_prefix,
+                    f"checkpoints/electra/{run_name}-step{step}-optimizer.npy",
+                )
                 logger.info(
                     f"Saving discriminator model at {dis_model_ckpt}, generator model at {gen_model_ckpt}, optimizer at {optimizer_ckpt}"
                 )
