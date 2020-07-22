@@ -71,152 +71,18 @@ class CascadeRCNN(TwoStageDetector):
         proposals_list = self.rpn_head.get_proposals(
             rpn_probs, rpn_deltas, img_metas, training=training)
         
-        # manually doing all 3 stages to see if it works
         if training:
             rpn_inputs = (rpn_class_logits, rpn_deltas, gt_boxes, gt_class_ids, img_metas)
             rpn_class_loss, rpn_bbox_loss = self.rpn_head.loss(*rpn_inputs)
-
             loss_dict = {
                 'rpn_class_loss': rpn_class_loss,
                 'rpn_bbox_loss': rpn_bbox_loss
             }            
-
-        bbox_head, bbox_target = self.bbox_head.bbox_heads[0], self.bbox_head.bbox_targets[0]
-
-        if training:
-            rois_list, rcnn_target_matches, rcnn_target_deltas, inside_weights, outside_weights = bbox_target.build_targets(
-                proposals_list, gt_boxes, gt_class_ids, img_metas)
-        else:
-            rois_list = proposals_list
-
-        pooled_regions_list = self.bbox_head.bbox_roi_extractor(
-            (rois_list, rcnn_feature_maps, img_metas), training=training)
-
-        rcnn_class_logits, rcnn_probs, rcnn_deltas = bbox_head(pooled_regions_list, training=training)
-
-        detections_list = bbox_head.get_bboxes(rcnn_probs, rcnn_deltas, rois_list, img_metas)
-        proposals_list = []
-        for i in range(len(detections_list)):
-            proposals_list.append(tf.stop_gradient(detections_list[i][0]))
-        
-        if training:
-            rcnn_inputs = (rcnn_class_logits, rcnn_deltas, rcnn_target_matches,
-                    rcnn_target_deltas, inside_weights, outside_weights) 
-            rcnn_class_loss, rcnn_bbox_loss = bbox_head.loss(rcnn_inputs)
-
-            loss_dict['rcnn_class_loss_0'] = rcnn_class_loss * self.bbox_head.stage_loss_weights[0]
-            loss_dict['rcnn_bbox_loss_0'] = rcnn_bbox_loss * self.bbox_head.stage_loss_weights[0]
-
-        bbox_head, bbox_target = self.bbox_head.bbox_heads[1], self.bbox_head.bbox_targets[1]
-
-        if training:
-            rois_list, rcnn_target_matches, rcnn_target_deltas, inside_weights, outside_weights = bbox_target.build_targets(
-                proposals_list, gt_boxes, gt_class_ids, img_metas)
-        else:
-            rois_list = proposals_list
-
-        pooled_regions_list = self.bbox_head.bbox_roi_extractor(
-            (rois_list, rcnn_feature_maps, img_metas), training=training)
-
-        rcnn_class_logits, rcnn_probs, rcnn_deltas = bbox_head(pooled_regions_list, training=training)
-
-        detections_list = bbox_head.get_bboxes(rcnn_probs, rcnn_deltas, rois_list, img_metas)
-        proposals_list = []
-        for i in range(len(detections_list)):
-            proposals_list.append(tf.stop_gradient(detections_list[i][0]))
-        
-        if training:
-            rcnn_inputs = (rcnn_class_logits, rcnn_deltas, rcnn_target_matches,
-                    rcnn_target_deltas, inside_weights, outside_weights) 
-            rcnn_class_loss, rcnn_bbox_loss = bbox_head.loss(rcnn_inputs)
-
-            loss_dict['rcnn_class_loss_1'] = rcnn_class_loss * self.bbox_head.stage_loss_weights[1]
-            loss_dict['rcnn_bbox_loss_1'] = rcnn_bbox_loss * self.bbox_head.stage_loss_weights[1]
-
-        bbox_head, bbox_target = self.bbox_head.bbox_heads[2], self.bbox_head.bbox_targets[2]
-
-        if training:
-            rois_list, rcnn_target_matches, rcnn_target_deltas, inside_weights, outside_weights = bbox_target.build_targets(
-                proposals_list, gt_boxes, gt_class_ids, img_metas)
-        else:
-            rois_list = proposals_list
-
-        pooled_regions_list = self.bbox_head.bbox_roi_extractor(
-            (rois_list, rcnn_feature_maps, img_metas), training=training)
-
-        rcnn_class_logits, rcnn_probs, rcnn_deltas = bbox_head(pooled_regions_list, training=training)
-
-        detections_list = bbox_head.get_bboxes(rcnn_probs, rcnn_deltas, rois_list, img_metas)
-        proposals_list = []
-        for i in range(len(detections_list)):
-            proposals_list.append(tf.stop_gradient(detections_list[i][0]))
-        
-        if training:
-            rcnn_inputs = (rcnn_class_logits, rcnn_deltas, rcnn_target_matches,
-                    rcnn_target_deltas, inside_weights, outside_weights) 
-            rcnn_class_loss, rcnn_bbox_loss = bbox_head.loss(rcnn_inputs)
-
-            loss_dict['rcnn_class_loss_2'] = rcnn_class_loss * self.bbox_head.stage_loss_weights[2]
-            loss_dict['rcnn_bbox_loss_2'] = rcnn_bbox_loss * self.bbox_head.stage_loss_weights[2]
-
-        '''
-        rcnn_class_logits, rcnn_probs, rcnn_deltas, rcnn_target_matches, rcnn_target_deltas, inside_weights, outside_weights, rois_list = \
-            self.bbox_head(proposals_list, gt_boxes, gt_class_ids, img_metas, rcnn_feature_maps, training=training)
-        '''
-        
-        if training:
-            '''
-            rpn_inputs = (rpn_class_logits, rpn_deltas, gt_boxes, gt_class_ids, img_metas)
-            rpn_class_loss, rpn_bbox_loss = self.rpn_head.loss(*rpn_inputs)
-
-            losses_dict = {
-                'rpn_class_loss': rpn_class_loss,
-                'rpn_bbox_loss': rpn_bbox_loss
-            }            
-            
-            losses_dict = _get_rcnn_losses(rcnn_class_logits,
-                                            rcnn_deltas, 
-                                            rcnn_target_matches,
-                                            rcnn_target_deltas, 
-                                            inside_weights,
-                                            outside_weights,
-                                            losses_dict)
-            loss_dict['rpn_class_loss'] = rpn_class_loss
-            loss_dict['rpn_bbox_loss'] = rpn_bbox_loss
-            '''
+            cascade_inputs = (proposals_list, rcnn_feature_maps, gt_boxes, gt_class_ids, img_metas)
+            cascade_loss = self.bbox_head(cascade_inputs, training=training)
+            loss_dict.update(cascade_loss)
             return loss_dict
         else:
-            detections_dict = {}
-            # AS: currently we limit eval to 1 image bs per GPU - TODO: extend to multiple
-            # detections_list will, at present, have len 1
-            stage_idx = self.bbox_head.num_stages - 1
-            detections_list = self.bbox_head.bbox_heads[stage_idx].get_bboxes(
-                rcnn_probs, rcnn_deltas, rois_list, img_metas)
-            detections_dict = {
-                    'bboxes': detections_list[0][0],
-                    'labels': detections_list[0][1],
-                    'scores': detections_list[0][2]
-            }
-            
-            return detections_dict
-    
-    def _get_rcnn_losses(self, 
-                         rcnn_class_logits, 
-                         rcnn_deltas, 
-                         rcnn_target_matches, 
-                         rcnn_target_deltas, 
-                         inside_weights, 
-                         outside_weights, 
-                         losses_dict):
-        for i in range(self.bbox_head.num_stages):
-            rcnn_inputs = (rcnn_class_logits[i], rcnn_deltas[i], rcnn_target_matches[i],
-                rcnn_target_deltas[i], inside_weights[i], outside_weights[i]) 
-            rcnn_class_loss, rcnn_bbox_loss = self.bbox_head.bbox_heads[i].loss(rcnn_inputs)
-
-            # we scale the losses of each stage differently.
-            # TODO Figure out clean way to combine the stage_loss_weights variable with 
-            # the batch_processor since batch_processer has a loss_weights param. This
-            # is only a temporary solution.
-            losses_dict['rcnn_class_loss_%d' % i] = rcnn_class_loss * self.bbox_head.stage_loss_weights[i]
-            losses_dict['rcnn_bbox_loss_%d' % i] = rcnn_bbox_loss * self.bbox_head.stage_loss_weights[i]
-        return losses_dict
+            cascade_inputs = (proposals_list, rcnn_feature_maps, img_metas)
+            cascade_predictions = self.bbox_head(cascade_inputs, training=training)
+            return cascade_predictions

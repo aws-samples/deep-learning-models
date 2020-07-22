@@ -152,40 +152,36 @@ class ProposalTarget:
         final_labels = tf.tensor_scatter_nd_update(final_labels, zero_indices, zero_labels)
 
         # inside weights - positive examples are set, rest are zeros
-        if not self.reg_class_agnostic:
-            bbox_inside_weights = tf.zeros((tf.size(keep_inds), self.num_classes, 4), dtype=tf.float32)
-        else:
-            bbox_inside_weights = tf.zeros((tf.size(keep_inds), 1, 4), dtype=tf.float32)
+        bbox_inside_weights = tf.zeros((tf.size(keep_inds), self.num_classes, 4), dtype=tf.float32)
         if tf.size(fg_inds) > 0:
-            cur_index = tf.stack([tf.range(tf.size(fg_inds)), tf.gather(labels, fg_inds)], axis=1)
+            if self.reg_class_agnostic:
+                cur_index = tf.transpose(tf.stack([tf.range(tf.size(fg_inds)), tf.zeros(tf.size(fg_inds), dtype=tf.int32)]))
+            else:
+                cur_index = tf.stack([tf.range(tf.size(fg_inds)), tf.gather(labels, fg_inds)], axis=1)
             bbox_inside_weights = tf.tensor_scatter_nd_update(bbox_inside_weights,
                                                        cur_index,
                                                        tf.ones([tf.size(fg_inds), 4], bbox_inside_weights.dtype))
-        if not self.reg_class_agnostic:
-            bbox_inside_weights = tf.reshape(bbox_inside_weights, [-1, self.num_classes * 4])
-        else:
-            bbox_inside_weights = tf.reshape(bbox_inside_weights, [-1, 4])
+        bbox_inside_weights = tf.reshape(bbox_inside_weights, [-1, self.num_classes * 4])
 
-        # final bbox target 
-        if not self.reg_class_agnostic:
-            final_bbox_targets = tf.zeros((tf.size(keep_inds), self.num_classes, 4), dtype=tf.float32)
-        else:
-            final_bbox_targets = tf.zeros((tf.size(keep_inds), 1, 4), dtype=tf.float32)
+        final_bbox_targets = tf.zeros((tf.size(keep_inds), self.num_classes, 4), dtype=tf.float32)
         if tf.size(fg_inds) > 0:
 
             bbox_targets = transforms.bbox2delta(
                 tf.gather(final_rois, tf.range(tf.size(fg_inds))),
                 tf.gather(gt_boxes, tf.gather(gt_assignment, fg_inds)),
                 target_stds=self.target_stds, target_means=self.target_means)
-            final_bbox_targets = tf.tensor_scatter_nd_update(
-                            final_bbox_targets,
-                            tf.stack([tf.range(tf.size(fg_inds)),
-                            tf.gather(labels, fg_inds)], axis=1), bbox_targets)
-        #final_bbox_targets = tf.reshape(final_bbox_targets, [-1, self.num_classes * 4])
-        if not self.reg_class_agnostic:
-            final_bbox_targets = tf.reshape(final_bbox_targets, [-1, self.num_classes * 4])
-        else:
-            final_bbox_targets = tf.reshape(final_bbox_targets, [-1, 4])
+            if self.reg_class_agnostic:
+                final_bbox_targets = tf.tensor_scatter_nd_update(
+                                        final_bbox_targets,
+                                        tf.transpose(tf.stack([tf.range(tf.size(fg_inds)),
+                                        tf.zeros(tf.size(fg_inds), dtype=tf.int32)])),
+                                        bbox_targets)
+            else:
+                final_bbox_targets = tf.tensor_scatter_nd_update(
+                                        final_bbox_targets,
+                                        tf.stack([tf.range(tf.size(fg_inds)),
+                                        tf.gather(labels, fg_inds)], axis=1), bbox_targets)
+        final_bbox_targets = tf.reshape(final_bbox_targets, [-1, self.num_classes * 4])
 
         bbox_outside_weights = tf.ones_like(bbox_inside_weights, dtype=bbox_inside_weights.dtype) * 1.0 / self.num_rcnn_deltas
         return (tf.stop_gradient(final_rois), tf.stop_gradient(final_labels), tf.stop_gradient(final_bbox_targets),
