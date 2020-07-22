@@ -103,3 +103,38 @@ Loading from checkpoint:
 - `load_from`: One of "scratch", "checkpoint", "huggingface". If checkpoint, then checkpoint_path is required.
 - `checkpoint_path`: For example: "/fsx/checkpoints/albert/2020...step125000". No .ckpt on the end.
 - `load_optimizer_state`: One of "true", "false".
+
+### FSx Structure
+
+We need to specify:
+--filesystem_prefix
+--output_dir = output/{run_name}/{.log,tensorboard
+--tensorboard_dir = tensorboard/{model_name}/{run_name}/
+--log_dir = logs/{model_name}
+--checkpoint_dir = checkpoints/{model_name}
+--train_dir; assume that all tfrecords in this folder
+--val_dir; assume all tfrecords in this folder. Optional; if not specified then no validation.
+--checkpoint_path?
+
+--log_dir=logs/albert
+--checkpoint_dir=checkpoints/albert
+--train_dir=electra_pretraining_wikibooks/training
+--max_sequence_length=512
+
+Should we default to environment variables?
+There's pollution because the TFRecords are linked 1-to-1 with sequence length. But it's brittle to
+encode those assumptions into the folder names themselves.
+
+The code makes some assumptions about how the FSx volume is structured. We're working to relax these,
+but for now:
+/logs/albert/{run_name}.log will be the written log file.
+/logs/electra
+/checkpoints/albert/{run_name}.ckpt.{index|data} will be the TensorFlow model checkpoints.
+/checkpoints/albert-squad
+/checkpoints/electra
+/albert_pretraining/tfrecords/train/max_seq_len{}...
+/albert_pretraining/tfrecords/validation/max_seq_len{}...
+/bert_pretraining/tfrecords/max_seq_len{}/train...
+/bert_pretraining/tfrecords/max_seq_len{}/validation...
+/squad_data
+/electra_pretraining_wikibooks/*_seq_len/electra.tfrecord*

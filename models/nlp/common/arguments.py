@@ -76,6 +76,7 @@ class ModelArguments:
     load_from: str = field(
         default="scratch", metadata={"choices": ["scratch", "checkpoint", "huggingface"]}
     )
+    # TODO: Move this to PathArguments?
     checkpoint_path: str = field(
         default=None,
         metadata={
@@ -116,21 +117,11 @@ class DataTrainingArguments:
     Task name, sequence length, and filepath fall under this category, but batch size does not.
     """
 
-    pretrain_dataset: str = field(
-        default="wikitext-2", metadata={"choices": ["wikitext-2", "wikitext-103", "wikibooks"]}
-    )
     squad_version: str = field(default="squadv2", metadata={"choices": ["squadv1", "squadv2"]})
     # For BERT/ALBERT the only valid combos are [512,20] and [128,80]
     # For ELECTRA we use dynamic masking, so all combos are valid
     max_seq_length: int = field(default=512)
     max_predictions_per_seq: int = field(default=20)
-    filesystem_prefix: str = field(
-        default="/fsx",
-        metadata={
-            "choices": ["/fsx", "/opt/ml/input/data/training"],
-            "help": "Change to /opt/ml/input/data/training on SageMaker",
-        },
-    )
 
 
 @dataclass
@@ -141,7 +132,7 @@ class LoggingArguments:
     to call them logging arguments. Maybe change later.
     """
 
-    log_frequency: int = field(default=1000)
+    log_frequency: int = field(default=10)
     validation_frequency: int = field(default=2000)
     checkpoint_frequency: int = field(default=5000)
     evaluate_frequency: int = field(default=5000)
@@ -156,6 +147,49 @@ class LoggingArguments:
     squad_frequency: int = field(default=40000)
     fast_squad: str = field(default=None, metadata={"choices": ["true"]})
     dummy_eval: str = field(default=None, metadata={"choices": ["true"]})
+
+
+@dataclass
+class PathArguments:
+    train_dir: str = field(
+        metadata={
+            # "choices": [
+            #     f"albert_pretraining/tfrecords/train/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord",
+            #     f"albert_pretraining/tfrecords/validation/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord",
+            #     f"bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/training/*.tfrecord",
+            #     f"bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/validation/*.tfrecord",
+            #     f"electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*",
+            #     f"electra_pretraining_wikibooks/training/electra.tfrecord*",
+            # ],
+        }
+    )
+    val_dir: str
+
+    filesystem_prefix: str = field(
+        default="/fsx",
+        metadata={
+            "choices": ["/fsx", "/opt/ml/input/data/training"],
+            "help": "Change to /opt/ml/input/data/training on SageMaker",
+        },
+    )
+    # TODO: Remove the choices; they are hints rather than restrictions.
+    log_dir: str = field(
+        default="logs/default",
+        metadata={
+            "choices": ["logs/default", "logs/squad", "logs/albert", "logs/bert", "logs/electra"]
+        },
+    )
+    checkpoint_dir: str = field(
+        default="checkpoints/default",
+        metadata={
+            "choices": [
+                "checkpoints/default",
+                "checkpoints/albert",
+                "checkpoints/bert",
+                "checkpoints/electra",
+            ]
+        },
+    )
 
 
 @dataclass

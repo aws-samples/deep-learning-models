@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - NLP models use `--filesystem_prefix` instead of `--fsx_prefix`. This option is mostly hidden from the user and should be a no-op.
 - NLP scripts start training at step 1 instead of step 0. So a job with `--total_steps=100` will run steps [1..100] instead of [0..99].
 - NLP transformers dependency is now pinned to 2.11.0 instead of a custom fork. This removes the `--pre_layer_norm=true` option.
+- Removed the `--pretrain_dataset` argument, now pass directly `--filesystem_prefix`, `--train_dir` and `--val_dir`.
 
 ### Removed
 - NGC GPUMonitor Dockerfile.

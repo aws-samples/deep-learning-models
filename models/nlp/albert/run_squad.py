@@ -41,6 +41,7 @@ from common.arguments import (
     DataTrainingArguments,
     LoggingArguments,
     ModelArguments,
+    PathArguments,
     TrainingArguments,
 )
 from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
@@ -436,15 +437,17 @@ def run_squad_and_get_results(
                 print_eval_metrics(results=results, step=step, dataset=dataset)
 
             if do_checkpoint:
+                # TODO: Abstract out to specify any checkpoint path
                 checkpoint_path = os.path.join(
-                    filesystem_prefix, f"checkpoints/albert-squad/{run_name}-step{step}.ckpt"
+                    filesystem_prefix, f"checkpoints/squad/{run_name}-step{step}.ckpt"
                 )
                 logger.info(f"Saving checkpoint at {checkpoint_path}")
                 model.save_weights(checkpoint_path)
 
             if summary_writer is None:
+                # TODO: Abstract out to specify any logs path
                 summary_writer = tf.summary.create_file_writer(
-                    os.path.join(filesystem_prefix, f"logs/albert-squad/{run_name}")
+                    os.path.join(filesystem_prefix, f"logs/squad/{run_name}")
                 )
             with summary_writer.as_default():
                 tf.summary.scalar("learning_rate", learning_rate, step=step)
@@ -479,9 +482,9 @@ def run_squad_and_get_results(
 
 def main():
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
+        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments, PathArguments)
     )
-    model_args, data_args, train_args, log_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, train_args, log_args, path_args = parser.parse_args_into_dataclasses()
 
     tf.random.set_seed(train_args.seed)
     tf.autograph.set_verbosity(0)
@@ -508,7 +511,7 @@ def main():
     if hvd.rank() == 0:
         # Run name should only be used on one process to avoid race conditions
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        platform = "eks" if data_args.filesystem_prefix == "/fsx" else "sm"
+        platform = "eks" if path_args.filesystem_prefix == "/fsx" else "sm"
         if log_args.run_name is None:
             run_name = f"{current_time}-{platform}-{model_args.model_type}-{model_args.model_size}-{data_args.squad_version}-{model_args.load_from}-{hvd.size()}gpus-{train_args.name}"
         else:
@@ -529,7 +532,7 @@ def main():
     loaded_optimizer_weights = None
     if model_args.load_from == "checkpoint":
         if hvd.rank() == 0:
-            checkpoint_path = os.path.join(data_args.filesystem_prefix, model_args.checkpoint_path)
+            checkpoint_path = os.path.join(path_args.filesystem_prefix, model_args.checkpoint_path)
             logger.info(f"Loading weights from {checkpoint_path}.ckpt")
             model.load_weights(f"{checkpoint_path}.ckpt").expect_partial()
 
@@ -537,7 +540,7 @@ def main():
         model=model,
         tokenizer=tokenizer,
         run_name=run_name,
-        filesystem_prefix=data_args.filesystem_prefix,
+        filesystem_prefix=path_args.filesystem_prefix,
         per_gpu_batch_size=train_args.per_gpu_batch_size,
         checkpoint_frequency=log_args.checkpoint_frequency,
         validate_frequency=log_args.validation_frequency,

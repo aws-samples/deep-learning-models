@@ -22,7 +22,6 @@ from collections import namedtuple
 from dataclasses import asdict
 from typing import Tuple
 
-import nlp
 import numpy as np
 import tensorflow as tf
 from transformers import (
@@ -38,6 +37,7 @@ from common.arguments import (
     DataTrainingArguments,
     LoggingArguments,
     ModelArguments,
+    PathArguments,
     TrainingArguments,
 )
 from common.datasets import get_electra_dataset
@@ -231,13 +231,14 @@ def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str, str]:
 
 def main():
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
+        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments, PathArguments)
     )
     (
         model_args,
         data_args,
         train_args,
         log_args,
+        path_args,
         remaining_strings,
     ) = parser.parse_args_into_dataclasses(return_remaining_strings=True)
     # SageMaker may have some extra strings. TODO: Test this on SM.
@@ -269,7 +270,7 @@ def main():
 
     loaded_optimizer_weights = None
     if model_args.load_from == "checkpoint":
-        checkpoint_path = os.path.join(data_args.filesystem_prefix, model_args.checkpoint_path)
+        checkpoint_path = os.path.join(path_args.filesystem_prefix, model_args.checkpoint_path)
         dis_ckpt, gen_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(checkpoint_path)
         if hvd.rank() == 0:
             dis.load_weights(dis_ckpt)
@@ -303,124 +304,33 @@ def main():
         else:
             run_name = log_args.run_name
 
-    def remove_none_values(example):
-        return example["text"] != ""
+    logger.info(f"Training with dataset at {path_args.train_dir}")
+    logger.info(f"Validating with dataset at {path_args.val_dir}")
 
-    def tokenize(example):
-        return tokenizer(
-            example["text"], padding=True, truncation=True, max_length=data_args.max_seq_length
-        )
+    train_glob = os.path.join(path_args.filesystem_prefix, path_args.train_dir, "*.tfrecord*")
+    validation_glob = os.path.join(path_args.filesystem_prefix, path_args.val_dir, "*.tfrecord*")
 
-    def get_nlp_dataset(name: str, split: str, shard: bool = True, from_cache: bool = True):
-        text_cache_file_name = f"{CACHE_DIR}/{name}-{split}-text.cache"
-        tokens_cache_file_name = f"{CACHE_DIR}/{name}-{split}-tokens.cache"
-        if not from_cache:
-            dset = nlp.load_dataset("wikitext", f"{name}-raw-v1", split=split, cache_dir=CACHE_DIR)
-            # We cache the raw text dataset
-            dset = dset.filter(remove_none_values, cache_file_name=text_cache_file_name)
-            # Now we cache the tokenized dataset
-            dset = dset.map(
-                tokenize, batched=True, batch_size=1000, cache_file_name=tokens_cache_file_name
-            )
+    train_filenames = glob.glob(train_glob)
+    validation_filenames = glob.glob(validation_glob)
+    logger.info(
+        f"Number of train files {len(train_filenames)}, number of validation files {len(validation_filenames)}"
+    )
 
-        dset = nlp.Dataset.from_file(tokens_cache_file_name)
+    tf_train_dataset = get_electra_dataset(
+        filenames=train_filenames,
+        max_seq_length=data_args.max_seq_length,
+        per_gpu_batch_size=train_args.per_gpu_batch_size,
+    )
 
-        # Then shard
-        if shard:
-            cache_file_name = (
-                # f"/root/{name}-{split}-size{hvd.size()}-rank{hvd.rank()}.cache"
-                f"{CACHE_DIR}/shards/{name}-{split}-size{hvd.size()}-rank{hvd.rank()}.cache"
-            )
-            dset = dset.shard(hvd.size(), hvd.rank(), cache_file_name=cache_file_name)
+    tf_train_dataset = tf_train_dataset.prefetch(buffer_size=8)
 
-        columns = ["input_ids", "token_type_ids", "attention_mask"]
-        dset.set_format("tensorflow", columns=columns)
-        return dset
-
-    # 20 milliseconds for WikiText-2
-    # 20 milliseconds for WikiText-103
-    # Seems to be loading lazily!
-    def get_tf_lazy_dataset(nlp_dataset):
-        logger.info("Creating gen_dataset from generator")
-        output_types = {
-            "input_ids": tf.int64,
-            "token_type_ids": tf.int64,
-            "attention_mask": tf.int64,
-        }
-
-        def nlp_dataset_gen():
-            for i in range(len(nlp_dataset)):
-                yield nlp_dataset[i]
-
-        # from_generator() is bottlenecked by GIL.
-        # See https://stackoverflow.com/questions/47086599/parallelising-tf-data-dataset-from-generator
-        # So we parallelize it across CPU cores with interleave().
-        # https://stackoverflow.com/questions/52179857/parallelize-tf-from-generator-using-tf-contrib-data-parallel-interleave
-        tf_dataset = tf.data.Dataset.range(10).interleave(
-            lambda idx: tf.data.Dataset.from_generator(nlp_dataset_gen, output_types=output_types),
-            cycle_length=10,
-        )
-        buffer_size = 1000
-        # tf_dataset = tf_dataset.shard(hvd.size(), hvd.rank())
-        tf_dataset = tf_dataset.repeat()
-        tf_dataset = tf_dataset.shuffle(buffer_size=buffer_size, reshuffle_each_iteration=True)
-        tf_dataset = tf_dataset.batch(train_args.per_gpu_batch_size, drop_remainder=True)
-        tf_dataset = tf_dataset.prefetch(buffer_size=8)
-        logger.info("Finished creating gen_dataset from generator")
-        return tf_dataset
-
-    logger.info(f"Training with {data_args.pretrain_dataset} dataset")
-
-    if data_args.pretrain_dataset == "wikibooks":
-        if data_args.max_seq_length == 512:
-            train_glob = os.path.join(
-                data_args.filesystem_prefix,
-                f"electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*",
-            )
-            validation_glob = os.path.join(
-                data_args.filesystem_prefix,
-                f"electra_pretraining_wikibooks/*_seq_len_512/electra.tfrecord*",
-            )
-        else:
-            train_glob = os.path.join(
-                data_args.filesystem_prefix,
-                "electra_pretraining_wikibooks/training/electra.tfrecord*",
-            )
-            validation_glob = os.path.join(
-                data_args.filesystem_prefix, "electra_pretraining_wikibooks/test/electra.tfrecord*"
-            )
-
-        train_filenames = glob.glob(train_glob)
-        validation_filenames = glob.glob(validation_glob)
-        logger.info(
-            f"Number of train files {len(train_filenames)}, number of validation files {len(validation_filenames)}"
-        )
-
-        tf_train_dataset = get_electra_dataset(
-            filenames=train_filenames,
+    if hvd.rank() == 0:
+        tf_val_dataset = get_electra_dataset(
+            filenames=validation_filenames,
             max_seq_length=data_args.max_seq_length,
             per_gpu_batch_size=train_args.per_gpu_batch_size,
         )
-
-        tf_train_dataset = tf_train_dataset.prefetch(buffer_size=8)
-
-        if hvd.rank() == 0:
-            tf_val_dataset = get_electra_dataset(
-                filenames=validation_filenames,
-                max_seq_length=data_args.max_seq_length,
-                per_gpu_batch_size=train_args.per_gpu_batch_size,
-            )
-            tf_val_dataset = tf_val_dataset.prefetch(buffer_size=8)
-    else:
-        # Assumes the datasets are already downloaded into the cache files specified in get_nlp_dataset()
-        # If not, call get_nlp_dataset(from_cache=False) on a single process to load them
-        # Then load the dataset from cache on all ranks
-        train_dataset = get_nlp_dataset(data_args.pretrain_dataset, "train")
-        tf_train_dataset = get_tf_lazy_dataset(train_dataset)
-
-        if hvd.rank() == 0:
-            val_dataset = get_nlp_dataset(data_args.pretrain_dataset, "validation", shard=False)
-            tf_val_dataset = get_tf_lazy_dataset(val_dataset)
+        tf_val_dataset = tf_val_dataset.prefetch(buffer_size=8)
 
     wandb_run_name = None
 
@@ -523,7 +433,7 @@ def main():
                 # Create summary_writer after the first step
             if summary_writer is None:
                 summary_writer = tf.summary.create_file_writer(
-                    os.path.join(data_args.filesystem_prefix, f"logs/electra/{run_name}")
+                    os.path.join(path_args.filesystem_prefix, path_args.log_dir, run_name)
                 )
                 config = {
                     **asdict(model_args),
@@ -541,16 +451,19 @@ def main():
 
             if do_checkpoint:
                 dis_model_ckpt = os.path.join(
-                    data_args.filesystem_prefix,
-                    f"checkpoints/electra/{run_name}-step{step}-discriminator.ckpt",
+                    path_args.filesystem_prefix,
+                    path_args.checkpoint_dir,
+                    f"{run_name}-step{step}-discriminator.ckpt",
                 )
                 gen_model_ckpt = os.path.join(
-                    data_args.filesystem_prefix,
-                    f"checkpoints/electra/{run_name}-step{step}-generator.ckpt",
+                    path_args.filesystem_prefix,
+                    path_args.checkpoint_dir,
+                    f"{run_name}-step{step}-generator.ckpt",
                 )
                 optimizer_ckpt = os.path.join(
-                    data_args.filesystem_prefix,
-                    f"checkpoints/electra/{run_name}-step{step}-optimizer.npy",
+                    path_args.filesystem_prefix,
+                    path_args.checkpoint_dir,
+                    f"{run_name}-step{step}-optimizer.npy",
                 )
                 logger.info(
                     f"Saving discriminator model at {dis_model_ckpt}, generator model at {gen_model_ckpt}, optimizer at {optimizer_ckpt}"

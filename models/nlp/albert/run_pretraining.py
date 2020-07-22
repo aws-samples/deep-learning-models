@@ -48,6 +48,7 @@ from common.arguments import (
     DataTrainingArguments,
     LoggingArguments,
     ModelArguments,
+    PathArguments,
     TrainingArguments,
 )
 from common.datasets import get_mlm_dataset
@@ -352,13 +353,14 @@ def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str]:
 
 def main():
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
+        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments, PathArguments)
     )
     (
         model_args,
         data_args,
         train_args,
         log_args,
+        path_args,
         remaining_strings,
     ) = parser.parse_args_into_dataclasses(return_remaining_strings=True)
     # SageMaker may have some extra strings. TODO: Test this on SM.
@@ -377,7 +379,7 @@ def main():
     pre_layer_norm = parse_bool(model_args.pre_layer_norm)
     fast_squad = parse_bool(log_args.fast_squad)
     dummy_eval = parse_bool(log_args.dummy_eval)
-    is_sagemaker = data_args.filesystem_prefix.startswith("/opt/ml")
+    is_sagemaker = path_args.filesystem_prefix.startswith("/opt/ml")
     disable_tqdm = is_sagemaker
     global max_grad_norm
     max_grad_norm = train_args.max_grad_norm
@@ -429,7 +431,7 @@ def main():
         format = "%(asctime)-15s %(name)-12s: %(levelname)-8s %(message)s"
         handlers = [
             logging.FileHandler(
-                os.path.join(data_args.filesystem_prefix, f"logs/albert/{run_name}.log")
+                os.path.join(path_args.filesystem_prefix, path_args.log_dir, f"{run_name}.log")
             ),
             TqdmLoggingHandler(),
         ]
@@ -456,7 +458,7 @@ def main():
     model = create_model(model_class=TFAutoModelForPreTraining, model_args=model_args)
     tokenizer = create_tokenizer(model_args.model_type)
     if model_args.load_from == "checkpoint":
-        checkpoint_path = os.path.join(data_args.filesystem_prefix, model_args.checkpoint_path)
+        checkpoint_path = os.path.join(path_args.filesystem_prefix, model_args.checkpoint_path)
         model_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(checkpoint_path)
         if hvd.rank() == 0:
             model.load_weights(model_ckpt)
@@ -473,11 +475,11 @@ def main():
             current_tuple in possible_tuples
         ), f"Incorrect data: {current_tuple} not in {possible_tuples}"
         train_glob = os.path.join(
-            data_args.filesystem_prefix,
+            path_args.filesystem_prefix,
             f"albert_pretraining/tfrecords/train/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord",
         )
         validation_glob = os.path.join(
-            data_args.filesystem_prefix,
+            path_args.filesystem_prefix,
             f"albert_pretraining/tfrecords/validation/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord",
         )
     if model_args.model_type == "bert":
@@ -487,11 +489,11 @@ def main():
             current_tuple in possible_tuples
         ), f"Incorrect data: {current_tuple} not in {possible_tuples}"
         train_glob = os.path.join(
-            data_args.filesystem_prefix,
+            path_args.filesystem_prefix,
             f"bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/training/*.tfrecord",
         )
         validation_glob = os.path.join(
-            data_args.filesystem_prefix,
+            path_args.filesystem_prefix,
             f"bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/validation/*.tfrecord",
         )
 
@@ -558,7 +560,7 @@ def main():
                 model=model,
                 tokenizer=tokenizer,
                 model_size=model_args.model_size,
-                filesystem_prefix=data_args.filesystem_prefix,
+                filesystem_prefix=path_args.filesystem_prefix,
                 step=i,
                 dataset=data_args.squad_version,
                 fast=log_args.fast_squad,
@@ -590,7 +592,7 @@ def main():
 
             if do_checkpoint:
                 checkpoint_prefix = os.path.join(
-                    data_args.filesystem_prefix, "checkpoints/albert/{run_name}-step{i}"
+                    path_args.filesystem_prefix, path_args.checkpoint_dir, f"{run_name}-step{i}"
                 )
                 model_ckpt = f"{checkpoint_prefix}.ckpt"
                 optimizer_ckpt = f"{checkpoint_prefix}-optimizer.npy"
@@ -615,7 +617,7 @@ def main():
             # Create summary_writer after the first step
             if summary_writer is None:
                 summary_writer = tf.summary.create_file_writer(
-                    os.path.join(data_args.filesystem_prefix, f"logs/albert/{run_name}")
+                    os.path.join(path_args.filesystem_prefix, path_args.log_dir, run_name)
                 )
                 config = {
                     **asdict(model_args),

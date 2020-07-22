@@ -7,6 +7,7 @@ from common.arguments import (
     DataTrainingArguments,
     LoggingArguments,
     ModelArguments,
+    PathArguments,
     SageMakerArguments,
     TrainingArguments,
 )
@@ -20,10 +21,18 @@ if __name__ == "__main__":
             DataTrainingArguments,
             TrainingArguments,
             LoggingArguments,
+            PathArguments,
             SageMakerArguments,
         )
     )
-    model_args, data_args, train_args, log_args, sm_args = parser.parse_args_into_dataclasses()
+    (
+        model_args,
+        data_args,
+        train_args,
+        log_args,
+        path_args,
+        sm_args,
+    ) = parser.parse_args_into_dataclasses()
 
     hyperparameters = dict()
     for args in [model_args, data_args, train_args, log_args]:

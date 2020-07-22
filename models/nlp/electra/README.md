@@ -11,7 +11,7 @@ The original paper: [ELECTRA: Pre-training Text Encoders as Discriminators Rathe
 SQuAD F1 score combines both precision and recall of each word in the predicted answer ranging between 0-100.
 
 | Model | Total Training Time | SQuAD v2.0 EM | SQuAD v2.0 F1 |
-| --- | --- | --- | --- | 
+| --- | --- | --- | --- |
 | Electra-small | 11 hrs 40 min | 68.27 | 71.56 |
 
 ### How To Launch Training
@@ -52,6 +52,9 @@ export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
 ```bash
 export RUN_NAME=myelectrapretraining
 export TOTAL_STEPS=125000
+# If files are stored as /fsx/electra_data/train/*.tfrecord, then set environment variables
+export TRAIN_DIR=electra_data/train
+export VAL_DIr=electra_data/val
 
 ```
 6. Launch the SageMaker Electra pretraining.
@@ -76,7 +79,8 @@ python -m albert.launch_sagemaker \
     --weight_decay=0.01 \
     --warmup_steps=10000 \
     --validation_frequency=10000 \
-    --pretrain_dataset=wikibooks \
+    --train_dir=${TRAIN_DIR} \
+    --val_dir=${VAL_DIR} \
     --total_steps=${TOTAL_STEPS} \
     --log_frequency=2000 \
     --run_name=${RUN_NAME} \
