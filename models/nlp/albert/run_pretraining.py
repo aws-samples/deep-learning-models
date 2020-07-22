@@ -468,34 +468,8 @@ def main():
 
     # Train filenames are [1, 2047], Val filenames are [0]. Note the different subdirectories
     # Move to same folder structure and remove if/else
-    if model_args.model_type == "albert":
-        possible_tuples = set([(128, 20), (512, 20)])
-        current_tuple = (data_args.max_seq_length, data_args.max_predictions_per_seq)
-        assert (
-            current_tuple in possible_tuples
-        ), f"Incorrect data: {current_tuple} not in {possible_tuples}"
-        train_glob = os.path.join(
-            path_args.filesystem_prefix,
-            f"albert_pretraining/tfrecords/train/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord",
-        )
-        validation_glob = os.path.join(
-            path_args.filesystem_prefix,
-            f"albert_pretraining/tfrecords/validation/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord",
-        )
-    if model_args.model_type == "bert":
-        possible_tuples = set([(128, 20), (512, 80)])
-        current_tuple = (data_args.max_seq_length, data_args.max_predictions_per_seq)
-        assert (
-            current_tuple in possible_tuples
-        ), f"Incorrect data: {current_tuple} not in {possible_tuples}"
-        train_glob = os.path.join(
-            path_args.filesystem_prefix,
-            f"bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/training/*.tfrecord",
-        )
-        validation_glob = os.path.join(
-            path_args.filesystem_prefix,
-            f"bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/validation/*.tfrecord",
-        )
+    train_glob = os.path.join(path_args.filesystem_prefix, path_args.train_dir, "*.tfrecord")
+    validation_glob = os.path.join(path_args.filesystem_prefix, path_args.val_dir, "*.tfrecord")
 
     train_filenames = glob.glob(train_glob)
     validation_filenames = glob.glob(validation_glob)
