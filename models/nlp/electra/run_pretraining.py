@@ -319,8 +319,8 @@ def main():
     tf_train_dataset = get_dataset_from_tfrecords(
         model_type=model_args.model_type,
         filenames=train_filenames,
-        max_seq_length=data_args.max_seq_length,
         per_gpu_batch_size=train_args.per_gpu_batch_size,
+        max_seq_length=data_args.max_seq_length,
     )
 
     tf_train_dataset = tf_train_dataset.prefetch(buffer_size=8)
@@ -329,8 +329,8 @@ def main():
         tf_val_dataset = get_dataset_from_tfrecords(
             model_type=model_args.model_type,
             filenames=validation_filenames,
-            max_seq_length=data_args.max_seq_length,
             per_gpu_batch_size=train_args.per_gpu_batch_size,
+            max_seq_length=data_args.max_seq_length,
         )
         tf_val_dataset = tf_val_dataset.prefetch(buffer_size=8)
 

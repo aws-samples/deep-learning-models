@@ -7,9 +7,9 @@ def get_dataset_from_tfrecords(
     *,
     model_type: str,
     filenames: List[str],
-    max_seq_length: int,
-    max_predictions_per_seq: int,
     per_gpu_batch_size: int,
+    max_seq_length: int,
+    max_predictions_per_seq: int = None,
     buffer_size: int = 1000,
     shard: bool = True,
 ) -> "tf.data.Dataset":
