@@ -40,7 +40,7 @@ from common.arguments import (
     PathArguments,
     TrainingArguments,
 )
-from common.datasets import get_electra_dataset
+from common.datasets import get_dataset_from_tfrecords
 from common.optimizers import get_adamw_optimizer
 from common.utils import TqdmLoggingHandler, is_wandb_available
 from electra.utils import colorize_dis, colorize_gen
@@ -316,7 +316,8 @@ def main():
         f"Number of train files {len(train_filenames)}, number of validation files {len(validation_filenames)}"
     )
 
-    tf_train_dataset = get_electra_dataset(
+    tf_train_dataset = get_dataset_from_tfrecords(
+        model_type=model_args.model_type,
         filenames=train_filenames,
         max_seq_length=data_args.max_seq_length,
         per_gpu_batch_size=train_args.per_gpu_batch_size,
@@ -325,7 +326,8 @@ def main():
     tf_train_dataset = tf_train_dataset.prefetch(buffer_size=8)
 
     if hvd.rank() == 0:
-        tf_val_dataset = get_electra_dataset(
+        tf_val_dataset = get_dataset_from_tfrecords(
+            model_type=model_args.model_type,
             filenames=validation_filenames,
             max_seq_length=data_args.max_seq_length,
             per_gpu_batch_size=train_args.per_gpu_batch_size,

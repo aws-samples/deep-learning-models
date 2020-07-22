@@ -51,7 +51,7 @@ from common.arguments import (
     PathArguments,
     TrainingArguments,
 )
-from common.datasets import get_bert_dataset
+from common.datasets import get_dataset_from_tfrecords
 from common.models import create_model
 from common.optimizers import get_adamw_optimizer, get_lamb_optimizer
 from common.utils import (
@@ -473,7 +473,8 @@ def main():
     train_filenames = glob.glob(train_glob)
     validation_filenames = glob.glob(validation_glob)
 
-    train_dataset = get_bert_dataset(
+    train_dataset = get_dataset_from_tfrecords(
+        model_type=model_args.model_type,
         filenames=train_filenames,
         max_seq_length=data_args.max_seq_length,
         max_predictions_per_seq=data_args.max_predictions_per_seq,
@@ -486,7 +487,8 @@ def main():
 
     # Validation should only be done on one node, since Horovod doesn't allow allreduce on a subset of ranks
     if hvd.rank() == 0:
-        validation_dataset = get_bert_dataset(
+        validation_dataset = get_dataset_from_tfrecords(
+            model_type=model_args.model_type,
             filenames=validation_filenames,
             max_seq_length=data_args.max_seq_length,
             max_predictions_per_seq=data_args.max_predictions_per_seq,

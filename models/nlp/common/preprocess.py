@@ -236,8 +236,8 @@ print("Padded, truncated, and encoded examples into ids:", dset, dset[0])
 #     ),  # corresponds to attention_mask
 # }
 
-# tfds = get_electra_dataset(
-#     filenames=tfrecord_files, max_seq_length=args.max_seq_length, per_gpu_batch_size=4, shard=False,
+# tfds = get_dataset_from_tfrecords(
+#     model_type="electra", filenames=tfrecord_files, max_seq_length=args.max_seq_length, per_gpu_batch_size=4, shard=False,
 # )
 # for batch in tfds.take(1):
 #     print(batch)

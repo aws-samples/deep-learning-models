@@ -27,7 +27,6 @@ class PathArguments:
             "help": "Change to /opt/ml/input/data/training on SageMaker",
         },
     )
-    # TODO: Remove the choices; they are hints rather than restrictions.
     log_dir: str = field(
         default="logs/default", metadata={"help": "For example, 'logs/albert' or 'logs/squad'"},
     )
