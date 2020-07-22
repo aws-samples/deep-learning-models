@@ -29,11 +29,12 @@ export ACCOUNT_ID=
 export REPO=
 export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:py37_tf211
 docker build -t ${IMAGE} .
-aws ecr get-login-password \
-    --region us-east-1 \
-| docker login \
-    --username AWS \
-    --password-stdin ${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
+
+# AWS-CLI v1
+$(aws ecr get-login --no-include-email)
+# AWS-CLI v2
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
+
 docker push ${IMAGE}
 ```
 
@@ -123,3 +124,6 @@ python -m albert.launch_sagemaker \
 ```bash
 docker run -it --privileged -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
 ```
+
+### Command-Line Parameters
+See [common/arguments.py](common/arguments.py) for full details.

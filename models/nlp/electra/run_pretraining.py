@@ -52,7 +52,6 @@ if is_wandb_available():
     import wandb
 
 logger = logging.getLogger(__name__)
-CACHE_DIR = "/fsx/nlp_cache"
 
 
 def log_example(tokenizer, ids, masked_ids, mask, gen_ids, dis_preds):

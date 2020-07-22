@@ -34,13 +34,17 @@ features = {
 """
 
 import argparse
+import os
 import random
 import time
 from functools import partial
 from typing import List
 
 import nlp
+import tensorflow as tf
 from transformers import BertTokenizerFast
+
+from common.datasets import get_dataset_from_tfrecords
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--max_seq_length", type=int, default=512)
@@ -216,31 +220,36 @@ dset = dset.map(
 print("Padded, truncated, and encoded examples into ids:", dset, dset[0])
 # dset = nlp.Dataset.from_file(cache_file)
 
-# tfrecord_files = [
-#     os.path.join(args.tfrecord_folder, f"{args.dataset}_shard_{i}.tfrecord")
-#     for i in range(args.shards)
-# ]
-# for i in range(args.shards):
-#     dset_shard = dset.shard(num_shards=args.shards, index=i)
-#     dset_shard.export(tfrecord_files[i])
+tfrecord_files = [
+    os.path.join(args.tfrecord_folder, f"{args.dataset}_shard_{i}.tfrecord")
+    for i in range(args.shards)
+]
+for i in range(args.shards):
+    dset_shard = dset.shard(num_shards=args.shards, index=i)
+    dset_shard.set_format("numpy")
+    dset_shard.export(tfrecord_files[i])
 
-# ### Now read in a TFRecord to ensure exporting happened correctly ###
+### Now read in a TFRecord to ensure exporting happened correctly ###
 
-# name_to_features = {
-#     "input_ids": tf.io.FixedLenFeature([args.max_seq_length], tf.int64),  # corresponds to input_ids
-#     "token_type_ids": tf.io.FixedLenFeature(
-#         [args.max_seq_length], tf.int64
-#     ),  # corresponds to token_type_ids
-#     "attention_mask": tf.io.FixedLenFeature(
-#         [args.max_seq_length], tf.int64,
-#     ),  # corresponds to attention_mask
-# }
+name_to_features = {
+    "input_ids": tf.io.FixedLenFeature([args.max_seq_length], tf.int64),  # corresponds to input_ids
+    "token_type_ids": tf.io.FixedLenFeature(
+        [args.max_seq_length], tf.int64
+    ),  # corresponds to token_type_ids
+    "attention_mask": tf.io.FixedLenFeature(
+        [args.max_seq_length], tf.int64,
+    ),  # corresponds to attention_mask
+}
 
-# tfds = get_dataset_from_tfrecords(
-#     model_type="electra", filenames=tfrecord_files, max_seq_length=args.max_seq_length, per_gpu_batch_size=4, shard=False,
-# )
-# for batch in tfds.take(1):
-#     print(batch)
+tfds = get_dataset_from_tfrecords(
+    model_type="electra",
+    filenames=tfrecord_files,
+    max_seq_length=args.max_seq_length,
+    per_gpu_batch_size=4,
+    shard=False,
+)
+for batch in tfds.take(1):
+    print(batch)
 
 elapsed = time.perf_counter() - start_time
 print(f"Total processing time: {elapsed:.3f} seconds")

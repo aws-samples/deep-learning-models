@@ -21,11 +21,7 @@ class PathArguments:
     val_dir: str = field(metadata={"help": "A folder containing TFRecords"})
 
     filesystem_prefix: str = field(
-        default="/fsx",
-        metadata={
-            "choices": ["/fsx", "/opt/ml/input/data/training"],
-            "help": "Change to /opt/ml/input/data/training on SageMaker",
-        },
+        default="/fsx", metadata={"help": "Change to '/opt/ml/input/data/training' on SageMaker",},
     )
     log_dir: str = field(
         default="logs/default", metadata={"help": "For example, 'logs/albert' or 'logs/squad'"},

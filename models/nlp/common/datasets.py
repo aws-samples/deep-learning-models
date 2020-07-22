@@ -22,6 +22,7 @@ def get_dataset_from_tfrecords(
         return tf.io.parse_single_example(example_proto, name_to_features)
 
     if model_type in ["albert", "bert"]:
+        assert max_predictions_per_seq is not None, "Pass --max_predictions_per_seq"
         name_to_features = {
             "input_ids": tf.io.FixedLenFeature(
                 [max_seq_length], tf.int64
