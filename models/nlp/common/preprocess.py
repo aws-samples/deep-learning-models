@@ -1,16 +1,17 @@
 """
 Inspiration from https://github.com/google-research/electra/blob/master/build_pretraining_dataset.py
 25 seconds for WikiText-2 (2M tokens, 84k sentences)
-40 minutes for WikiText-103 (103M tokens, 4.1M sentences)
-?? minutes for Wikipedia (2500M tokens, 31M sentences)
+40 minutes for WikiText-103 (103M tokens, 4M sentences)
+?? minutes for Wikipedia (2500 tokens, 143M sentences)
+?? minutes for BookCorpus (800M tokens, 69M sentences)
 
 The steps are:
 1) Download data
 2) Filter empty lines (112k it/s)
 3) Replace newlines with space (121k it/s)
 4) Split on periods into sentences (66k it/s)
-5) Pre-tokenize sentences (12k it/s)
-6) Create examples (24k it/s)
+5) Pre-tokenize sentences (12k it/s, 3hrs on Wikipedia)
+6) Create examples (24k it/s, 3hrs on Wikipedia)
 7) Convert example tokens into ids (0.15k it/s) -> because of casting ndarray to list?
 8) Export to TFRecords
 
@@ -34,8 +35,10 @@ features = {
 """
 
 import argparse
+import multiprocessing
 import os
 import random
+import sys
 import time
 from functools import partial
 from typing import List
@@ -46,43 +49,76 @@ from transformers import BertTokenizerFast
 
 from common.datasets import get_dataset_from_tfrecords
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+FILTER_CACHE = "filterlines.arrow"
+NEWLINES_CACHE = "replacenewlines.arrow"
+SENTENCES_CACHE = "sentences.arrow"
+PRETOKENIZED_SENTENCES_CACHE = "pretokenized_sentences.arrow"
+EXAMPLES_CACHE = "examples.arrow"
+EXAMPLE_IDS_CACHE = "example_ids.arrow"
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--max_seq_length", type=int, default=512)
 parser.add_argument(
-    "--dataset", choices=["wikitext-2", "wikitext-103", "wikipedia", "bookcorpus", "wikibooks"]
+    "--dataset",
+    choices=["wikitext-2", "wikitext-103", "wikipedia", "bookcorpus", "wikibooks", "c4"],
 )
-parser.add_argument("--cache_folder", default=None)
+parser.add_argument("--cache_dir", default="/tmp/arrow_data")
 parser.add_argument("--shards", type=int, default=1)
-parser.add_argument("--tfrecord_folder", default="/tmp")
+parser.add_argument("--processes", type=int, default=1)  # 64 processes is a sweet spot on p3dn
+parser.add_argument("--tfrecords_dir", default="/tmp/tfrecords_data")
 parser.add_argument("--skip_load_from_cache_file", action="store_true")
+parser.add_argument("--skip_tfrecords", action="store_true")
 args = parser.parse_args()
 
 load_from_cache_file = not args.skip_load_from_cache_file
+
+assert (
+    args.dataset in args.cache_dir
+), "Dataset name should be part of the directory name, don't mix datasets!"
+assert (
+    args.skip_tfrecords or args.dataset in args.tfrecords_dir
+), "Dataset name should be part of the TFRecords directory, don't mix datasets!"
 
 start_time = time.perf_counter()
 
 print(f"Loading dataset: {args.dataset}")
 if args.dataset.startswith("wikitext"):
-    dset = nlp.load_dataset("wikitext", f"{args.dataset}-raw-v1", split="train")
+    dset = nlp.load_dataset(
+        "wikitext", f"{args.dataset}-raw-v1", split="train", cache_dir=args.cache_dir
+    )
 elif args.dataset == "wikipedia":
-    dset = nlp.load_dataset("wikipedia", "20200501.en", split="train")
+    dset = nlp.load_dataset("wikipedia", "20200501.en", split="train", cache_dir=args.cache_dir)
     dset.drop(columns=["title"])
 elif args.dataset == "bookcorpus":
-    dset = nlp.load_dataset("bookcorpus", split="train")
+    dset = nlp.load_dataset("bookcorpus", split="train", cache_dir=args.cache_dir)
 elif args.dataset == "wikibooks":
-    dset_wikipedia = nlp.load_dataset("wikipedia", "20200501.en", split="train")
-    dset_books = nlp.load_dataset("bookcorpus", split="train")
+    dset_wikipedia = nlp.load_dataset(
+        "wikipedia", "20200501.en", split="train", cache_dir=args.cache_dir
+    )
+    dset_books = nlp.load_dataset("bookcorpus", split="train", cache_dir=args.cache_dir)
     dset = nlp.concatenate_datasets([dset_wikipedia, dset_books])
+elif args.dataset == "c4":
+    dset = nlp.load_dataset("c4", "en", cache_dir=args.cache_dir)
+    assert False, "This dataset must be preprocessed beforehand"
 else:
     assert False
 print("Loaded dataset:", dset, dset[0])
+
 print("Filtering empty lines")
-dset = dset.filter(lambda ex: len(ex["text"]) > 0)
+dset = dset.filter(
+    lambda ex: len(ex["text"]) > 0,
+    cache_file_name=os.path.join(args.cache_dir, FILTER_CACHE),
+    load_from_cache_file=load_from_cache_file,
+)
 print("Filtered empty lines:", dset, dset[0])
 print("Replacing newlines with space")
 dset = dset.map(
     lambda batch: {"text": [text.strip().replace("\n", " ") for text in batch["text"]]},
     batched=True,
+    cache_file_name=os.path.join(args.cache_dir, NEWLINES_CACHE),
+    load_from_cache_file=load_from_cache_file,
 )
 print("Replaced newlines with space:", dset, dset[0])
 
@@ -112,6 +148,7 @@ dset = dset.map(
     split_into_sentences,
     batched=True,
     remove_columns=["text"],
+    cache_file_name=os.path.join(args.cache_dir, SENTENCES_CACHE),
     load_from_cache_file=load_from_cache_file,
 )
 print("Split into sentences:", dset, dset[0])
@@ -119,26 +156,25 @@ print("Split into sentences:", dset, dset[0])
 tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
 
 
-# def tokenize(batch):
-#     """ Tokenize via list comprehension in Python. """
-#     return {"tokens": [tokenizer.tokenize(example) for example in batch["sentences"]]}
-
-
-def tokenize(batch):
+def pretokenize(batch):
     """ Tokenize via list comprehension in Rust. """
-    encodings: List["Encoding"] = tokenizer._tokenizer.encode_batch(batch["sentences"])
+    encodings: List["Encoding"] = tokenizer._tokenizer.encode_batch(
+        batch["sentences"], add_special_tokens=False
+    )
     tokens: List[str] = [encoding.tokens for encoding in encodings]
     return {"tokens": tokens}
 
 
 # dset = dset.select(np.arange(0, 60000))
 print("Pre-tokenizing sentences:")
-dset = dset.map(tokenize, batched=True, remove_columns=["sentences"])
+dset = dset.map(
+    pretokenize,
+    batched=True,
+    remove_columns=["sentences"],
+    cache_file_name=os.path.join(args.cache_dir, PRETOKENIZED_SENTENCES_CACHE),
+    load_from_cache_file=load_from_cache_file,
+)
 print("Pre-tokenized sentences:", dset, dset[0])
-
-# def tokens_to_ids(first_segment, second_segment):
-#     sequence = ["[CLS]"] + first_segment + ["[SEP]"] + second_segment + ["[SEP]"]
-#     return tokenizer.convert_tokens_to_ids(sequence)
 
 
 def create_examples(batch, max_length):
@@ -194,34 +230,72 @@ dset = dset.map(
     partial(create_examples, max_length=args.max_seq_length),
     batched=True,
     remove_columns=["tokens"],
+    cache_file_name=os.path.join(args.cache_dir, EXAMPLES_CACHE),
     load_from_cache_file=load_from_cache_file,
 )
 print("Created examples:", dset, dset[0])
 # WARNING: Some of these examples are shorter than 512 sequence length.
 # View with [len(ex["examples"]) for ex in dset]
 
-
 # This method is very slow (0.15 it/s, so 0.15k examples/sec
 # Improvement tracked in https://github.com/huggingface/transformers/issues/5729
-print("Padding, truncating, and encoding examples into ids")
-dset = dset.map(
-    lambda batch: tokenizer(
+print(f"Padding, truncating, and encoding examples into ids. num_processes={args.processes}")
+
+
+def tokenizer_batch(batch, tokenizer):
+    # This must be defined in __main__ for serialization
+    return tokenizer(
         batch["examples"],
         is_pretokenized=True,
         padding="max_length",
         truncation=True,
         max_length=args.max_seq_length,
-    ),
+    )
+
+
+def map_helper(index, filename, num_shards, function, **kwargs):
+    print(f"Sharding on process {index}")
+    shard = nlp.Dataset.from_file(filename).shard(
+        num_shards, index, load_from_cache_file=load_from_cache_file
+    )
+    print(f"Done sharding on process {index}. Mapping the shard")
+    tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
+    return shard.map(partial(function, tokenizer=tokenizer), **kwargs)
+
+
+def multiprocess_map(dset, num_processes, function, **kwargs):
+    with multiprocessing.Pool(processes=num_processes) as pool:
+        shards = pool.map(
+            partial(
+                map_helper,
+                filename=dset._data_files[0]["filename"],
+                num_shards=num_processes,
+                function=function,
+                **kwargs,
+            ),
+            range(num_processes),
+        )
+    return nlp.concatenate_datasets(shards)
+
+
+dset = multiprocess_map(
+    dset=dset,
+    num_processes=args.processes,
+    # dset = dset.map(
+    function=tokenizer_batch,
     batched=True,
     remove_columns=["examples"],
-    # cache_file_name=args.cache_file,
+    cache_file_name=os.path.join(args.cache_dir, EXAMPLE_IDS_CACHE),
     load_from_cache_file=load_from_cache_file,
 )
-print("Padded, truncated, and encoded examples into ids:", dset, dset[0])
+print("Padded, truncated, and encoded examples into ids:", dset)
 # dset = nlp.Dataset.from_file(cache_file)
 
+if args.skip_tfrecords:
+    sys.exit()
+
 tfrecord_files = [
-    os.path.join(args.tfrecord_folder, f"{args.dataset}_shard_{i}.tfrecord")
+    os.path.join(args.tfrecords_dir, f"{args.dataset}_shard_{i}.tfrecord")
     for i in range(args.shards)
 ]
 for i in range(args.shards):
