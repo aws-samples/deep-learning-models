@@ -423,6 +423,7 @@ def main():
                         **asdict(data_args),
                         **asdict(train_args),
                         **asdict(log_args),
+                        **asdict(path_args),
                         "global_batch_size": train_args.per_gpu_batch_size * hvd.size(),
                         "n_gpus": hvd.size(),
                     }
@@ -441,6 +442,7 @@ def main():
                     **asdict(data_args),
                     **asdict(train_args),
                     **asdict(log_args),
+                    **asdict(path_args),
                     "global_batch_size": train_args.per_gpu_batch_size * hvd.size(),
                     "n_gpus": hvd.size(),
                 }

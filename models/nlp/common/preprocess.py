@@ -110,7 +110,7 @@ elif args.dataset == "c4":
 else:
     assert False
 print("Loaded dataset:", dset, dset[0])
-assert dset.column_names == ["text"], "Dataset should have one 'text' column"
+assert dset.column_names == ["text"], "Dataset should have exactly one 'text' column"
 
 print("Filtering empty lines")
 dset = dset.filter(
