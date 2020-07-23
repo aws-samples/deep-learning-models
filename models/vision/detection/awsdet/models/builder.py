@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
 from awsdet.utils import build_from_cfg
-from .registry import (BACKBONES, DETECTORS, HEADS, LOSSES, NECKS,
-                       ROI_EXTRACTORS, SHARED_HEADS)
+from .registry import BACKBONES, DETECTORS, HEADS, NECKS, ROI_EXTRACTORS
 
 
 def build(cfg, registry, default_args=None):
@@ -31,11 +30,6 @@ def build_shared_head(cfg):
 
 def build_head(cfg):
     return build(cfg, HEADS)
-
-
-def build_loss(cfg):
-    return build(cfg, LOSSES)
-
 
 def build_detector(cfg, train_cfg=None, test_cfg=None):
     return build(cfg, DETECTORS, dict(train_cfg=train_cfg, test_cfg=test_cfg))

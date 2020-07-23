@@ -6,11 +6,6 @@ from ..registry import DETECTORS
 from .two_stage import TwoStageDetector
 import os
 import tensorflow as tf
-from awsdet.models.necks import fpn
-from awsdet.models.anchor_heads import rpn_head
-from awsdet.models.bbox_heads import bbox_head
-from awsdet.models.roi_extractors import roi_align
-from awsdet.models.detectors.test_mixins import RPNTestMixin, BBoxTestMixin
 
 from awsdet.core.bbox import bbox_target
 #from awsdet.datasets import dali
