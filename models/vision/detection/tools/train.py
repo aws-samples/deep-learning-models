@@ -10,7 +10,6 @@ import pathlib
 import tarfile
 import numpy as np
 import tensorflow as tf
-
 from awsdet.utils.misc import Config, mkdir_or_exist
 from awsdet.utils.runner import init_dist, master_only, get_dist_info, get_barrier
 from awsdet.utils.keras import freeze_model_layers
@@ -112,9 +111,6 @@ def main_ec2(args, cfg):
         total_bs = get_dist_info()[2] * cfg.data.imgs_per_gpu
         cfg.optimizer['learning_rate'] = cfg.optimizer['learning_rate'] * total_bs / 8
 
-     # init distributed env first, since logger depends on the dist info.
-     # init_dist()
-
     if not gpus:
         distributed = False  # single node single gpu
     else:
@@ -128,7 +124,7 @@ def main_ec2(args, cfg):
     logger = get_root_logger(log_file=log_file, log_level=cfg.log_level)
     # log some basic info
     logger.info('Distributed training: {}'.format(distributed))
-    logger.info('TF MMDetection Version: {}'.format(__version__))
+    logger.info('AWSDet Version: {}'.format(__version__))
     logger.info('Config:\n{}'.format(cfg.text))
     logger.info('Tensorflow version: {}'.format(tf.version.VERSION))
 
@@ -152,21 +148,30 @@ def main_ec2(args, cfg):
     # labels = tf.constant([1], dtype=tf.int32)
     _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)),
               training=False)
-    #model.save('my_model')
-    # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
+    print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
     weights_path = cfg.model['backbone']['weights_path']
     logger.info('Loading weights from: {}'.format(weights_path))
     if osp.splitext(weights_path)[1] == '.h5': # older keras format from Keras model zoo
         model.layers[0].layers[0].load_weights(weights_path, by_name=True, skip_mismatch=True)
     else: # SavedModel format assumed - extract weights
         backbone_model = tf.keras.models.load_model(weights_path)
+        print('Source backbone architecture')
+        backbone_model.summary()
+        print('Target backbone architecture')
+        target_backbone_model = model.layers[0].layers[0]
+        target_backbone_model.summary()
         # load weights if layers match
-        for layer_idx, layer in enumerate(backbone_model.layers):
-            if layer_idx < len(model.layers[0].layers[0].layers):
-                model.layers[0].layers[0].layers[layer_idx].set_weights(layer.get_weights())
-                print('Loaded weights for:', layer.name)
+        for layer in backbone_model.layers:
+            # search for target layer
+            for target_layer in target_backbone_model.layers:
+                if layer.name == target_layer.name:
+                    target_layer.set_weights(layer.get_weights())
+                    print('Loaded weights for:', layer.name)
         del backbone_model
-    # print('AFTER:',model.layers[0].layers[0].get_weights()[0][0,0,0,:])
+    print('AFTER:',model.layers[0].layers[0].get_weights()[0][0,0,0,:])
+
+    patterns = ['stem_*', '_bn$']
+    freeze_model_layers(model, patterns)
 
     print_model_info(model, logger)
 
