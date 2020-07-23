@@ -47,11 +47,29 @@ def build_dataloader(dataset,
     if dataset.train:
         tf_dataset = tf.data.Dataset.from_generator(
             generator, (tf.float32, tf.float32, tf.float32, tf.int32))
+        if dataset.mask:
+            tf_dataset = tf.data.Dataset.from_generator(
+                generator, (tf.float32, tf.float32, tf.float32, tf.int32, tf.int32))
+        else:
+            tf_dataset = tf.data.Dataset.from_generator(
+                generator, (tf.float32, tf.float32, tf.float32, tf.int32))
         
         tf_dataset = tf_dataset.map(lambda *args: args, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         tf_dataset = tf_dataset.prefetch(tf.data.experimental.AUTOTUNE)
-
-        tf_dataset = tf_dataset.padded_batch(
+        
+        if dataset.mask:
+            tf_dataset = tf_dataset.padded_batch(
+                                batch_size,
+                                padded_shapes=(
+                                tf.TensorShape([None, None, 3]), # image padded to largest in batch
+                                tf.TensorShape([11]),            # image meta - no padding
+                                tf.TensorShape([None, 4]),       # bounding boxes, padded to longest
+                                tf.TensorShape([None]),           # labels, padded to longest
+                                tf.TensorShape([None, None, None]) # pad masks to largest in batch
+                                ),
+                                padding_values=(0.0, 0.0, 0.0, -1, -1))
+        else:
+            tf_dataset = tf_dataset.padded_batch(
                             batch_size,
                             padded_shapes=(
                             tf.TensorShape([None, None, 3]), # image padded to largest in batch
