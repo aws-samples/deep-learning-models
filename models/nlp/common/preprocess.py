@@ -309,7 +309,7 @@ tfrecord_files = [
 
 
 def shard_and_export(index):
-    dset_shard = dset.shard(num_shards=args.shards, index=index, contiguous=True)
+    dset_shard = dset.shard(num_shards=args.shards, index=index, contiguous=False)
     dset_shard.set_format("numpy")
     dset_shard.export(tfrecord_files[index])
 
