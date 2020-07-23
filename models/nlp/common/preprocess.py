@@ -1,7 +1,7 @@
 """
 Example usage:
 ```bash
-python -m common.preprocess --dataset=wikitext-2 --shards=1 --processes=1 --cache_dir=/fsx/arrow_data/wikitext-2 --tfrecords_data/wikitext-2
+python -m common.preprocess --dataset=wikitext-2 --shards=1 --processes=1 --cache_dir=/fsx/arrow_data/wikitext-2 --tfrecords_dir=/fsx/tfrecords_data/wikitext-2
 python -m common.preprocess --dataset=wikibooks --shards=2048 --processes=64 --cache_dir=/fsx/arrow_data/wikibooks --tfrecords_dir=/fsx/tfrecords_data/wikibooks
 ```
 
@@ -21,11 +21,6 @@ The steps are:
 7) Convert example tokens into ids (0.15k it/s) -> because of casting ndarray to list? -- can be serialized
 8) Export to TFRecords
 
-We can tokenize Wikipedia in 6 minutes, and create examples in 3.
-Takes 90 minutes to convert into ids.
-
-
-TODO: Parse into documents.
 
 To directly inspect a TFRecord without knowing the spec:
 tfds = tf.data.TFRecordDataset(filenames=[filename])
@@ -56,6 +51,7 @@ from transformers import BertTokenizerFast
 from common.datasets import get_dataset_from_tfrecords
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 FILTER_CACHE = "filterlines.arrow"
 NEWLINES_CACHE = "replacenewlines.arrow"
@@ -103,7 +99,10 @@ elif args.dataset == "wikibooks":
     dset_wikipedia = nlp.load_dataset(
         "wikipedia", "20200501.en", split="train", cache_dir=args.cache_dir
     )
+    dset_wikipedia.drop(columns=["title"])
     dset_books = nlp.load_dataset("bookcorpus", split="train", cache_dir=args.cache_dir)
+    # Cast schemas, since one is nullable and one is not
+    dset_wikipedia._data = dset_wikipedia.data.cast(dset_books.schema)
     dset = nlp.concatenate_datasets([dset_wikipedia, dset_books])
 elif args.dataset == "c4":
     dset = nlp.load_dataset("c4", "en", cache_dir=args.cache_dir)
@@ -111,6 +110,7 @@ elif args.dataset == "c4":
 else:
     assert False
 print("Loaded dataset:", dset, dset[0])
+assert dset.column_names == ["text"], "Dataset should have one 'text' column"
 
 print("Filtering empty lines")
 dset = dset.filter(
@@ -262,7 +262,7 @@ def tokenizer_batch(batch, tokenizer):
 def shard_and_map(index, filename, num_shards, function, **kwargs):
     print(f"Sharding on process {index}")
     shard = nlp.Dataset.from_file(filename).shard(
-        num_shards, index, load_from_cache_file=load_from_cache_file
+        num_shards, index, contiguous=True, load_from_cache_file=load_from_cache_file
     )
     print(f"Done sharding on process {index}. Mapping the shard")
     tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
@@ -300,14 +300,23 @@ print("Padded, truncated, and encoded examples into ids:", dset, dset[0])
 if args.skip_tfrecords:
     sys.exit()
 
+### Export to sharded TFRecords ###
+
 tfrecord_files = [
     os.path.join(args.tfrecords_dir, f"{args.dataset}_shard_{i}.tfrecord")
     for i in range(args.shards)
 ]
-for i in range(args.shards):
-    dset_shard = dset.shard(num_shards=args.shards, index=i)
+
+
+def shard_and_export(index):
+    dset_shard = dset.shard(num_shards=args.shards, index=index, contiguous=True)
     dset_shard.set_format("numpy")
-    dset_shard.export(tfrecord_files[i])
+    dset_shard.export(tfrecord_files[index])
+
+
+# Beware of TensorFlow + multiprocessing. Ensure there are no visible GPUs so everything happens on CPU.
+with multiprocessing.Pool(processes=args.processes) as pool:
+    pool.map(shard_and_export, range(args.shards))
 
 ### Now read in a TFRecord to ensure exporting happened correctly ###
 
