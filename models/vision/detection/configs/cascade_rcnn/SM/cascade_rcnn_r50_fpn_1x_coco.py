@@ -2,6 +2,43 @@
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
 
+# date time settings to update paths for jobs
+from datetime import datetime
+now = datetime.now()
+time_str = now.strftime("%d-%m-%Y-%H-%M")
+date_str = now.strftime("%d-%m-%Y")
+
+
+# sagemaker settings
+sagemaker_user=dict(
+    user_id='kevin-cascade',
+    s3_bucket='fastrcnn-sagemaker',
+    docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/fasterrcnntest:frcnn-tutorial',
+    hvd_processes_per_host=8,
+    hvd_instance_type='ml.p3dn.24xlarge', # 'ml.p3.16xlarge',
+    hvd_instance_count=1,
+)
+# settings for distributed training on sagemaker
+distributions=dict(
+    mpi=dict(
+        enabled=True,
+        processes_per_host=sagemaker_user['hvd_processes_per_host'],
+        custom_mpi_options="-x OMPI_MCA_btl_vader_single_copy_mechanism=none -x TF_CUDNN_USE_AUTOTUNE=0",
+    )
+)
+# sagemaker channels
+channels=dict( 
+    coco='s3://{}/faster-rcnn/data/coco/'.format(sagemaker_user['s3_bucket']),
+    weights='s3://{}/faster-rcnn/data/weights/'.format(sagemaker_user['s3_bucket'])
+)
+
+sagemaker_job=dict(
+    s3_path='s3://{}/faster-rcnn/outputs/{}'.format(sagemaker_user['s3_bucket'], time_str),
+    job_name='{}-frcnn-{}'.format(sagemaker_user['user_id'], time_str),
+    output_path='',
+)
+sagemaker_job['output_path']='{}/output/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
+
 # model settings
 model = dict(
     type='CascadeRCNN',
@@ -101,6 +138,7 @@ model = dict(
 # model training and testing settings
 train_cfg = dict(
     weight_decay=1e-5,
+    sagemaker=True
 )
 test_cfg = dict(
 )
@@ -168,8 +206,22 @@ checkpoint_config = dict(interval=1, outdir='checkpoints')
 log_config = dict(
     interval=50,
     hooks=[
-        dict(type='TextLoggerHook'),
-        dict(type='TensorboardLoggerHook', log_dir='/tmp/tensorboard')
+        dict(
+            type='TextLoggerHook'
+        ),
+        dict(
+            type='TensorboardLoggerHook',
+            log_dir=None,
+            image_interval=100,
+            s3_dir='{}/tensorboard/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
+        ),
+        dict(
+            type='Visualizer',
+            dataset_cfg=data['val'],
+            interval=100,
+            top_k=10,
+            run_on_sagemaker=True,
+        )
     ])
 # yapf:enable
 # runtime settings
