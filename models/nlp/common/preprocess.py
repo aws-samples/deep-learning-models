@@ -1,4 +1,10 @@
 """
+Example usage:
+```bash
+python -m common.preprocess --dataset=wikitext-2 --shards=1 --processes=1 --cache_dir=/fsx/arrow_data/wikitext-2 --tfrecords_data/wikitext-2
+python -m common.preprocess --dataset=wikibooks --shards=2048 --processes=64 --cache_dir=/fsx/arrow_data/wikibooks --tfrecords_dir=/fsx/tfrecords_data/wikibooks
+```
+
 Inspiration from https://github.com/google-research/electra/blob/master/build_pretraining_dataset.py
 25 seconds for WikiText-2 (2M tokens, 84k sentences)
 40 minutes for WikiText-103 (103M tokens, 4M sentences)
@@ -10,9 +16,9 @@ The steps are:
 2) Filter empty lines (112k it/s)
 3) Replace newlines with space (121k it/s)
 4) Split on periods into sentences (66k it/s)
-5) Pre-tokenize sentences (12k it/s, 3hrs on Wikipedia)
-6) Create examples (24k it/s, 3hrs on Wikipedia)
-7) Convert example tokens into ids (0.15k it/s) -> because of casting ndarray to list?
+5) Pre-tokenize sentences (12k it/s, 3hrs on Wikipedia) -- can be serialized
+6) Create examples (24k it/s, 3hrs on Wikipedia) -- can be serialized
+7) Convert example tokens into ids (0.15k it/s) -> because of casting ndarray to list? -- can be serialized
 8) Export to TFRecords
 
 We can tokenize Wikipedia in 6 minutes, and create examples in 3.
@@ -253,7 +259,7 @@ def tokenizer_batch(batch, tokenizer):
     )
 
 
-def map_helper(index, filename, num_shards, function, **kwargs):
+def shard_and_map(index, filename, num_shards, function, **kwargs):
     print(f"Sharding on process {index}")
     shard = nlp.Dataset.from_file(filename).shard(
         num_shards, index, load_from_cache_file=load_from_cache_file
@@ -267,7 +273,7 @@ def multiprocess_map(dset, num_processes, function, **kwargs):
     with multiprocessing.Pool(processes=num_processes) as pool:
         shards = pool.map(
             partial(
-                map_helper,
+                shard_and_map,
                 filename=dset._data_files[0]["filename"],
                 num_shards=num_processes,
                 function=function,
@@ -288,7 +294,7 @@ dset = multiprocess_map(
     cache_file_name=os.path.join(args.cache_dir, EXAMPLE_IDS_CACHE),
     load_from_cache_file=load_from_cache_file,
 )
-print("Padded, truncated, and encoded examples into ids:", dset)
+print("Padded, truncated, and encoded examples into ids:", dset, dset[0])
 # dset = nlp.Dataset.from_file(cache_file)
 
 if args.skip_tfrecords:
