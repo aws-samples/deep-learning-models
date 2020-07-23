@@ -48,35 +48,25 @@ from common.arguments import (
     DataTrainingArguments,
     LoggingArguments,
     ModelArguments,
+    PathArguments,
     TrainingArguments,
 )
-from common.datasets import get_mlm_dataset
+from common.datasets import get_dataset_from_tfrecords
 from common.models import create_model
 from common.optimizers import get_adamw_optimizer, get_lamb_optimizer
-from common.utils import TqdmLoggingHandler, create_tokenizer, gather_indexes, rewrap_tf_function
+from common.utils import (
+    TqdmLoggingHandler,
+    create_tokenizer,
+    gather_indexes,
+    is_wandb_available,
+    rewrap_tf_function,
+)
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
 
-# Should still work if not logged into wandb
-try:
+if is_wandb_available():
     import wandb
-
-    # TODO: The ensure_configured() method does not exist within SageMaker. Figure out why.
-    wandb.ensure_configured()
-    if wandb.api.api_key is None:
-        _has_wandb = False
-        wandb.termwarn(
-            "W&B installed but not logged in.  Run `wandb login` or set the WANDB_API_KEY env variable."
-        )
-    else:
-        _has_wandb = False if os.getenv("WANDB_DISABLED") else True
-except ImportError:
-    _has_wandb = False
-
-
-def is_wandb_available():
-    return _has_wandb
 
 
 logger = logging.getLogger(__name__)
@@ -321,7 +311,6 @@ def validation_batch(model, batch, skip_mlm: bool, skip_sop: bool):
 
 
 def run_validation(model, validation_dataset, skip_sop: bool, skip_mlm: bool):
-    # A single TFRecord shard contains 22663 batches, or 170k examples.
     num_batches = 100
     val_loss, val_mlm_loss, val_mlm_acc, val_sop_loss, val_sop_acc = (0, 0, 0, 0, 0)
     for batch in validation_dataset.take(num_batches):
@@ -363,13 +352,14 @@ def get_checkpoint_paths_from_prefix(prefix: str) -> Tuple[str, str]:
 
 def main():
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
+        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments, PathArguments)
     )
     (
         model_args,
         data_args,
         train_args,
         log_args,
+        path_args,
         remaining_strings,
     ) = parser.parse_args_into_dataclasses(return_remaining_strings=True)
     # SageMaker may have some extra strings. TODO: Test this on SM.
@@ -388,7 +378,7 @@ def main():
     pre_layer_norm = parse_bool(model_args.pre_layer_norm)
     fast_squad = parse_bool(log_args.fast_squad)
     dummy_eval = parse_bool(log_args.dummy_eval)
-    is_sagemaker = data_args.fsx_prefix.startswith("/opt/ml")
+    is_sagemaker = path_args.filesystem_prefix.startswith("/opt/ml")
     disable_tqdm = is_sagemaker
     global max_grad_norm
     max_grad_norm = train_args.max_grad_norm
@@ -421,20 +411,14 @@ def main():
                 f"-{model_args.model_size}"
                 f"-{model_args.load_from}"
                 f"-{hvd.size()}gpus"
-                f"-{train_args.per_gpu_batch_size * hvd.size()}globalbatch"
-                f"-{train_args.gradient_accumulation_steps}accum"
+                f"-{train_args.per_gpu_batch_size * hvd.size() * train_args.gradient_accumulation_steps}globalbatch"
                 f"-{train_args.learning_rate}maxlr"
-                f"-{train_args.end_learning_rate}endlr"
                 f"-{train_args.learning_rate_decay_power}power"
-                f"-{train_args.max_grad_norm}maxgrad"
                 f"-{train_args.optimizer}opt"
                 f"-{train_args.total_steps}steps"
-                f"-{data_args.max_seq_length}seq"
-                f"-{data_args.max_predictions_per_seq}preds"
                 f"-{'preln' if pre_layer_norm else 'postln'}"
                 f"{loss_str}"
                 f"-{model_args.hidden_dropout_prob}dropout"
-                f"-{train_args.seed}seed"
             )
             run_name = f"{current_time}-{platform}-{metadata}-{train_args.name if train_args.name else 'unnamed'}"
         else:
@@ -445,7 +429,9 @@ def main():
         level = logging.INFO
         format = "%(asctime)-15s %(name)-12s: %(levelname)-8s %(message)s"
         handlers = [
-            logging.FileHandler(f"{data_args.fsx_prefix}/logs/albert/{run_name}.log"),
+            logging.FileHandler(
+                os.path.join(path_args.filesystem_prefix, path_args.log_dir, f"{run_name}.log")
+            ),
             TqdmLoggingHandler(),
         ]
         logging.basicConfig(level=level, format=format, handlers=handlers)
@@ -471,7 +457,8 @@ def main():
     model = create_model(model_class=TFAutoModelForPreTraining, model_args=model_args)
     tokenizer = create_tokenizer(model_args.model_type)
     if model_args.load_from == "checkpoint":
-        model_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(model_args.checkpoint_path)
+        checkpoint_path = os.path.join(path_args.filesystem_prefix, model_args.checkpoint_path)
+        model_ckpt, optimizer_ckpt = get_checkpoint_paths_from_prefix(checkpoint_path)
         if hvd.rank() == 0:
             model.load_weights(model_ckpt)
             if model_args.load_optimizer_state == "true":
@@ -480,27 +467,14 @@ def main():
 
     # Train filenames are [1, 2047], Val filenames are [0]. Note the different subdirectories
     # Move to same folder structure and remove if/else
-    if model_args.model_type == "albert":
-        possible_tuples = set([(128, 20), (512, 20)])
-        current_tuple = (data_args.max_seq_length, data_args.max_predictions_per_seq)
-        assert (
-            current_tuple in possible_tuples
-        ), f"Incorrect data: {current_tuple} not in {possible_tuples}"
-        train_glob = f"{data_args.fsx_prefix}/albert_pretraining/tfrecords/train/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
-        validation_glob = f"{data_args.fsx_prefix}/albert_pretraining/tfrecords/validation/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/albert_*.tfrecord"
-    if model_args.model_type == "bert":
-        possible_tuples = set([(128, 20), (512, 80)])
-        current_tuple = (data_args.max_seq_length, data_args.max_predictions_per_seq)
-        assert (
-            current_tuple in possible_tuples
-        ), f"Incorrect data: {current_tuple} not in {possible_tuples}"
-        train_glob = f"{data_args.fsx_prefix}/bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/training/*.tfrecord"
-        validation_glob = f"{data_args.fsx_prefix}/bert_pretraining/max_seq_len_{data_args.max_seq_length}_max_predictions_per_seq_{data_args.max_predictions_per_seq}_masked_lm_prob_15/validation/*.tfrecord"
+    train_glob = os.path.join(path_args.filesystem_prefix, path_args.train_dir, "*.tfrecord")
+    validation_glob = os.path.join(path_args.filesystem_prefix, path_args.val_dir, "*.tfrecord")
 
     train_filenames = glob.glob(train_glob)
     validation_filenames = glob.glob(validation_glob)
 
-    train_dataset = get_mlm_dataset(
+    train_dataset = get_dataset_from_tfrecords(
+        model_type=model_args.model_type,
         filenames=train_filenames,
         max_seq_length=data_args.max_seq_length,
         max_predictions_per_seq=data_args.max_predictions_per_seq,
@@ -513,7 +487,8 @@ def main():
 
     # Validation should only be done on one node, since Horovod doesn't allow allreduce on a subset of ranks
     if hvd.rank() == 0:
-        validation_dataset = get_mlm_dataset(
+        validation_dataset = get_dataset_from_tfrecords(
+            model_type=model_args.model_type,
             filenames=validation_filenames,
             max_seq_length=data_args.max_seq_length,
             max_predictions_per_seq=data_args.max_predictions_per_seq,
@@ -522,7 +497,7 @@ def main():
         # validation_dataset = validation_dataset.batch(1)
         validation_dataset = validation_dataset.prefetch(buffer_size=8)
 
-        pbar = tqdm.tqdm(train_args.total_steps, disable=disable_tqdm)
+        pbar = tqdm.tqdm(total=train_args.total_steps, disable=disable_tqdm)
         summary_writer = None  # Only create a writer if we make it through a successful step
         logger.info(f"Starting training, job name {run_name}")
 
@@ -548,18 +523,21 @@ def main():
                 optimizer.set_weights(loaded_optimizer_weights)
             hvd.broadcast_variables(model.variables, root_rank=0)
             hvd.broadcast_variables(optimizer.variables(), root_rank=0)
-            i = optimizer.get_weights()[0] - 1
+            i = optimizer.get_weights()[0]
 
         is_final_step = i >= train_args.total_steps
-        do_squad = (i % log_args.squad_frequency == 0) or is_final_step
+        do_squad = (log_args.squad_frequency != 0) and (
+            (i % log_args.squad_frequency == 0) or is_final_step
+        )
         # Squad requires all the ranks to train, but results are only returned on rank 0
         if do_squad:
             squad_results = get_squad_results_while_pretraining(
                 model=model,
                 tokenizer=tokenizer,
                 model_size=model_args.model_size,
-                fsx_prefix=data_args.fsx_prefix,
+                filesystem_prefix=path_args.filesystem_prefix,
                 step=i,
+                dataset=data_args.squad_version,
                 fast=log_args.fast_squad,
                 dummy_eval=log_args.dummy_eval,
             )
@@ -588,7 +566,9 @@ def main():
                     start_time = time.perf_counter()
 
             if do_checkpoint:
-                checkpoint_prefix = f"{data_args.fsx_prefix}/checkpoints/albert/{run_name}-step{i}"
+                checkpoint_prefix = os.path.join(
+                    path_args.filesystem_prefix, path_args.checkpoint_dir, f"{run_name}-step{i}"
+                )
                 model_ckpt = f"{checkpoint_prefix}.ckpt"
                 optimizer_ckpt = f"{checkpoint_prefix}-optimizer.npy"
                 logger.info(f"Saving model at {model_ckpt}, optimizer at {optimizer_ckpt}")
@@ -612,7 +592,7 @@ def main():
             # Create summary_writer after the first step
             if summary_writer is None:
                 summary_writer = tf.summary.create_file_writer(
-                    f"{data_args.fsx_prefix}/logs/albert/{run_name}"
+                    os.path.join(path_args.filesystem_prefix, path_args.log_dir, run_name)
                 )
                 config = {
                     **asdict(model_args),

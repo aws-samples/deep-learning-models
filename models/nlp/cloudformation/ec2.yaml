@@ -13,10 +13,6 @@ Parameters:
     # from fsx.yaml
     Default: fs-123
     Type: String
-  LustreBucketName:
-    # from fsx.yaml
-    Default: dlmodels
-    Type: String
 
   # These parameters can be kept
   AvailabilityZone:
@@ -61,7 +57,7 @@ Resources:
             sudo apt install -y lustre-client-modules-$(uname -r)
             # Mount lustre filesystem
             sudo mkdir /fsx
-            sudo mount -t lustre ${FileSystem}.fsx.us-east-1.amazonaws.com@tcp:/fsx /fsx
+            sudo mount -t lustre -o flock ${FileSystem}.fsx.us-east-1.amazonaws.com@tcp:/fsx /fsx
             # Create tmux session to automatically ssh into, then detach
             tmux new -s workspace -d
   EC2Instance:
@@ -76,6 +72,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Ref InstanceName
+        - Key: AWSCop
+          Value: DevDesktop
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:

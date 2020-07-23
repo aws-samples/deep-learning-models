@@ -41,10 +41,11 @@ from common.arguments import (
     DataTrainingArguments,
     LoggingArguments,
     ModelArguments,
+    PathArguments,
     TrainingArguments,
 )
 from common.learning_rate_schedules import LinearWarmupPolyDecaySchedule
-from common.models import load_qa_from_pretrained
+from common.models import create_model, load_qa_from_pretrained
 from common.utils import (
     TqdmLoggingHandler,
     create_tokenizer,
@@ -225,8 +226,9 @@ def get_squad_results_while_pretraining(
     model: tf.keras.Model,
     tokenizer: PreTrainedTokenizer,
     model_size: str,
-    fsx_prefix: str,
+    filesystem_prefix: str,
     step: int,
+    dataset: str,
     fast: bool = False,
     dummy_eval: bool = False,
 ):
@@ -250,22 +252,29 @@ def get_squad_results_while_pretraining(
             warmup_steps = 5
             total_steps = 10
             dataset = "debug"
-        else:
+        if dataset == "squadv2":
             warmup_steps = 814
             total_steps = 8144
-            dataset = "squadv2"
+            learning_rate = 3e-5
+        elif dataset == "squadv1":
+            warmup_steps = 365
+            total_steps = 3649
+            learning_rate = 5e-5
+        else:
+            warmup_steps = 5
+            total_steps = 10
 
         squad_run_name = f"pretrain{step}-"
         squad_results = run_squad_and_get_results(
             model=qa_model,
             tokenizer=tokenizer,
             run_name=squad_run_name,
-            fsx_prefix=fsx_prefix,
+            filesystem_prefix=filesystem_prefix,
             per_gpu_batch_size=per_gpu_batch_size,  # This will be less than 3, so no OOM errors
             checkpoint_frequency=None,
             validate_frequency=None,
             evaluate_frequency=None,
-            learning_rate=3e-5,
+            learning_rate=learning_rate,
             warmup_steps=warmup_steps,
             total_steps=total_steps,
             dataset=dataset,
@@ -283,7 +292,7 @@ def run_squad_and_get_results(
     model: tf.keras.Model,  # Must be QuestionAnswering model, not PreTraining
     tokenizer: PreTrainedTokenizer,
     run_name: str,
-    fsx_prefix: str,
+    filesystem_prefix: str,
     per_gpu_batch_size: int,
     checkpoint_frequency: Optional[int],
     validate_frequency: Optional[int],
@@ -297,7 +306,7 @@ def run_squad_and_get_results(
     checkpoint_frequency = checkpoint_frequency or 1000000
     validate_frequency = validate_frequency or 1000000
     evaluate_frequency = evaluate_frequency or 1000000
-    is_sagemaker = fsx_prefix.startswith("/opt/ml")
+    is_sagemaker = filesystem_prefix.startswith("/opt/ml")
     disable_tqdm = is_sagemaker
 
     schedule = LinearWarmupPolyDecaySchedule(
@@ -326,7 +335,7 @@ def run_squad_and_get_results(
     else:
         assert False, "--dataset must be one of ['squadv1', 'squadv2', 'debug']"
 
-    data_dir = f"{fsx_prefix}/squad_data"
+    data_dir = os.path.join(filesystem_prefix, "squad_data")
 
     train_dataset = get_dataset(
         tokenizer=tokenizer,
@@ -361,6 +370,7 @@ def run_squad_and_get_results(
     # Discussion at https://github.com/tensorflow/tensorflow/issues/27120
     global train_step
     train_step = rewrap_tf_function(train_step)
+
     for step, batch in enumerate(train_dataset):
         learning_rate = schedule(step=tf.constant(step, dtype=tf.float32))
         loss, acc, exact_match, f1, precision, recall = train_step(
@@ -374,9 +384,9 @@ def run_squad_and_get_results(
 
         is_final_step = step >= total_steps - 1
         if hvd.rank() == 0:
-            do_checkpoint = (step % checkpoint_frequency == 0) or is_final_step
-            do_validate = (step % validate_frequency == 0) or is_final_step
-            do_evaluate = (step % evaluate_frequency == 0) or is_final_step
+            do_checkpoint = ((step > 0) and step % checkpoint_frequency == 0) or is_final_step
+            do_validate = ((step > 0) and step % validate_frequency == 0) or is_final_step
+            do_evaluate = ((step > 0) and step % evaluate_frequency == 0) or is_final_step
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, Acc: {acc:.3f}, EM: {exact_match:.3f}, F1: {f1:.3f}"
@@ -427,15 +437,17 @@ def run_squad_and_get_results(
                 print_eval_metrics(results=results, step=step, dataset=dataset)
 
             if do_checkpoint:
-                checkpoint_path = (
-                    f"{fsx_prefix}/checkpoints/albert-squad/{run_name}-step{step}.ckpt"
+                # TODO: Abstract out to specify any checkpoint path
+                checkpoint_path = os.path.join(
+                    filesystem_prefix, f"checkpoints/squad/{run_name}-step{step}.ckpt"
                 )
                 logger.info(f"Saving checkpoint at {checkpoint_path}")
                 model.save_weights(checkpoint_path)
 
             if summary_writer is None:
+                # TODO: Abstract out to specify any logs path
                 summary_writer = tf.summary.create_file_writer(
-                    f"{fsx_prefix}/logs/albert-squad/{run_name}"
+                    os.path.join(filesystem_prefix, f"logs/squad/{run_name}")
                 )
             with summary_writer.as_default():
                 tf.summary.scalar("learning_rate", learning_rate, step=step)
@@ -470,9 +482,9 @@ def run_squad_and_get_results(
 
 def main():
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments)
+        (ModelArguments, DataTrainingArguments, TrainingArguments, LoggingArguments, PathArguments)
     )
-    model_args, data_args, train_args, log_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, train_args, log_args, path_args = parser.parse_args_into_dataclasses()
 
     tf.random.set_seed(train_args.seed)
     tf.autograph.set_verbosity(0)
@@ -499,25 +511,36 @@ def main():
     if hvd.rank() == 0:
         # Run name should only be used on one process to avoid race conditions
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        platform = "eks" if data_args.fsx_prefix == "/fsx" else "sm"
-        if model_args.load_from.startswith("amazon"):
-            load_name = f"{model_args.load_from}"
+        platform = "eks" if path_args.filesystem_prefix == "/fsx" else "sm"
+        if log_args.run_name is None:
+            run_name = f"{current_time}-{platform}-{model_args.model_type}-{model_args.model_size}-{data_args.squad_version}-{model_args.load_from}-{hvd.size()}gpus-{train_args.name}"
         else:
-            load_name = model_args.load_from
-        run_name = f"{current_time}-{platform}-{model_args.model_size}-{data_args.task_name}-{load_name}-{hvd.size()}gpus-{train_args.per_gpu_batch_size}batch-{train_args.learning_rate}lr-{train_args.name}"
+            run_name = log_args.run_name
     else:
         # We only use run_name on rank 0, but need all ranks to pass a value in function args
         run_name = None
 
-    model = TFAutoModelForQuestionAnswering.from_pretrained(model_args.model_desc)
+    if model_args.load_from == "huggingface":
+        logger.info(f"Loading weights from Huggingface {model_args.model_desc}")
+        model = TFAutoModelForQuestionAnswering.from_pretrained(model_args.model_desc)
+    else:
+        model = create_model(model_class=TFAutoModelForQuestionAnswering, model_args=model_args)
+
     model.call = rewrap_tf_function(model.call)
     tokenizer = create_tokenizer(model_args.model_type)
+
+    loaded_optimizer_weights = None
+    if model_args.load_from == "checkpoint":
+        if hvd.rank() == 0:
+            checkpoint_path = os.path.join(path_args.filesystem_prefix, model_args.checkpoint_path)
+            logger.info(f"Loading weights from {checkpoint_path}.ckpt")
+            model.load_weights(f"{checkpoint_path}.ckpt").expect_partial()
 
     results = run_squad_and_get_results(
         model=model,
         tokenizer=tokenizer,
         run_name=run_name,
-        fsx_prefix=data_args.fsx_prefix,
+        filesystem_prefix=path_args.filesystem_prefix,
         per_gpu_batch_size=train_args.per_gpu_batch_size,
         checkpoint_frequency=log_args.checkpoint_frequency,
         validate_frequency=log_args.validation_frequency,
@@ -525,7 +548,7 @@ def main():
         learning_rate=train_args.learning_rate,
         warmup_steps=train_args.warmup_steps,
         total_steps=train_args.total_steps,
-        dataset=data_args.task_name,
+        dataset=data_args.squad_version,
     )
     if hvd.rank() == 0:
         logger.info(results)

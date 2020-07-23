@@ -26,7 +26,10 @@ export ACCOUNT_ID=
 export REPO=
 export IMAGE=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/${REPO}:py37_tf211
 docker build -t ${IMAGE} .
+# AWS-CLI v1
 $(aws ecr get-login --no-include-email)
+# AWS-CLI v2
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
 docker push ${IMAGE}
 ```
 
@@ -36,6 +39,7 @@ docker push ${IMAGE}
 export SAGEMAKER_ROLE=arn:aws:iam::${ACCOUNT_ID}:role/service-role/AmazonSageMaker-ExecutionRole-20200101T123
 export SAGEMAKER_IMAGE_NAME=${IMAGE}
 export SAGEMAKER_FSX_ID=fs-123
+export SAGEMAKER_FSX_MOUNT_NAME=fsx
 export SAGEMAKER_SUBNET_IDS=subnet-123
 export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
 ```
@@ -78,15 +82,24 @@ python -m albert.launch_sagemaker \
     --total_steps=8144 \
     --warmup_steps=814 \
     --learning_rate=3e-5 \
-    --task_name=squadv2
+    --squad_version=squadv2
 ```
 
 7. Enter the Docker container to debug and edit code.
 
 ```bash
-docker run -it -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
+docker run -it --privileged -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
 ```
 
-<!-- ### Training results
+<!-- ### Training results. These will be posted shortly. -->
 
-These will be posted shortly. -->
+### Command-Line Parameters
+
+See `common/arguments.py` for a complete list. Here are the main ones:
+
+Loading from checkpoint:
+- `model_type`: One of "albert", "bert", "electra".
+- `model_size`: One of "small", "base", "large".
+- `load_from`: One of "scratch", "checkpoint", "huggingface". If checkpoint, then checkpoint_path is required.
+- `checkpoint_path`: For example: "/fsx/checkpoints/albert/2020...step125000". No .ckpt on the end.
+- `load_optimizer_state`: One of "true", "false".
