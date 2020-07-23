@@ -117,7 +117,7 @@ RUN pip install --no-cache-dir \
     mpi4py==3.0.3 \
     sagemaker-training \
     git+https://github.com/huggingface/transformers.git@master \
-    git+https://github.com/huggingface/nlp.git@master
+    git+https://github.com/huggingface/nlp.git@703b761
 
 # Install tokenizers from master source
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y

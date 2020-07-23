@@ -1,8 +1,8 @@
 """
 Example usage:
 ```bash
-python -m common.preprocess --dataset=wikitext-2 --shards=1 --processes=1 --cache_dir=/fsx/arrow_data/wikitext-2 --tfrecords_dir=/fsx/tfrecords_data/wikitext-2
-python -m common.preprocess --dataset=wikibooks --shards=2048 --processes=64 --cache_dir=/fsx/arrow_data/wikibooks --tfrecords_dir=/fsx/tfrecords_data/wikibooks
+python -m common.preprocess --dataset=wikitext-2 --shards=1 --processes=1 --cache_dir=/fsx/data_arrow/wikitext-2 --tfrecords_dir=/fsx/data_tfrecords/wikitext-2_512seq
+python -m common.preprocess --dataset=wikibooks --shards=2048 --processes=64 --cache_dir=/fsx/data_arrow/wikibooks --tfrecords_dir=/fsx/data_tfrecords/wikibooks_512seq
 ```
 
 Inspiration from https://github.com/google-research/electra/blob/master/build_pretraining_dataset.py
@@ -53,26 +53,26 @@ from common.datasets import get_dataset_from_tfrecords
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
-FILTER_CACHE = "filterlines.arrow"
-NEWLINES_CACHE = "replacenewlines.arrow"
-SENTENCES_CACHE = "sentences.arrow"
-PRETOKENIZED_SENTENCES_CACHE = "pretokenized_sentences.arrow"
-EXAMPLES_CACHE = "examples.arrow"
-EXAMPLE_IDS_CACHE = "example_ids.arrow"
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--max_seq_length", type=int, default=512)
 parser.add_argument(
     "--dataset",
     choices=["wikitext-2", "wikitext-103", "wikipedia", "bookcorpus", "wikibooks", "c4"],
 )
-parser.add_argument("--cache_dir", default="/tmp/arrow_data")
+parser.add_argument("--cache_dir", default="/tmp/data_arrow")
 parser.add_argument("--shards", type=int, default=1)
 parser.add_argument("--processes", type=int, default=1)  # 64 processes is a sweet spot on p3dn
-parser.add_argument("--tfrecords_dir", default="/tmp/tfrecords_data")
+parser.add_argument("--tfrecords_dir", default="/tmp/data_tfrecords")
 parser.add_argument("--skip_load_from_cache_file", action="store_true")
 parser.add_argument("--skip_tfrecords", action="store_true")
 args = parser.parse_args()
+
+FILTER_CACHE = "filterlines.arrow"
+NEWLINES_CACHE = "replacenewlines.arrow"
+SENTENCES_CACHE = "sentences.arrow"
+PRETOKENIZED_SENTENCES_CACHE = "pretokenized_sentences.arrow"
+EXAMPLES_CACHE = f"examples_{args.max_seq_length}seq.arrow"
+EXAMPLE_IDS_CACHE = f"example_ids_{args.max_seq_length}seq.arrow"
 
 load_from_cache_file = not args.skip_load_from_cache_file
 
@@ -82,6 +82,14 @@ assert (
 assert (
     args.skip_tfrecords or args.dataset in args.tfrecords_dir
 ), "Dataset name should be part of the TFRecords directory, don't mix datasets!"
+assert (
+    args.skip_tfrecords or args.max_seq_length in args.tfrecords_dir
+), "Sequence length should be part of the TFRecords directory"
+
+if not os.path.exists(args.cache_dir):
+    os.makedirs(args.cache_dir, exist_ok=True)
+if not args.skip_tfrecords and not os.path.exists(args.tfrecords_dir):
+    os.makedirs(args.tfrecords_dir, exist_ok=True)
 
 start_time = time.perf_counter()
 
