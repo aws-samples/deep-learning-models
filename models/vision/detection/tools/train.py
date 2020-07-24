@@ -161,11 +161,10 @@ def main_ec2(args, cfg):
     img_meta = tf.constant(
         [465., 640., 3., 800., 1101., 3., float(padded_img_side), float(padded_img_side), 3., 1.7204301, 0.],
         dtype=tf.float32)
-    # bboxes = tf.constant([[1.0, 1.0, 10.0, 10.0]], dtype=tf.float32)
-    # labels = tf.constant([1], dtype=tf.int32)
     _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)),
               training=False)
-    print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
+
+    # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
     weights_path = cfg.model['backbone']['weights_path']
     logger.info('Loading weights from: {}'.format(weights_path))
     if osp.splitext(weights_path)[1] == '.h5': # older keras format from Keras model zoo
@@ -185,10 +184,11 @@ def main_ec2(args, cfg):
                     target_layer.set_weights(layer.get_weights())
                     print('Loaded weights for:', layer.name)
         del backbone_model
-    print('AFTER:',model.layers[0].layers[0].get_weights()[0][0,0,0,:])
+    # print('AFTER:',model.layers[0].layers[0].get_weights()[0][0,0,0,:])
 
-    patterns = ['stem_*', '_bn$']
-    freeze_model_layers(model, patterns)
+    patterns = cfg.train_cfg.get('freeze_patterns', None)
+    if patterns:
+        freeze_model_layers(model, patterns)
 
     print_model_info(model, logger)
 

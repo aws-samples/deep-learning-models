@@ -48,7 +48,7 @@ class FasterRCNN(TwoStageDetector):
             num_rcnn_deltas=512,
             positive_fraction=0.25,
             pos_iou_thr=0.5,
-            neg_iou_thr=0.1,
+            neg_iou_thr=0.0,
             fg_assignments=self.mask)
         self.count = 0
 
