@@ -3,7 +3,7 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
 from tensorflow.keras import layers
-
+import functools
 from awsdet.core.bbox import transforms
 from awsdet.models.losses import losses
 from ..utils.misc import (calc_batch_padded_shape, calc_img_shapes, calc_pad_shapes)
@@ -24,6 +24,7 @@ class BBoxHead(tf.keras.Model):
                  weight_decay=1e-4,
                  use_conv=False,
                  use_bn=False,
+                 use_smooth_l1=True,
                  label_smoothing=0.0,
                  soft_nms_sigma=0.0,
                  **kwags):
@@ -38,7 +39,7 @@ class BBoxHead(tf.keras.Model):
         self.max_instances = max_instances
         self.num_rcnn_deltas=num_rcnn_deltas
         self.rcnn_class_loss = losses.rcnn_class_loss
-        self.rcnn_bbox_loss = losses.rcnn_bbox_loss
+        self.rcnn_bbox_loss = functools.partial(losses.rcnn_bbox_loss, use_smooth_l1=use_smooth_l1)
         self.use_conv = use_conv
         self.use_bn = (use_bn and not use_conv)
         self.label_smoothing = label_smoothing
@@ -50,22 +51,22 @@ class BBoxHead(tf.keras.Model):
             
             self._flatten_bn = layers.BatchNormalization(scale=True, epsilon=1e-5, name='flatten_bn')
             
-            self._fc1 = layers.Dense(1024, name='fc1', activation=None,
-                                     kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+            self._fc1 = layers.Dense(1024, name='fc1', activation=None, use_bias=False,
+                                     kernel_initializer='glorot_uniform',
                                      kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                      input_shape=[roi_feature_size]
                                      )
             self._fc1_bn = layers.BatchNormalization(name='fc1_bn')
             
-            self._fc2 = layers.Dense(1024, name='fc2', activation=None,
-                                     kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+            self._fc2 = layers.Dense(1024, name='fc2', activation=None, use_bias=False,
+                                     kernel_initializer='glorot_uniform',
                                      kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                      )
             
             self._fc2_bn = layers.BatchNormalization(name='fc2_bn')
 
             self.rcnn_class_logits = layers.Dense(num_classes,
-                                                  kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+                                                  kernel_initializer='glorot_uniform',
                                                   kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                                   name='rcnn_class_logits')
 

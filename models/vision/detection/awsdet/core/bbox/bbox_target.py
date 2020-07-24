@@ -107,7 +107,7 @@ class ProposalTarget:
         gt_boxes, non_zeros = trim_zeros(gt_boxes)
         gt_boxes = tf.cast(gt_boxes, proposals.dtype)
         gt_labels = tf.boolean_mask(gt_class_ids, non_zeros)
-        noise_mean = 5.0
+        noise_mean = 0.0 # 5.0
         noisy_gt_boxes = tf.add(gt_boxes, 
                                 tf.random.truncated_normal(tf.shape(gt_boxes), noise_mean, 0.1, dtype=proposals.dtype))
         proposals_gt = tf.concat([proposals, noisy_gt_boxes], axis=0)
