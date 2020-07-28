@@ -27,7 +27,7 @@ model = dict(
         anchor_strides=[4, 8, 16, 32, 64],
         target_means=[.0, .0, .0, .0],
         target_stds= [1.0, 1.0, 1.0, 1.0],
-        feat_channels=256,
+        feat_channels=512,
         num_samples=256,
         positive_fraction=0.5,
         pos_iou_thr=0.7,
@@ -106,7 +106,7 @@ test_cfg = dict(
 )
 # dataset settings
 dataset_type = 'CocoDataset'
-data_root = '/deep-learning-models/models/vision/detection/data/'
+data_root = '/deep-learning-models/models/vision/detection/data/coco/'
 data = dict(
     imgs_per_gpu=4,
     train=dict(

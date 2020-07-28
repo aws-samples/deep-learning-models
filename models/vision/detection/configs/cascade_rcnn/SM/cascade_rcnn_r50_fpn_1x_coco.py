@@ -46,7 +46,7 @@ model = dict(
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1',
-        weights_path='weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
+        weights_path='resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
         weight_decay=1e-5
     ),
     neck=dict(
@@ -64,7 +64,7 @@ model = dict(
         anchor_strides=[4, 8, 16, 32, 64],
         target_means=[.0, .0, .0, .0],
         target_stds= [1.0, 1.0, 1.0, 1.0],
-        feat_channels=256,
+        feat_channels=512,
         num_samples=256,
         positive_fraction=0.5,
         pos_iou_thr=0.7,
