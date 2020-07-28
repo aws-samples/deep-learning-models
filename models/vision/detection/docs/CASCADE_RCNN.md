@@ -68,14 +68,6 @@ The results were obtained on SageMaker (distributed training does not use EFA.) 
 | 64x2 | P3dn.24xl | 2h 36m | 38.30% | there are issues with batch size 2 and scaling that are currently being investigated |
 
 
-### Example output
-[TODO]
-
 ### Attribution
 
 The code is heavily inspired by the excellent MMDetection toolbox [Open MMLab Detection Toolbox and Benchmark](https://github.com/open-mmlab/mmdetection)
-
-Some parts of code have been borrowed or derived implementations from the following repositories
-- [Viredery/tf-eager-fasterrcnn](https://github.com/Viredery/tf-eager-fasterrcnn)
-- [irvingzhang0512/tf_eager_object_detection](https://github.com/irvingzhang0512/tf_eager_object_detection)
-- [TensorPack](https://github.com/tensorpack/tensorpack/)
