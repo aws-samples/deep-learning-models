@@ -141,7 +141,7 @@ def main_ec2(args, cfg):
     mkdir_or_exist(osp.abspath(cfg.work_dir))
     # log some basic info
     logger.info('Distributed training: {}'.format(distributed))
-    logger.info('TF MMDetection Version: {}'.format(__version__))
+    logger.info('AWSDet Version: {}'.format(__version__))
     logger.info('Config:\n{}'.format(cfg.text))
     logger.info('Tensorflow version: {}'.format(tf.version.VERSION))
 

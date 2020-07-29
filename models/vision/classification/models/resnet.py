@@ -32,32 +32,11 @@ import os
 import numpy as np
 
 layers = tf.keras.layers
+KERNEL_INIT='he_normal'
 
-BASE_WEIGHTS_PATH = (
-    'https://github.com/keras-team/keras-applications/'
-    'releases/download/resnet/')
-WEIGHTS_HASHES = {
-    'resnet50': ('2cb95161c43110f7111970584f804107',
-                 '4d473c1dd8becc155b73f8504c6f6626'),
-    'resnet101': ('f1aeb4b969a6efcfb50fad2f0c20cfc5',
-                  '88cf7a10940856eca736dc7b7e228a21'),
-    'resnet152': ('100835be76be38e30d865e96f2aaae62',
-                  'ee4c566cf9a93f14d82f913c2dc6dd0c'),
-    'resnet50v2': ('3ef43a0b657b3be2300d5770ece849e0',
-                   'fac2f116257151a9d068a22e544a4917'),
-    'resnet101v2': ('6343647c601c52e1368623803854d971',
-                    'c0ed64b8031c3730f411d2eb4eea35b5'),
-    'resnet152v2': ('a49b44d1979771252814e80f8ec446f9',
-                    'ed17cf2e0169df9d443503ef94b23b33'),
-    'resnext50': ('67a5b30d522ed92f75a1f16eef299d1a',
-                  '62527c363bdd9ec598bed41947b379fc'),
-    'resnext101': ('34fb605428fcc7aa4d62f44404c11509',
-                   '0f678c91647380debd923963594981b3')
-}
 
-def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True, avg_down=True,
-        image_data_format='channels_last', name=None, trainable=True,
-        weight_decay=0.0001):
+def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True, avg_down=False,
+        image_data_format='channels_last', name=None, weight_decay=1e-4):
     """A residual block.
 
     # Arguments
@@ -73,17 +52,16 @@ def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True, avg_down=Tru
         Output tensor for the residual block.
     """
     bn_axis = 3 if image_data_format == 'channels_last' else 1
-
     if conv_shortcut is True:
         if not avg_down:
             shortcut = layers.Conv2D(4 * filters, 1, strides=stride, use_bias=False, padding='SAME',
-                                 kernel_initializer='he_normal',
+                                 kernel_initializer=KERNEL_INIT,
                                  kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                  name=name + '_0_conv')(x)
         else:
-            shortcut = layers.AveragePooling2D(1, strides=stride)(x) if stride > 1 else x
+            shortcut = layers.AveragePooling2D(pool_size=1, strides=stride, padding='SAME')(x)
             shortcut = layers.Conv2D(4 * filters, 1, strides=1, use_bias=False, padding='SAME',
-                                 kernel_initializer='he_normal',
+                                 kernel_initializer=KERNEL_INIT,
                                  kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                  name=name + '_0_conv')(shortcut)
         shortcut = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
@@ -92,7 +70,7 @@ def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True, avg_down=Tru
         shortcut = x
 
     x = layers.Conv2D(filters, 1, strides=1, use_bias=False, padding='SAME',
-                        kernel_initializer='he_normal',
+                        kernel_initializer=KERNEL_INIT,
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_1_conv')(x)
     x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
@@ -101,7 +79,7 @@ def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True, avg_down=Tru
 
     x = layers.Conv2D(filters, kernel_size, strides=stride, padding='SAME',
                         use_bias=False,
-                        kernel_initializer='he_normal',
+                        kernel_initializer=KERNEL_INIT,
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_2_conv')(x)
 
@@ -111,19 +89,21 @@ def block1(x, filters, kernel_size=3, stride=1, conv_shortcut=True, avg_down=Tru
     x = layers.Activation('relu', name=name + '_2_relu')(x)
 
     x = layers.Conv2D(4 * filters, 1, use_bias=False, padding='SAME',
-                        kernel_initializer='he_normal',
+                        kernel_initializer=KERNEL_INIT,
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_3_conv')(x)
 
+    # https://arxiv.org/pdf/1706.02677.pdf - Last gamma initialized to zeros
     x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9,
-                                  gamma_initializer='zeros', # https://arxiv.org/pdf/1706.02677.pdf
+                                  gamma_initializer='zeros', 
                                   name=name + '_3_bn')(x)
 
     x = layers.Add(name=name + '_add')([shortcut, x])
     x = layers.Activation('relu', name=name + '_out')(x)
     return x
 
-def stack1(x, filters, blocks, stride1=2, name=None, trainable=True, weight_decay=0.0001):
+
+def stack1(x, filters, blocks, stride1=2, avg_down=False, name=None, weight_decay=1e-4):
     """A set of stacked residual blocks.
 
     # Arguments
@@ -136,15 +116,15 @@ def stack1(x, filters, blocks, stride1=2, name=None, trainable=True, weight_deca
     # Returns
         Output tensor for the stacked blocks.
     """
-    x = block1(x, filters, stride=stride1, name=name + '_block1', trainable=trainable, weight_decay=weight_decay)
+    x = block1(x, filters, stride=stride1, avg_down=avg_down, name=name + '_block1', weight_decay=weight_decay)
     for i in range(2, blocks + 1):
-        x = block1(x, filters, conv_shortcut=False, name=name + '_block' + str(i), trainable=trainable, weight_decay=weight_decay)
+        x = block1(x, filters, conv_shortcut=False, avg_down=avg_down, name=name + '_block' + str(i), weight_decay=weight_decay)
     return x
 
 
 def block2(x, filters, kernel_size=3, stride=1,
            conv_shortcut=False, name=None, image_data_format='channels_last',
-           trainable=True, weight_decay=0.0001):
+           trainable=True, weight_decay=1e-4):
     """A residual block.
 
     # Arguments
@@ -165,35 +145,35 @@ def block2(x, filters, kernel_size=3, stride=1,
 
     if conv_shortcut is True:
         shortcut = layers.Conv2D(4 * filters, 1, strides=stride, use_bias=False, padding='SAME',
-                        kernel_initializer='he_normal',
+                        kernel_initializer=KERNEL_INIT,
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_0_conv')(preact)
     else:
         shortcut = layers.AveragePooling2D(1, strides=stride)(x) if stride > 1 else x
 
     x = layers.Conv2D(filters, 1, strides=1, use_bias=False, padding='SAME',
-                        kernel_initializer='he_normal',
+                        kernel_initializer=KERNEL_INIT,
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_1_conv')(preact)
     x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name=name + '_1_bn')(x)
     x = layers.Activation('relu', name=name + '_1_relu')(x)
 
     x = layers.Conv2D(filters, kernel_size, strides=stride, padding='SAME', use_bias=False,
-                        kernel_initializer='he_normal',
+                        kernel_initializer=KERNEL_INIT,
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_2_conv')(x)
     x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name=name + '_2_bn')(x)
     x = layers.Activation('relu', name=name + '_2_relu')(x)
 
     x = layers.Conv2D(4 * filters, 1, use_bias=False, padding='SAME',
-                        kernel_initializer='he_normal',
+                        kernel_initializer=KERNEL_INIT,
                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                         name=name + '_3_conv')(x)
     x = layers.Add(name=name + '_out')([shortcut, x])
     return x
 
 
-def stack2(x, filters, blocks, stride1=2, name=None, trainable=True, weight_decay=0.0001):
+def stack2(x, filters, blocks, stride1=2, name=None, trainable=True, weight_decay=1e-4):
     """A set of stacked residual blocks.
 
     # Arguments
@@ -298,15 +278,13 @@ def ResNet(stack_fn,
            use_bias,
            model_name='resnet',
            include_top=True,
-           weights='imagenet',
-           input_tensor=None,
+           weights=None,
            input_shape=None,
            pooling=None,
            classes=1000,
-           weight_decay=0.0001,
-           is_training=False,
+           weight_decay=1e-4,
            image_data_format='channels_last',
-           deep_stem=True,
+           deep_stem=False,
            **kwargs):
     """Instantiates the ResNet, ResNetV2, and ResNeXt architecture.
 
@@ -324,11 +302,7 @@ def ResNet(stack_fn,
         include_top: whether to include the fully-connected
             layer at the top of the network.
         weights: one of `None` (random initialization),
-              'imagenet' (pre-training on ImageNet),
               or the path to the weights file to be loaded.
-        input_tensor: optional Keras tensor
-            (i.e. output of `layers.Input()`)
-            to use as image input for the model.
         input_shape: optional shape tuple, only to be specified
             if `include_top` is False (otherwise the input shape
             has to be `(224, 224, 3)` (with `channels_last` data format)
@@ -356,47 +330,37 @@ def ResNet(stack_fn,
         ValueError: in case of invalid argument for `weights`,
             or invalid input shape.
     """
-    if not (weights in {'imagenet', None} or os.path.exists(weights)):
+    if not (weights in {None} or os.path.exists(weights)):
         raise ValueError('The `weights` argument should be either '
                          '`None` (random initialization), `imagenet` '
                          '(pre-training on ImageNet), '
                          'or the path to the weights file to be loaded.')
 
-    if weights == 'imagenet' and include_top and classes != 1000:
-        raise ValueError('If using `weights` as `"imagenet"` with `include_top`'
-                         ' as true, `classes` should be 1000')
-
-    input_shape = (None, None, 3) # 224, 224, 3 for resnet
-
-    if input_tensor is None:
-        img_input = layers.Input(shape=input_shape)
-    else:
-        if not backend.is_keras_tensor(input_tensor): # FIXME: dead code
-            img_input = layers.Input(tensor=input_tensor, shape=input_shape)
-        else:
-            img_input = input_tensor
+    input_shape = (None, None, 3) 
+    img_input = layers.Input(shape=input_shape)
     bn_axis = 3 if image_data_format == 'channels_last' else 1
+    x = img_input
 
-    x = layers.ZeroPadding2D(padding=((3, 3), (3, 3)), name='conv1_pad')(img_input)
     if not deep_stem:
+        x = layers.ZeroPadding2D(padding=((3, 3), (3, 3)), name='conv1_pad')(x)
         x = layers.Conv2D(64, 7, strides=2, use_bias=False, name='conv1_conv', 
                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                kernel_initializer='he_normal')(x)
-    else: # replace 7x7 with 3 3x3 convs to get same receptive field
+                kernel_initializer=KERNEL_INIT)(x)
+    else: # replace 7x7 with 3 3x3 convs to get same receptive field (resnetv1_c)
         x = layers.Conv2D(64, 3, strides=2, padding='SAME', use_bias=False, name='conv1_3x3_stem1',
                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                kernel_initializer='he_normal')(x)
+                kernel_initializer=KERNEL_INIT)(x)
         x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name='conv1_3x3_1_bn')(x)
         x = layers.Activation('relu', name='conv1_3x3_1_relu')(x)
 
-        x = layers.Conv2D(64, 3, strides=2, padding='SAME', use_bias=False, name='conv1_3x3_stem2',
+        x = layers.Conv2D(64, 3, strides=1, padding='SAME', use_bias=False, name='conv1_3x3_stem2',
                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                kernel_initializer='he_normal')(x)
+                kernel_initializer=KERNEL_INIT)(x)
         x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name='conv1_3x3_2_bn')(x)
         x = layers.Activation('relu', name='conv1_3x3_2_relu')(x)
         x = layers.Conv2D(128, 3, strides=1, padding='SAME', use_bias=False, name='conv1_3x3_stem3',
                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                kernel_initializer='he_normal')(x)
+                kernel_initializer=KERNEL_INIT)(x)
 
     if preact is False:
         x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name='conv1_bn')(x)
@@ -406,7 +370,7 @@ def ResNet(stack_fn,
 
     x = stack_fn(x)
 
-    if preact is True:
+    if preact is True: # resnetv2
         x = layers.BatchNormalization(axis=bn_axis, epsilon=1e-5, momentum=0.9, name='post_bn')(x)
         x = layers.Activation('relu', name='post_relu')(x)
 
@@ -415,50 +379,31 @@ def ResNet(stack_fn,
         x = layers.Dense(classes,
             kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.01),
             kernel_regularizer=tf.keras.regularizers.l2(weight_decay), name='logits')(x)
-        x = layers.Activation('softmax', dtype='float32')(x)
     else:
         if pooling == 'avg':
             x = layers.GlobalAveragePooling2D(name='avg_pool')(x)
         elif pooling == 'max':
             x = layers.GlobalMaxPooling2D(name='max_pool')(x)
 
-    # Ensure that the model takes into account
-    # any potential predecessors of `input_tensor`.
-    if input_tensor is not None:
-        inputs = keras_utils.get_source_inputs(input_tensor)
-    else:
-        inputs = img_input
+    inputs = img_input
 
     # Create model.
     model = tf.keras.Model(inputs, x, name=model_name)
 
     # Load weights.
-    if (weights == 'imagenet') and (model_name in WEIGHTS_HASHES):
-        if include_top:
-            file_name = model_name + '_weights_tf_dim_ordering_tf_kernels.h5'
-            file_hash = WEIGHTS_HASHES[model_name][0]
-        else:
-            file_name = model_name + '_weights_tf_dim_ordering_tf_kernels_notop.h5'
-            file_hash = WEIGHTS_HASHES[model_name][1]
-        weights_path = keras_utils.get_file(file_name,
-                                            BASE_WEIGHTS_PATH + file_name,
-                                            cache_subdir='models',
-                                            file_hash=file_hash)
-        by_name = True if 'resnext' in model_name else False
-        model.load_weights(weights_path, by_name=by_name)
-    elif weights is not None:
+    if weights is not None:
         model.load_weights(weights)
 
     return model
 
 
-def ResNet50(include_top=True,
-             weights='imagenet',
+def ResNet50V1_b(include_top=True,
+             weights=None,
              input_tensor=None,
              input_shape=None,
              pooling=None,
              classes=1000,
-             weight_decay=0.0001,
+             weight_decay=1e-4,
              **kwargs):
     def stack_fn(x):
         x = stack1(x, 64, 3, stride1=1, name='conv2', weight_decay=weight_decay)
@@ -466,35 +411,124 @@ def ResNet50(include_top=True,
         x = stack1(x, 256, 6, name='conv4', weight_decay=weight_decay)
         x = stack1(x, 512, 3, name='conv5', weight_decay=weight_decay)
         return x
-    return ResNet(stack_fn, False, True, 'resnet50',
+    return ResNet(stack_fn, False, True, 'resnet50v1_b',
                   include_top, weights,
                   input_tensor, input_shape,
                   pooling, classes, weight_decay,
                   **kwargs)
 
 
-def ResNet101(include_top=True,
-              weights='imagenet',
+def ResNet50V1_c(include_top=True,
+             weights=None,
+             input_tensor=None,
+             input_shape=None,
+             pooling=None,
+             classes=1000,
+             weight_decay=1e-4,
+             **kwargs):
+    def stack_fn(x):
+        x = stack1(x, 64, 3, stride1=1, name='conv2', weight_decay=weight_decay)
+        x = stack1(x, 128, 4, name='conv3', weight_decay=weight_decay)
+        x = stack1(x, 256, 6, name='conv4', weight_decay=weight_decay)
+        x = stack1(x, 512, 3, name='conv5', weight_decay=weight_decay)
+        return x
+    return ResNet(stack_fn, False, True, 'resnet50v1_c',
+                  include_top, weights,
+                  input_tensor, input_shape,
+                  pooling, classes, weight_decay,
+                  deep_stem=True,
+                  **kwargs)
+
+
+def ResNet50V1_d(include_top=True,
+             weights=None,
+             input_tensor=None,
+             input_shape=None,
+             pooling=None,
+             classes=1000,
+             weight_decay=1e-4,
+             **kwargs):
+    def stack_fn(x):
+        x = stack1(x, 64, 3, stride1=1, avg_down=True, name='conv2', weight_decay=weight_decay)
+        x = stack1(x, 128, 4, name='conv3', avg_down=True, weight_decay=weight_decay)
+        x = stack1(x, 256, 6, name='conv4', avg_down=True, weight_decay=weight_decay)
+        x = stack1(x, 512, 3, name='conv5', avg_down=True, weight_decay=weight_decay)
+        return x
+    return ResNet(stack_fn, False, True, 'resnet50v1_d',
+                  include_top, weights,
+                  input_tensor, input_shape,
+                  pooling, classes, weight_decay,
+                  deep_stem=True,
+                  **kwargs)
+
+
+def ResNet101V1_b(include_top=True,
+              weights=None,
               input_tensor=None,
               input_shape=None,
               pooling=None,
               classes=1000,
+              weight_decay=1e-4,
               **kwargs):
     def stack_fn(x):
-        x = stack1(x, 64, 3, stride1=1, name='conv2')
-        x = stack1(x, 128, 4, name='conv3')
-        x = stack1(x, 256, 23, name='conv4')
-        x = stack1(x, 512, 3, name='conv5')
+        x = stack1(x, 64, 3, stride1=1, name='conv2', weight_decay=weight_decay)
+        x = stack1(x, 128, 4, name='conv3', weight_decay=weight_decay)
+        x = stack1(x, 256, 23, name='conv4', weight_decay=weight_decay)
+        x = stack1(x, 512, 3, name='conv5', weight_decay=weight_decay)
         return x
-    return ResNet(stack_fn, False, True, 'resnet101',
+    return ResNet(stack_fn, False, True, 'resnet101v1_b',
                   include_top, weights,
                   input_tensor, input_shape,
                   pooling, classes,
                   **kwargs)
 
 
+def ResNet101V1_c(include_top=True,
+              weights=None,
+              input_tensor=None,
+              input_shape=None,
+              pooling=None,
+              classes=1000,
+              weight_decay=1e-4,
+              **kwargs):
+    def stack_fn(x):
+        x = stack1(x, 64, 3, stride1=1, name='conv2', weight_decay=weight_decay)
+        x = stack1(x, 128, 4, name='conv3', weight_decay=weight_decay)
+        x = stack1(x, 256, 23, name='conv4', weight_decay=weight_decay)
+        x = stack1(x, 512, 3, name='conv5', weight_decay=weight_decay)
+        return x
+    return ResNet(stack_fn, False, True, 'resnet101v1_c',
+                  include_top, weights,
+                  input_tensor, input_shape,
+                  pooling, classes,
+                  deep_stem=True,
+                  **kwargs)
+
+
+def ResNet101V1_d(include_top=True,
+              weights=None,
+              input_tensor=None,
+              input_shape=None,
+              pooling=None,
+              classes=1000,
+              weight_decay=1e-4,
+              **kwargs):
+    def stack_fn(x):
+        x = stack1(x, 64, 3, stride1=1, avg_down=True, name='conv2', weight_decay=weight_decay)
+        x = stack1(x, 128, 4, avg_down=True, name='conv3', weight_decay=weight_decay)
+        x = stack1(x, 256, 23, avg_down=True, name='conv4', weight_decay=weight_decay)
+        x = stack1(x, 512, 3, avg_down=True, name='conv5', weight_decay=weight_decay)
+        return x
+    return ResNet(stack_fn, False, True, 'resnet101v1_d',
+                  include_top, weights,
+                  input_tensor, input_shape,
+                  pooling, classes,
+                  deep_stem=True,
+                  **kwargs)
+
+
 def ResNet152(include_top=True,
-              weights='imagenet',
+              weights=None,
               input_tensor=None,
               input_shape=None,
               pooling=None,
@@ -514,12 +548,12 @@ def ResNet152(include_top=True,
 
 
 def ResNet50V2(include_top=True,
-               weights='imagenet',
+               weights=None,
                input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
-               weight_decay=0.0001,
+               weight_decay=1e-4,
                **kwargs):
     def stack_fn(x):
         x = stack2(x, 64, 3, name='conv2', weight_decay=weight_decay)
@@ -535,7 +569,7 @@ def ResNet50V2(include_top=True,
 
 
 def ResNet101V2(include_top=True,
-                weights='imagenet',
+                weights=None,
                 input_tensor=None,
                 input_shape=None,
                 pooling=None,
@@ -555,7 +589,7 @@ def ResNet101V2(include_top=True,
 
 
 def ResNet152V2(include_top=True,
-                weights='imagenet',
+                weights=None,
                 input_tensor=None,
                 input_shape=None,
                 pooling=None,
@@ -575,7 +609,7 @@ def ResNet152V2(include_top=True,
 
 
 def ResNeXt50(include_top=True,
-              weights='imagenet',
+              weights=None,
               input_tensor=None,
               input_shape=None,
               pooling=None,
@@ -595,7 +629,7 @@ def ResNeXt50(include_top=True,
 
 
 def ResNeXt101(include_top=True,
-               weights='imagenet',
+               weights=None,
                input_tensor=None,
                input_shape=None,
                pooling=None,
@@ -612,14 +646,4 @@ def ResNeXt101(include_top=True,
                   input_tensor, input_shape,
                   pooling, classes,
                   **kwargs)
-
-
-setattr(ResNet50, '__doc__', ResNet.__doc__)
-setattr(ResNet101, '__doc__', ResNet.__doc__)
-setattr(ResNet152, '__doc__', ResNet.__doc__)
-setattr(ResNet50V2, '__doc__', ResNet.__doc__)
-setattr(ResNet101V2, '__doc__', ResNet.__doc__)
-setattr(ResNet152V2, '__doc__', ResNet.__doc__)
-setattr(ResNeXt50, '__doc__', ResNet.__doc__)
-setattr(ResNeXt101, '__doc__', ResNet.__doc__)
 
