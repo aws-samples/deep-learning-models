@@ -399,7 +399,6 @@ def ResNet(stack_fn,
 
 def ResNet50V1_b(include_top=True,
              weights=None,
-             input_tensor=None,
              input_shape=None,
              pooling=None,
              classes=1000,
@@ -413,14 +412,13 @@ def ResNet50V1_b(include_top=True,
         return x
     return ResNet(stack_fn, False, True, 'resnet50v1_b',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes, weight_decay,
                   **kwargs)
 
 
 def ResNet50V1_c(include_top=True,
              weights=None,
-             input_tensor=None,
              input_shape=None,
              pooling=None,
              classes=1000,
@@ -434,7 +432,7 @@ def ResNet50V1_c(include_top=True,
         return x
     return ResNet(stack_fn, False, True, 'resnet50v1_c',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes, weight_decay,
                   deep_stem=True,
                   **kwargs)
@@ -442,7 +440,6 @@ def ResNet50V1_c(include_top=True,
 
 def ResNet50V1_d(include_top=True,
              weights=None,
-             input_tensor=None,
              input_shape=None,
              pooling=None,
              classes=1000,
@@ -456,7 +453,7 @@ def ResNet50V1_d(include_top=True,
         return x
     return ResNet(stack_fn, False, True, 'resnet50v1_d',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes, weight_decay,
                   deep_stem=True,
                   **kwargs)
@@ -464,7 +461,6 @@ def ResNet50V1_d(include_top=True,
 
 def ResNet101V1_b(include_top=True,
               weights=None,
-              input_tensor=None,
               input_shape=None,
               pooling=None,
               classes=1000,
@@ -478,14 +474,13 @@ def ResNet101V1_b(include_top=True,
         return x
     return ResNet(stack_fn, False, True, 'resnet101v1_b',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes,
                   **kwargs)
 
 
 def ResNet101V1_c(include_top=True,
               weights=None,
-              input_tensor=None,
               input_shape=None,
               pooling=None,
               classes=1000,
@@ -499,7 +494,7 @@ def ResNet101V1_c(include_top=True,
         return x
     return ResNet(stack_fn, False, True, 'resnet101v1_c',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes,
                   deep_stem=True,
                   **kwargs)
@@ -507,7 +502,6 @@ def ResNet101V1_c(include_top=True,
 
 def ResNet101V1_d(include_top=True,
               weights=None,
-              input_tensor=None,
               input_shape=None,
               pooling=None,
               classes=1000,
@@ -521,7 +515,7 @@ def ResNet101V1_d(include_top=True,
         return x
     return ResNet(stack_fn, False, True, 'resnet101v1_d',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes,
                   deep_stem=True,
                   **kwargs)
@@ -529,7 +523,6 @@ def ResNet101V1_d(include_top=True,
 
 def ResNet152(include_top=True,
               weights=None,
-              input_tensor=None,
               input_shape=None,
               pooling=None,
               classes=1000,
@@ -542,14 +535,13 @@ def ResNet152(include_top=True,
         return x
     return ResNet(stack_fn, False, True, 'resnet152',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes,
                   **kwargs)
 
 
 def ResNet50V2(include_top=True,
                weights=None,
-               input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
@@ -563,14 +555,13 @@ def ResNet50V2(include_top=True,
         return x
     return ResNet(stack_fn, True, True, 'resnet50v2',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes, weight_decay,
                   **kwargs)
 
 
 def ResNet101V2(include_top=True,
                 weights=None,
-                input_tensor=None,
                 input_shape=None,
                 pooling=None,
                 classes=1000,
@@ -583,14 +574,13 @@ def ResNet101V2(include_top=True,
         return x
     return ResNet(stack_fn, True, True, 'resnet101v2',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes,
                   **kwargs)
 
 
 def ResNet152V2(include_top=True,
                 weights=None,
-                input_tensor=None,
                 input_shape=None,
                 pooling=None,
                 classes=1000,
@@ -603,14 +593,13 @@ def ResNet152V2(include_top=True,
         return x
     return ResNet(stack_fn, True, True, 'resnet152v2',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes,
                   **kwargs)
 
 
 def ResNeXt50(include_top=True,
               weights=None,
-              input_tensor=None,
               input_shape=None,
               pooling=None,
               classes=1000,
@@ -623,14 +612,13 @@ def ResNeXt50(include_top=True,
         return x
     return ResNet(stack_fn, False, False, 'resnext50',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes,
                   **kwargs)
 
 
 def ResNeXt101(include_top=True,
                weights=None,
-               input_tensor=None,
                input_shape=None,
                pooling=None,
                classes=1000,
@@ -643,7 +631,7 @@ def ResNeXt101(include_top=True,
         return x
     return ResNet(stack_fn, False, False, 'resnext101',
                   include_top, weights,
-                  input_tensor, input_shape,
+                  input_shape,
                   pooling, classes,
                   **kwargs)
 
