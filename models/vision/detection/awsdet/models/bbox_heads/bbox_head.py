@@ -50,27 +50,27 @@ class BBoxHead(tf.keras.Model):
             
             self._flatten_bn = layers.BatchNormalization(scale=True, epsilon=1e-5, name='flatten_bn')
             
-            self._fc1 = layers.Dense(1024, name='fc1', activation=None,
-                                     kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+            self._fc1 = layers.Dense(1024, name='fc1', activation=None, use_bias=False,
+                                     kernel_initializer='glorot_uniform',
                                      kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                      input_shape=[roi_feature_size]
                                      )
             self._fc1_bn = layers.BatchNormalization(name='fc1_bn')
             
-            self._fc2 = layers.Dense(1024, name='fc2', activation=None,
-                                     kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+            self._fc2 = layers.Dense(1024, name='fc2', activation=None, use_bias=False,
+                                     kernel_initializer='glorot_uniform',
                                      kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                      )
             
             self._fc2_bn = layers.BatchNormalization(name='fc2_bn')
 
             self.rcnn_class_logits = layers.Dense(num_classes,
-                                                  kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+                                                  kernel_initializer='glorot_uniform',
                                                   kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                                   name='rcnn_class_logits')
 
             self.rcnn_delta_fc = layers.Dense(num_classes * 4, 
-                                              kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.001),
+                                              kernel_initializer='glorot_uniform',
                                               kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                               name='rcnn_bbox_fc')
         else:

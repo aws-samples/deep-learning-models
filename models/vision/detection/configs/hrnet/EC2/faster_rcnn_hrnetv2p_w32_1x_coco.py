@@ -76,8 +76,8 @@ data = dict(
         pad_mode='fixed',
         preproc_mode='rgb',
         mean=(123.68, 116.78, 103.94),
-        std=(1.0, 1.0, 1.0), # (58.393, 57.12, 57.375),
-        scale=(800, 1344)), # (800, 1333)),
+        std=(1.0, 1.0, 1.0),
+        scale=(800, 1344)),
     val=dict(
         type=dataset_type,
         train=False,
@@ -87,8 +87,8 @@ data = dict(
         pad_mode='fixed',
         preproc_mode='rgb',
         mean=(123.68, 116.78, 103.94),
-        std=(1.0, 1.0, 1.0), # (58.393, 57.12, 57.375),
-        scale=(800, 1344)), # (800, 1333)),
+        std=(1.0, 1.0, 1.0),
+        scale=(800, 1344)), 
     test=dict(
         type=dataset_type,
         train=False,
@@ -98,8 +98,8 @@ data = dict(
         pad_mode='fixed',
         preproc_mode='rgb',
         mean=(123.68, 116.78, 103.94),
-        std=(1.0, 1.0, 1.0), #(58.393, 57.12, 57.375),
-        scale=(800, 1344)), #(800, 1333)),
+        std=(1.0, 1.0, 1.0), 
+        scale=(800, 1344)), 
 )
 # yapf: enable
 evaluation = dict(interval=1)

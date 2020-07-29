@@ -31,7 +31,7 @@ class HRFPN(tf.keras.Model):
         self.reduction_conv = layers.Conv2D(out_channels, 1, use_bias=use_bias,
                 name='reduction_conv',
                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                padding='same', kernel_initializer='lecun_uniform')
+                padding='same', kernel_initializer='he_uniform')
 
         self.fpn_convs = []
         for i in range(self.num_outs):
@@ -39,7 +39,7 @@ class HRFPN(tf.keras.Model):
             fpn_conv = layers.Conv2D(out_channels, fpn_kernel_size, 1, use_bias=use_bias,
                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                 padding='same', name='fpn_out{}'.format(i),
-                kernel_initializer='lecun_uniform')
+                kernel_initializer='he_uniform')
             self.fpn_convs.append(fpn_conv)
 
 

@@ -170,7 +170,7 @@ def main_ec2(args, cfg):
         del backbone_model
     print('AFTER:',model.layers[0].layers[0].get_weights()[0][0,0,0,:])
 
-    patterns = ['stem_*', '_bn$']
+    patterns = ['_bn$'] # ['stem_*', '_bn$']
     freeze_model_layers(model, patterns)
 
     print_model_info(model, logger)
