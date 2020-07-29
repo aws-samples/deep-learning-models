@@ -30,11 +30,12 @@ model = dict(
         positive_fraction=0.5,
         pos_iou_thr=0.7,
         neg_iou_thr=0.3,
-        num_pre_nms_train=12000,
+        num_pre_nms_train=6000,
         num_post_nms_train=2000,
-        num_pre_nms_test=12000,
-        num_post_nms_test=2000,
+        num_pre_nms_test=2000,
+        num_post_nms_test=1000,
         weight_decay=1e-5,
+        use_smooth_l1=False
     ),
     bbox_roi_extractor=dict(
         type='PyramidROIAlign',
@@ -52,16 +53,21 @@ model = dict(
     nms_threshold=0.5,
     max_instances=100,
     weight_decay=1e-5,
-    use_conv=True,
+    use_conv=False,
     use_bn=False,
+    use_smooth_l1=False,
     soft_nms_sigma=0.5)
 )
+
 # model training and testing settings
 train_cfg = dict(
+    freeze_patterns=['_bn$'],
     weight_decay=1e-5,
 )
+
 test_cfg = dict(
 )
+
 # dataset settings
 dataset_type = 'CocoDataset'
 data_root = '/data/COCO/'
@@ -88,7 +94,7 @@ data = dict(
         preproc_mode='rgb',
         mean=(123.68, 116.78, 103.94),
         std=(1.0, 1.0, 1.0),
-        scale=(800, 1344)), 
+        scale=(800, 1344)),
     test=dict(
         type=dataset_type,
         train=False,
@@ -98,8 +104,8 @@ data = dict(
         pad_mode='fixed',
         preproc_mode='rgb',
         mean=(123.68, 116.78, 103.94),
-        std=(1.0, 1.0, 1.0), 
-        scale=(800, 1344)), 
+        std=(1.0, 1.0, 1.0),
+        scale=(800, 1344)),
 )
 # yapf: enable
 evaluation = dict(interval=1)

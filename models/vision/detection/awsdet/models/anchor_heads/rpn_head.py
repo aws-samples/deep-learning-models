@@ -31,7 +31,8 @@ class RPNHead(AnchorHead):
                  num_pre_nms_train=12000,
                  num_post_nms_train=2000,
                  num_pre_nms_test=6000,
-                 num_post_nms_test=300):
+                 num_post_nms_test=300,
+                 use_smooth_l1=True):
         '''
         Network head of Region Proposal Network.
 
@@ -83,7 +84,7 @@ class RPNHead(AnchorHead):
             neg_iou_thr=neg_iou_thr)
 
         self.rpn_class_loss = losses.rpn_class_loss
-        self.rpn_bbox_loss = losses.rpn_bbox_loss
+        self.rpn_bbox_loss = functools.partial(losses.rpn_bbox_loss, use_smooth_l1=use_smooth_l1)
 
 
     def _init_layers(self):

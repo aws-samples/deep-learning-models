@@ -3,7 +3,7 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
 from tensorflow.keras import layers
-
+import functools
 from awsdet.core.bbox import transforms
 from awsdet.models.losses import losses
 from ..utils.misc import (calc_batch_padded_shape, calc_img_shapes, calc_pad_shapes)
@@ -24,6 +24,7 @@ class BBoxHead(tf.keras.Model):
                  weight_decay=1e-4,
                  use_conv=False,
                  use_bn=False,
+                 use_smooth_l1=True,
                  label_smoothing=0.0,
                  soft_nms_sigma=0.0,
                  **kwags):
@@ -38,7 +39,7 @@ class BBoxHead(tf.keras.Model):
         self.max_instances = max_instances
         self.num_rcnn_deltas=num_rcnn_deltas
         self.rcnn_class_loss = losses.rcnn_class_loss
-        self.rcnn_bbox_loss = losses.rcnn_bbox_loss
+        self.rcnn_bbox_loss = functools.partial(losses.rcnn_bbox_loss, use_smooth_l1=use_smooth_l1)
         self.use_conv = use_conv
         self.use_bn = (use_bn and not use_conv)
         self.label_smoothing = label_smoothing

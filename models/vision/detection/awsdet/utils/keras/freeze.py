@@ -26,7 +26,7 @@ def freeze_model_layers(model, patterns_list):
         frozen = False
         for p in patterns_list:
             if isinstance(l, tf.keras.layers.Layer) and re.search(p, l.name):
-                print('Freezing (trainable: False)', l.name)
+                # print('Freezing (trainable: False)', l.name)
                 l.trainable = False
                 frozen = True
                 break
