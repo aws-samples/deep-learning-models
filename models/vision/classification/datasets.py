@@ -1,7 +1,7 @@
 import horovod.tensorflow as hvd
 import os
 import tensorflow as tf
-from preprocessing import resnet_preprocessing, imagenet_preprocessing
+from preprocessing import resnet_preprocessing, imagenet_preprocessing, darknet_preprocessing
 import functools
 
 def create_dataset(data_dir, batch_size, preprocessing='resnet', validation=False):
@@ -39,6 +39,9 @@ def parse(record, is_training, preprocessing):
         image = resnet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
     elif preprocessing == 'imagenet': # used by hrnet
         image = imagenet_preprocessing.preprocess_image(image_bytes, bbox, 224, 224, 3, is_training=is_training)
+    elif preprocessing == 'darknet':
+        image = darknet_preprocessing.preprocess_image(image_bytes, bbox, 256, 256, 3, is_training=is_training)
+
 
     label = tf.cast(parsed['image/class/label'] - 1, tf.int32)
     one_hot_label = tf.one_hot(label, depth=1000, dtype=tf.float32)
