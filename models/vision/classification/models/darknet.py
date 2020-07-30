@@ -75,7 +75,7 @@ def Darknet(model_name='darknet53', weight_decay=1e-4,
         x = tf.keras.layers.Dense(1000,
                 kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.01),
                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay))(x)
-        x = tf.keras.layers.Activation('softmax', dtype='float32')(x)
+        # x = tf.keras.layers.Activation('softmax', dtype='float32')(x)
 
     model = tf.keras.Model(inputs=inputs, outputs=x)
 
