@@ -8,18 +8,18 @@ from awsdet.utils.keras import get_base_model, get_outputs
 
 @BACKBONES.register_module
 class KerasBackbone(tf.keras.Model):
-    def __init__(self, model_name, weights_path=None, weight_decay=1e-4, **kwargs):
+    def __init__(self, model_name, weights_path=None, weight_decay=1e-4, sync_bn=False, **kwargs):
         super(KerasBackbone, self).__init__(**kwargs)
         self.model_name = model_name
         self.weights_path = weights_path
-        _base_model = get_base_model(model_name, weights_path, weight_decay=weight_decay)
+        _base_model = get_base_model(model_name, weights_path, weight_decay=weight_decay, sync_bn=sync_bn)
         self._model = tf.keras.Model(inputs=_base_model.input,
                                      outputs=get_outputs(_base_model), name=model_name)
 
 
     @tf.function
-    def call(self, inputs, training=True):
-        c2, c3, c4, c5 = self._model(inputs, training=False) # freeze BN
+    def call(self, inputs, training=False):
+        c2, c3, c4, c5 = self._model(inputs, training=training)
         if self.model_name == 'ResNet50V2':
             # resnet 50 v2 returns half the size of feature maps that affects FPN output
             # for now we resize the feature maps but should handle generically in FPN in the future

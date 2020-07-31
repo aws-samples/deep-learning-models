@@ -161,8 +161,7 @@ def main_ec2(args, cfg):
     img_meta = tf.constant(
         [465., 640., 3., 800., 1101., 3., float(padded_img_side), float(padded_img_side), 3., 1.7204301, 0.],
         dtype=tf.float32)
-    _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)),
-              training=False)
+    _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)), training=False)
 
     # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
     weights_path = cfg.model['backbone']['weights_path']
@@ -171,9 +170,9 @@ def main_ec2(args, cfg):
         model.layers[0].layers[0].load_weights(weights_path, by_name=True, skip_mismatch=True)
     else: # SavedModel format assumed - extract weights
         backbone_model = tf.keras.models.load_model(weights_path)
-        print('Source backbone architecture')
+        # print('Source backbone architecture')
         backbone_model.summary()
-        print('Target backbone architecture')
+        # print('Target backbone architecture')
         target_backbone_model = model.layers[0].layers[0]
         target_backbone_model.summary()
         # load weights if layers match
@@ -182,7 +181,7 @@ def main_ec2(args, cfg):
             for target_layer in target_backbone_model.layers:
                 if layer.name == target_layer.name:
                     target_layer.set_weights(layer.get_weights())
-                    print('Loaded weights for:', layer.name)
+                    # print('Loaded weights for:', layer.name)
         del backbone_model
     # print('AFTER:',model.layers[0].layers[0].get_weights()[0][0,0,0,:])
 

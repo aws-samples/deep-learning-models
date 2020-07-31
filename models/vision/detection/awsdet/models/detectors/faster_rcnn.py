@@ -26,6 +26,7 @@ class FasterRCNN(TwoStageDetector):
                  mask_head=None,
                  neck=None,
                  shared_head=None,
+                 norm_type='BN',
                  pretrained=None):
         super(FasterRCNN, self).__init__(
             backbone=backbone,
@@ -38,6 +39,7 @@ class FasterRCNN(TwoStageDetector):
             mask_head=mask_head,
             train_cfg=train_cfg,
             test_cfg=test_cfg,
+            norm_type=norm_type,
             pretrained=pretrained)
         self.pretrained = pretrained
         self.mask = mask_head!=None
