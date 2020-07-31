@@ -23,6 +23,7 @@ class FasterRCNN(TwoStageDetector):
                  test_cfg,
                  neck=None,
                  shared_head=None,
+                 norm_type='BN',
                  pretrained=None):
         super(FasterRCNN, self).__init__(
             backbone=backbone,
@@ -33,6 +34,7 @@ class FasterRCNN(TwoStageDetector):
             bbox_head=bbox_head,
             train_cfg=train_cfg,
             test_cfg=test_cfg,
+            norm_type=norm_type,
             pretrained=pretrained)
         self.pretrained = pretrained
         #TODO: delegate to assigner and sampler in the future
