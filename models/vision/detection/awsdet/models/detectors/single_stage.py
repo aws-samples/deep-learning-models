@@ -5,7 +5,6 @@ import tensorflow as tf
 from .. import builder
 from ..registry import DETECTORS
 from .base import BaseDetector
-from .test_mixins import BBoxTestMixin, RPNTestMixin 
 
 
 @DETECTORS.register_module()
