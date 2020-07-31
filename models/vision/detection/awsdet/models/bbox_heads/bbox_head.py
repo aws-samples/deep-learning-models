@@ -71,7 +71,7 @@ class BBoxHead(tf.keras.Model):
                                                   name='rcnn_class_logits')
 
             self.rcnn_delta_fc = layers.Dense(num_classes * 4, 
-                                              kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.001),
+                                              kernel_initializer='glorot_uniform',
                                               kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                               name='rcnn_bbox_fc')
         else:

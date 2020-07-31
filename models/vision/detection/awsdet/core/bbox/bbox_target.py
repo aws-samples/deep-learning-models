@@ -109,7 +109,7 @@ class ProposalTarget:
         gt_labels = tf.boolean_mask(gt_class_ids, non_zeros)
         noise_mean = 0.0 # 5.0
         noisy_gt_boxes = tf.add(gt_boxes, 
-                                tf.random.truncated_normal(tf.shape(gt_boxes), noise_mean, 0.1, dtype=proposals.dtype))
+                                tf.random.truncated_normal(tf.shape(gt_boxes), noise_mean, 0.01, dtype=proposals.dtype))
         proposals_gt = tf.concat([proposals, noisy_gt_boxes], axis=0)
 
 
@@ -122,7 +122,6 @@ class ProposalTarget:
         fg_inds = tf.where(max_overlaps >= self.pos_iou_thr)[:, 0]
         bg_inds = tf.where(tf.logical_and(max_overlaps < self.pos_iou_thr,
                                           max_overlaps >= self.neg_iou_thr))[:, 0]
-
         # filter FG/BG
         if tf.size(fg_inds) > self._max_pos_samples:
             fg_inds = tf.random.shuffle(fg_inds)[:self._max_pos_samples]
@@ -161,7 +160,6 @@ class ProposalTarget:
         # final bbox target 
         final_bbox_targets = tf.zeros((tf.size(keep_inds), self.num_classes, 4), dtype=tf.float32)
         if tf.size(fg_inds) > 0:
-
             bbox_targets = transforms.bbox2delta(
                 tf.gather(final_rois, tf.range(tf.size(fg_inds))),
                 tf.gather(gt_boxes, tf.gather(gt_assignment, fg_inds)),
