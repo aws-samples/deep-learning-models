@@ -7,8 +7,8 @@ model = dict(
     norm_type='BN',
     backbone=dict(
         type='KerasBackbone',
-        model_name='ResNet50V1_d',
-        weights_path='weights/resnet50v1_d',
+        model_name='ResNet50V1_b',
+        weights_path='weights/resnet50v1_b',
         weight_decay=1e-4
     ),
     neck=dict(
@@ -109,7 +109,7 @@ evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
     type='MomentumOptimizer',
-    learning_rate=5e-3,
+    learning_rate=1e-2,
     momentum=0.9,
     nesterov=False,
 )
