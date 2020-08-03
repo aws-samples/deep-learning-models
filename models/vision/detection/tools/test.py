@@ -17,8 +17,11 @@ from awsdet.utils.misc import Config, mkdir_or_exist
 from awsdet.utils.runner.dist_utils import get_dist_info, init_dist
 from awsdet.utils import fileio
 from awsdet.core.bbox import transforms
+from tqdm import tqdm
+
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
+
 init_dist()
 
 if not gpus:
@@ -59,24 +62,20 @@ def single_gpu_test(model, dataset, show=False):
     tf_dataset, num_examples = build_dataloader(dataset, 1, 1, num_gpus=1, dist=False)
     results = []
     start = time.time()
-    for i, data_batch in enumerate(tf_dataset):
+    for i, data_batch in enumerate(tqdm(tf_dataset)):
         if i >= num_examples:
             break
         _, img_meta = data_batch
-        print(dataset.img_ids[i])
+        # print(dataset.img_ids[i])
         outputs = model(data_batch, training=False)
         bboxes = outputs['bboxes']
         # # map boxes back to original scale
         bboxes = transforms.bbox_mapping_back(bboxes, img_meta)
-        # # print('>>>>', bboxes)
         labels = outputs['labels']
         scores = outputs['scores']
         result = transforms.bbox2result(bboxes, labels, scores, num_classes=81)
-        #for b, l, s in zip(bboxes, labels, scores):
-        #    print(b, l, s)
-        #print(result)
         results.append(result)
-    print("Forward pass through test set took {}s".format(time.time() - start))
+    print("Forward pass for {} images through test set took {}s".format(i+1, time.time() - start))
     evaluate(dataset, results)
     return results
 
@@ -86,6 +85,7 @@ def parse_args():
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
     parser.add_argument('--out', help='output result file')
+    parser.add_argument('--gpu_id', type=int, default=0, help='GPU to use, default 0')
     parser.add_argument(
         '--json_out',
         help='output result file name without extension',
@@ -98,8 +98,6 @@ def parse_args():
     parser.add_argument('--tmpdir', help='tmp dir for writing some results')
     parser.add_argument('--local_rank', type=int, default=0)
     args = parser.parse_args()
-    if 'LOCAL_RANK' not in os.environ:
-        os.environ['LOCAL_RANK'] = str(args.local_rank)
     return args
 
 
@@ -121,7 +119,7 @@ def main():
     cfg.model.pretrained = None
 
     distributed = False
-
+    tf.config.experimental.set_visible_devices(gpus[args.gpu_id], 'GPU')
     # build the dataloader
     # TODO: support multiple images per gpu (only minor changes are needed)
     dataset = build_dataset(cfg.data.test)
