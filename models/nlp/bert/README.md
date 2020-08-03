@@ -4,6 +4,19 @@ TensorFlow 2.1 implementation of pretraining and finetuning scripts for BERT.
 
 The original paper: [BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding](https://arxiv.org/pdf/1810.04805.pdf)
 
+Pretraining consists of two phases. We use mixed-batch training.
+
+* Phase1: We pretrain 14064 steps with a total batch size of 32K for maximum sequence length of 128 across 8 p3dn.24xlarge nodes.
+* Phase2: We pretrain 6248 steps with a total batch size of 8K for maximum sequence length of 512 across 8 p3dn.24xlarge nodes.
+* Lastly, we finetune SQuAD v1.1 3649 steps with a total batch size of 48 on a single p3dn.24xlarge node.
+
+SQuAD F1 score combines both precision and recall of each word in the predicted answer ranging between 0-100.
+
+| Model | Phase1 | Phase2 | Total Training Time | SQuAD v1.1 F1 | SQuAD v2.0 F1 |
+| --- | --- | --- |  --- | --- | --- |
+| BERT-base | 5 hrs 33 mins | 2 hrs 53 mins | 8 hrs 26 mins | 87.68 | 76.14 |
+
+
 ### How To Launch Training
 
 All commands should be run from the `models/nlp` directory.
@@ -38,7 +51,8 @@ export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
 ```bash
 export PHASE1_RUN_NAME=bertphase1
 export PHASE2_RUN_NAME=bertphase2
-export PHASE1_STEPS=14076
+export PHASE1_STEPS=14064
+export PHASE2_STEPS=6248
 ```
 
 6. Launch the SageMaker Phase1 training.
@@ -57,13 +71,17 @@ python -m albert.launch_sagemaker \
     --max_seq_length=128 \
     --max_predictions_per_seq=20 \
     --optimizer=lamb \
+    --learning_rate=0.005 \
+    --end_learning_rate=0.0003 \
+    --hidden_dropout_prob=0.1 \
+    --attention_probs_dropout_prob=0.1 \
     --gradient_accumulation_steps=4 \
-    --run_name=${PHASE1_RUN_NAME} \
-    --warmup_steps=1400 \
+    --learning_rate_decay_power=0.5 \
+    --warmup_steps=2812 \
     --total_steps=${PHASE1_STEPS} \
-    --learning_rate=0.00176 \
-    --squad_freq=0 \
-    --log_frequency=10 \
+    --log_frequency=100 \
+    --squad_frequency=0 \
+    --run_name=${PHASE1_RUN_NAME} \
     --name=mybertphase1
 ```
 
@@ -73,47 +91,82 @@ python -m albert.launch_sagemaker \
 python -m albert.launch_sagemaker \
     --source_dir=. \
     --entry_point=albert/run_pretraining.py \
-    --sm_job_name=bert-pretrain-phase1 \
+    --sm_job_name=bert-pretrain-phase2 \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=8 \
     --load_from=checkpoint \
+    --load_optimizer_state=false \
     --model_type=bert \
     --model_size=base \
     --per_gpu_batch_size=32 \
     --max_seq_length=512 \
     --max_predictions_per_seq=80 \
     --optimizer=lamb \
-    --gradient_accumulation_steps=8 \
+    --learning_rate=0.004 \
+    --end_learning_rate=0.0003 \
+    --hidden_dropout_prob=0.1 \
+    --attention_probs_dropout_prob=0.1 \
+    --gradient_accumulation_steps=4 \
+    --learning_rate_decay_power=0.5 \
+    --warmup_steps=625 \
+    --total_steps=${PHASE2_STEPS} \
+    --log_frequency=100 \
+    --squad_frequency=0 \
     --run_name=${PHASE2_RUN_NAME} \
-    --warmup_steps=312 \
-    --total_steps=3124 \
-    --learning_rate=0.00176 \
-    --log_frequency=10 \
-    --checkpoint_path=/fsx/checkpoints/bert/${RUN_NAME_PHASE1}-step${PHASE1_STEPS} \
+    --checkpoint_path=checkpoints/albert/${PHASE1_RUN_NAME}-step${PHASE1_STEPS} \
     --name=mybertphase2
 ```
 
 8. Launch a SageMaker finetuning job.
 
+For SQuAD v1.1
+
 ```bash
 python -m albert.launch_sagemaker \
     --source_dir=. \
     --entry_point=albert/run_squad.py \
-    --sm_job_name=bert-squad \
+    --sm_job_name=bert-squadv1 \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=1 \
-    --load_from=scratch \
+    --load_from=checkpoint \
+    --checkpoint_path=checkpoints/albert/${PHASE2_RUN_NAME}-step${PHASE2_STEPS} \
     --model_type=bert \
-    --model_size=base \
     --per_gpu_batch_size=6 \
-    --total_steps=3649 \
-    --warmup_steps=365 \
+    --model_size=base \
+    --squad_version=squadv1 \
     --learning_rate=5e-5 \
-    --task_name=squadv1
+    --warmup_steps=365 \
+    --total_steps=3649 \
+    --validation_frequency=10000 \
+    --evaluate_frequency=10000 \
+    --skip_xla=true \
+```
+
+SQuAD v2.0
+
+```bash
+python -m albert.launch_sagemaker \
+    --source_dir=. \
+    --entry_point=albert/run_squad.py \
+    --sm_job_name=bert-squadv2 \
+    --instance_type=ml.p3dn.24xlarge \
+    --instance_count=1 \
+    --load_from=checkpoint \
+    --checkpoint_path=checkpoints/albert/${PHASE2_RUN_NAME}-step${PHASE2_STEPS} \
+    --model_type=bert \
+    --per_gpu_batch_size=6 \
+    --model_size=base \
+    --squad_version=squadv2 \
+    --learning_rate=10.0e-5 \
+    --warmup_steps=814 \
+    --total_steps=8144 \
+    --validation_frequency=10000 \
+    --evaluate_frequency=100000 \
+    --skip_xla=true \
 ```
 
 9. Enter the Docker container to debug and edit code.
 
 ```bash
-docker run -it -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
+docker run -it --privileged -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash
 ```

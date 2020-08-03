@@ -128,3 +128,7 @@ def rcnn_bbox_loss(roi_deltas, target_deltas, roi_inside_weights, roi_outside_we
         loss = tf.math.abs(roi_deltas - target_deltas) * roi_inside_weights
         return tf.cast(tf.reduce_sum(loss) / avg_factor, tf.float32)
 
+def rcnn_mask_loss(gt_mask_crops, rcnn_masks, weights):
+    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=gt_mask_crops, logits=rcnn_masks)
+    loss = tf.reduce_sum(tf.squeeze(tf.reduce_sum(loss, axis=[1,2]))*weights)
+    return loss

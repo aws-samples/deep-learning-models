@@ -15,10 +15,10 @@ Parameters:
     Default: us-east-1b # No p3dn's in 1a
     Type: String
   StorageCapacity:
-    Default: 3600 # In GiB, must be a multiple of 1200
+    Default: 9600 # In GiB, must be a multiple of 2400
     Type: Number
   InstanceName:
-    Default: albert-fsx
+    Default: dlmodels-fsx
     Type: String
 
 Resources:
@@ -26,10 +26,9 @@ Resources:
     Type: AWS::FSx::FileSystem
     Properties:
       FileSystemType: LUSTRE
-      LustreConfiguration:
-        ImportPath: !Join ["", ["s3://", !Ref LustreBucketName, "/fsx-import"]]
-        ExportPath: !Join ["", ["s3://", !Ref LustreBucketName, "/fsx-export"]]
       StorageCapacity: !Ref StorageCapacity
+      LustreConfiguration:
+        DeploymentType: SCRATCH_2
       SubnetIds:
         - !Ref SubnetId
       Tags:
