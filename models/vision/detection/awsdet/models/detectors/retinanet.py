@@ -23,4 +23,4 @@ class RetinaNet(SingleStageDetector):
             test_cfg=test_cfg,
             norm_type=norm_type,
             pretrained=pretrained)
-
+        self.mask = None

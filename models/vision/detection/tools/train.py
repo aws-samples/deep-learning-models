@@ -254,8 +254,8 @@ def main_sagemaker(args, cfg):
     # labels = tf.constant([1], dtype=tf.int32)
     _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)),
               training=False)
-    # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
 
+    # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
     # sagemaker specific path resolution
     import os, pathlib
     data_root = pathlib.Path(os.getenv('SM_CHANNEL_COCO')).joinpath('coco').as_posix()
@@ -264,17 +264,29 @@ def main_sagemaker(args, cfg):
     weights_file = cfg.model['backbone']['weights_path']
     weights_path = pathlib.Path(os.getenv('SM_CHANNEL_WEIGHTS')).joinpath(weights_file).as_posix()
     logger.info('Loading weights from: {}'.format(weights_path))
-    if osp.splitext(weights_file)[1] == '.h5': # older keras format from Keras model zoo
+
+    if osp.splitext(weights_path)[1] == '.h5': # older keras format from Keras model zoo
         model.layers[0].layers[0].load_weights(weights_path, by_name=True, skip_mismatch=True)
     else: # SavedModel format assumed - extract weights
         backbone_model = tf.keras.models.load_model(weights_path)
+        # print('Source backbone architecture')
+        backbone_model.summary()
+        # print('Target backbone architecture')
+        target_backbone_model = model.layers[0].layers[0]
+        target_backbone_model.summary()
         # load weights if layers match
-        for layer_idx, layer in enumerate(backbone_model.layers):
-            if layer_idx < len(model.layers[0].layers[0].layers):
-                model.layers[0].layers[0].layers[layer_idx].set_weights(layer.get_weights())
-                print('Loaded weights for:', layer.name)
+        for layer in backbone_model.layers:
+            # search for target layer
+            for target_layer in target_backbone_model.layers:
+                if layer.name == target_layer.name:
+                    target_layer.set_weights(layer.get_weights())
+                    # print('Loaded weights for:', layer.name)
         del backbone_model
     # print('AFTER:',model.layers[0].layers[0].get_weights()[0][0,0,0,:])
+
+    patterns = cfg.train_cfg.get('freeze_patterns', None)
+    if patterns:
+        freeze_model_layers(model, patterns)
 
     print_model_info(model, logger)
 

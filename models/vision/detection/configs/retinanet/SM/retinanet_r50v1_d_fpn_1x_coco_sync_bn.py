@@ -1,6 +1,7 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
+import os.path as osp
 
 # date time settings to update paths for jobs
 from datetime import datetime
@@ -15,7 +16,7 @@ sagemaker_user=dict(
     s3_bucket='mzanur-sagemaker',
     docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/mzanur-awsdet-ecr:awsdet',
     hvd_processes_per_host=8,
-    hvd_instance_type='ml.p3dn.24xlarge',
+    hvd_instance_type='ml.p3.16xlarge',
     hvd_instance_count=1,
 )
 # settings for distributed training on sagemaker
@@ -32,26 +33,26 @@ channels=dict(
     weights='s3://{}/awsdet/data/weights/'.format(sagemaker_user['s3_bucket'])
 )
 
+job_str='{}x{}-{}'.format(sagemaker_user['hvd_instance_count'], sagemaker_user['hvd_processes_per_host'], time_str)
 sagemaker_job=dict(
     s3_path='s3://{}/retinanet/outputs/{}'.format(sagemaker_user['s3_bucket'], time_str),
-    job_name='{}-retinanet-{}x{}-{}'.format(sagemaker_user['user_id'],
-                                            sagemaker_user['hvd_instance_count'],
-                                            sagemaker_user['hvd_processes_per_host'],
-                                            time_str),
+    job_name='{}-retinanet-{}'.format(sagemaker_user['user_id'], job_str),
     output_path='',
 )
 sagemaker_job['output_path']='{}/output/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
+
 
 
 # model settings
 model = dict(
     type='RetinaNet',
     pretrained=None,
+    norm_type='SyncBN',
     backbone=dict(
         type='KerasBackbone',
-        model_name='ResNet50V1_AWS',
-        weights_path='resnet50', # SavedModel format
-        weight_decay=5e-5
+        model_name='ResNet50V1_d',
+        weights_path='resnet50v1_d', # SavedModel format
+        weight_decay=1e-4
     ),
     neck=dict(
         type='FPN',
@@ -61,7 +62,7 @@ model = dict(
         add_extra_convs=True,
         num_outs=5,
         interpolation_method='bilinear',
-        weight_decay=5e-5,
+        weight_decay=1e-4,
     ),
     bbox_head=dict(
         type='RetinaHead',
@@ -78,10 +79,10 @@ model = dict(
         neg_iou_thr=0.4,
         alpha=0.25,
         gamma=2.0,
-        label_smoothing=0.1,
+        label_smoothing=0.0,
         num_pre_nms=1000,
-        min_confidence=0.005, 
-        nms_threshold=0.7, # using soft nms
+        min_confidence=0.005,
+        nms_threshold=0.75, # using soft nms
         max_instances=100,
         soft_nms_sigma=0.5,
         weight_decay=1e-4
@@ -89,7 +90,8 @@ model = dict(
 )
 # model training and testing settings
 train_cfg = dict(
-    weight_decay=5e-5,
+    freeze_patterns=['^conv[12]_*'],
+    weight_decay=1e-4,
     sagemaker=True
 )
 test_cfg = dict(
@@ -133,10 +135,11 @@ data = dict(
         std=(58.393, 57.12, 57.375),
         scale=(800, 1333)),
 )
+# yapf: enable
 evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
-    type='SGD',
+    type='MomentumOptimizer',
     learning_rate=5e-3,
     momentum=0.9,
     nesterov=False,
@@ -144,7 +147,7 @@ optimizer = dict(
 # extra options related to optimizers
 optimizer_config = dict(
     amp_enabled=True,
-    gradient_clip=5.0,
+    gradient_clip=10.0,
 )
 
 # learning policy
@@ -152,41 +155,21 @@ lr_config = dict(
     policy='step',
     warmup='linear',
     warmup_iters=500, 
-    warmup_ratio=1.0 / 10,
+    warmup_ratio=0.001,
     step=[8, 11])
-
-#TODO: add support for S3 checkpointing
-checkpoint_config=dict(
-    interval=1,
-    outdir='checkpoints')
-
-# log, tensorboard configuration
-log_config=dict(
+checkpoint_config = dict(interval=1, outdir='checkpoints')
+# yapf:disable
+log_config = dict(
     interval=50,
     hooks=[
-        dict(
-            type='TextLoggerHook'
-        ),
-        dict(
-            type='TensorboardLoggerHook',
-            log_dir=None,
-            image_interval=100,
-            s3_dir='{}/tensorboard/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
-        ),
-        dict(
-            type='Visualizer',
-            dataset_cfg=data['val'],
-            interval=100,
-            top_k=10,
-            run_on_sagemaker=True,
-        ),
-    ]
-)
-
+        dict(type='TextLoggerHook'),
+        dict(type='TensorboardLoggerHook', log_dir='/tmp/tensorboard')
+    ])
+# yapf:enable
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'
-work_dir = './work_dirs/retinanet_r50_fpn_1x_amp_bn'
+work_dir = './work_dirs/{}'.format(osp.splitext(osp.basename(__file__))[0])
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

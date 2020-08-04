@@ -36,6 +36,7 @@ model = dict(
         num_pre_nms_test=2000,
         num_post_nms_test=1000,
         weight_decay=1e-4,
+        use_smooth_l1=False,
     ),
     bbox_roi_extractor=dict(
         type='PyramidROIAlign',
