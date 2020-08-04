@@ -44,19 +44,20 @@ model = dict(
         use_tf_crop_and_resize=True,
     ),
     bbox_head=dict(
-    type='BBoxHead',
-    num_classes=81,
-    pool_size=[7, 7],
-    target_means=[0., 0., 0., 0.],
-    target_stds=[0.1, 0.1, 0.2, 0.2],
-    min_confidence=0.005,
-    nms_threshold=0.75,
-    max_instances=100,
-    weight_decay=1e-4,
-    use_conv=False,
-    use_bn=False,
-    use_smooth_l1=False,
-    soft_nms_sigma=0.5)
+        type='BBoxHead',
+        num_classes=81,
+        pool_size=[7, 7],
+        target_means=[0., 0., 0., 0.],
+        target_stds=[0.1, 0.1, 0.2, 0.2],
+        min_confidence=0.005, 
+        nms_threshold=0.75,
+        max_instances=100,
+        weight_decay=1e-4,
+        use_conv=False,
+        use_bn=False,
+        use_smooth_l1=False,
+        soft_nms_sigma=0.5
+    ),
 )
 # model training and testing settings
 train_cfg = dict(
@@ -109,7 +110,7 @@ evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
     type='MomentumOptimizer',
-    learning_rate=5e-3,
+    learning_rate=1e-2,
     momentum=0.9,
     nesterov=False,
 )
@@ -121,7 +122,7 @@ optimizer_config = dict(
 lr_config = dict(
     policy='step',
     warmup='linear',
-    warmup_iters=500, 
+    warmup_iters=500,
     warmup_ratio=0.001,
     step=[8, 11])
 checkpoint_config = dict(interval=1, outdir='checkpoints')
@@ -136,7 +137,8 @@ log_config = dict(
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'
-work_dir = './work_dirs/faster_rcnn_r50_fpn_1x_coco'
+work_dir = './work_dirs/faster_rcnn_r50v1_d_fpn_1x_coco'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
+

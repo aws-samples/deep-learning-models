@@ -9,14 +9,14 @@ model = dict(
         type='KerasBackbone',
         model_name='HRNetV2p',
         weights_path='weights/hrnet_w32c',
-        weight_decay=1e-5
+        weight_decay=1e-4
     ),
     neck=dict(
         type='HRFPN',
         in_channels=[('C2', 32), ('C3', 64), ('C4', 128), ('C5', 256)],
         out_channels=256,
         num_outs=5,
-        weight_decay=1e-5,
+        weight_decay=1e-4,
     ),
     rpn_head=dict(
         type='RPNHead',
@@ -34,7 +34,7 @@ model = dict(
         num_post_nms_train=2000,
         num_pre_nms_test=2000,
         num_post_nms_test=1000,
-        weight_decay=1e-5,
+        weight_decay=1e-4,
         use_smooth_l1=False
     ),
     bbox_roi_extractor=dict(
@@ -49,10 +49,10 @@ model = dict(
     pool_size=[7, 7],
     target_means=[0., 0., 0., 0.],
     target_stds=[0.1, 0.1, 0.2, 0.2],
-    min_confidence=0.001, 
-    nms_threshold=0.5,
+    min_confidence=0.005,
+    nms_threshold=0.75,
     max_instances=100,
-    weight_decay=1e-5,
+    weight_decay=1e-4,
     use_conv=False,
     use_bn=False,
     use_smooth_l1=False,
@@ -62,7 +62,7 @@ model = dict(
 # model training and testing settings
 train_cfg = dict(
     freeze_patterns=['_bn$'],
-    weight_decay=1e-5,
+    weight_decay=1e-4,
 )
 
 test_cfg = dict(
@@ -72,7 +72,7 @@ test_cfg = dict(
 dataset_type = 'CocoDataset'
 data_root = '/data/COCO/'
 data = dict(
-    imgs_per_gpu=2,
+    imgs_per_gpu=4,
     train=dict(
         type=dataset_type,
         train=True,
@@ -111,7 +111,7 @@ data = dict(
 evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
-    type='SGD',
+    type='MomentumOptimizer',
     learning_rate=1e-2,
     momentum=0.9,
     nesterov=False,
@@ -125,7 +125,7 @@ lr_config = dict(
     policy='step',
     warmup='linear',
     warmup_iters=500,
-    warmup_ratio=1.0 / 10, #3,
+    warmup_ratio=0.001,
     step=[8, 11])
 checkpoint_config = dict(interval=1, outdir='checkpoints')
 # yapf:disable
