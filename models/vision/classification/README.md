@@ -21,7 +21,7 @@ Inside the docker container
 ```
 # Train a HRNet_W32C classifier
 
-$ mpirun -np 8 -H localhost:8 -map-by slot -x NCCL_DEBUG=INFO -x TF_XLA_FLAGS=--tf_xla_cpu_global_jit -mca btl ^openib -mca btl_tcp_if_exclude tun0,docker0,lo --bind-to none --allow-run-as-root python train_backbone.py --train_data_dir /data/imagenet/tf_records/train/ --validation_data_dir /data/imagenet/tf_records/validation -b 128 --model hrnet_w32c --schedule cosine
+$ mpirun -np 8 -H localhost:8 -map-by slot -x NCCL_DEBUG=INFO -x TF_XLA_FLAGS=--tf_xla_cpu_global_jit -mca btl ^vader -mca btl_tcp_if_exclude tun0,docker0,lo --bind-to none --allow-run-as-root python train_backbone.py --train_data_dir /data/imagenet/tf_records/train/ --validation_data_dir /data/imagenet/tf_records/validation -b 128 --model hrnet_w32c --schedule cosine
 ```
 
 ### SageMaker training

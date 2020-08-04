@@ -1,69 +1,96 @@
 # Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
+import os.path as osp
+
+# date time settings to update paths for jobs
+from datetime import datetime
+now = datetime.now()
+time_str = now.strftime("%d-%m-%Y-%H-%M")
+date_str = now.strftime("%d-%m-%Y")
+
+
+# sagemaker settings
+sagemaker_user=dict(
+    user_id='mzanur',
+    s3_bucket='mzanur-sagemaker',
+    docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/mzanur-awsdet-ecr:awsdet',
+    hvd_processes_per_host=8,
+    hvd_instance_type='ml.p3.16xlarge',
+    hvd_instance_count=1,
+)
+# settings for distributed training on sagemaker
+distributions=dict(
+    mpi=dict(
+        enabled=True,
+        processes_per_host=sagemaker_user['hvd_processes_per_host'],
+        custom_mpi_options="-x OMPI_MCA_btl_vader_single_copy_mechanism=none -x TF_CUDNN_USE_AUTOTUNE=0",
+    )
+)
+# sagemaker channels
+channels=dict( 
+    coco='s3://{}/awsdet/data/coco/'.format(sagemaker_user['s3_bucket']),
+    weights='s3://{}/awsdet/data/weights/'.format(sagemaker_user['s3_bucket'])
+)
+
+job_str='{}x{}-{}'.format(sagemaker_user['hvd_instance_count'], sagemaker_user['hvd_processes_per_host'], time_str)
+sagemaker_job=dict(
+    s3_path='s3://{}/retinanet/outputs/{}'.format(sagemaker_user['s3_bucket'], time_str),
+    job_name='{}-retinanet-{}'.format(sagemaker_user['user_id'], job_str),
+    output_path='',
+)
+sagemaker_job['output_path']='{}/output/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
+
 # model settings
 model = dict(
-    type='FasterRCNN',
-    norm_type='SyncBN',
+    type='RetinaNet',
+    pretrained=None,
+    norm_type='BN',
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1_d',
-        weights_path='weights/resnet50v1_d',
+        weights_path='resnet50v1_d', # SavedModel format
         weight_decay=1e-4
     ),
     neck=dict(
         type='FPN',
         in_channels=[('C2', 256), ('C3', 512), ('C4', 1024), ('C5', 2048)],
         out_channels=256,
+        start_level=1,
+        add_extra_convs=True,
         num_outs=5,
         interpolation_method='bilinear',
         weight_decay=1e-4,
     ),
-    rpn_head=dict(
-        type='RPNHead',
-        anchor_scales=[8.],
-        anchor_ratios=[0.5, 1.0, 2.0],
-        anchor_strides=[4, 8, 16, 32, 64],
-        target_means=[.0, .0, .0, .0],
-        target_stds= [1.0, 1.0, 1.0, 1.0],
-        feat_channels=512,
-        num_samples=256,
-        positive_fraction=0.5,
-        pos_iou_thr=0.7,
-        neg_iou_thr=0.3,
-        num_pre_nms_train=6000,
-        num_post_nms_train=2000,
-        num_pre_nms_test=2000,
-        num_post_nms_test=1000,
-        weight_decay=1e-4,
-        use_smooth_l1=False,
-    ),
-    bbox_roi_extractor=dict(
-        type='PyramidROIAlign',
-        pool_shape=[7, 7],
-        pool_type='avg',
-        use_tf_crop_and_resize=True,
-    ),
     bbox_head=dict(
-        type='BBoxHead',
-        num_classes=81,
-        pool_size=[7, 7],
-        target_means=[0., 0., 0., 0.],
-        target_stds=[0.1, 0.1, 0.2, 0.2],
-        min_confidence=0.005, 
-        nms_threshold=0.75,
+        type='RetinaHead',
+        num_classes=80,
+        stacked_convs=4,
+        feat_channels=256,
+        octave_base_scale=4,
+        scales_per_octave=3,
+        anchor_ratios=[0.5, 1.0, 2.0],
+        anchor_strides=[8, 16, 32, 64, 128],
+        target_means=[.0, .0, .0, .0],
+        target_stds=[1., 1., 1., 1.],
+        pos_iou_thr=0.5,
+        neg_iou_thr=0.4,
+        alpha=0.25,
+        gamma=2.0,
+        label_smoothing=0.0,
+        num_pre_nms=1000,
+        min_confidence=0.005,
+        nms_threshold=0.75, # using soft nms
         max_instances=100,
-        weight_decay=1e-4,
-        use_conv=False,
-        use_bn=False,
-        use_smooth_l1=False,
-        soft_nms_sigma=0.5
+        soft_nms_sigma=0.5,
+        weight_decay=1e-4
     ),
 )
 # model training and testing settings
 train_cfg = dict(
-    freeze_patterns=['^conv[12]_*'],
+    freeze_patterns=['^conv[12]_*', '_bn$'],
     weight_decay=1e-4,
+    sagemaker=True
 )
 test_cfg = dict(
 )
@@ -111,14 +138,16 @@ evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
     type='MomentumOptimizer',
-    learning_rate=1e-2,
+    learning_rate=5e-3,
     momentum=0.9,
     nesterov=False,
 )
 # extra options related to optimizers
 optimizer_config = dict(
     amp_enabled=True,
+    gradient_clip=10.0,
 )
+
 # learning policy
 lr_config = dict(
     policy='step',
@@ -138,7 +167,8 @@ log_config = dict(
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'
-work_dir = './work_dirs/faster_rcnn_r50v1_d_fpn_1x_coco_syncbn'
+work_dir = './work_dirs/{}'.format(osp.splitext(osp.basename(__file__))[0])
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
+
