@@ -4,7 +4,6 @@
 # model settings
 model = dict(
     type='FasterRCNN',
-    norm_type='SyncBN',
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1_d',
@@ -55,20 +54,31 @@ model = dict(
         weight_decay=1e-4,
         use_conv=False,
         use_bn=False,
-        use_smooth_l1=False,
         soft_nms_sigma=0.5
+    ),
+    mask_head=dict(
+        type='MaskHead',
+        num_classes=81,
+        weight_decay=1e-5,
+        use_bn=False,
+    ),
+    mask_roi_extractor=dict(
+        type='PyramidROIAlign',
+        pool_shape=[14, 14],
+        pool_type='avg',
+        use_tf_crop_and_resize=True,
     ),
 )
 # model training and testing settings
 train_cfg = dict(
-    freeze_patterns=['^conv[12]_*'],
+    freeze_patterns=['^conv[12]_*', '_bn$'],
     weight_decay=1e-4,
 )
 test_cfg = dict(
 )
 # dataset settings
 dataset_type = 'CocoDataset'
-data_root = '/data/COCO/'
+data_root='/data/COCO/'
 data = dict(
     imgs_per_gpu=4,
     train=dict(
@@ -81,7 +91,8 @@ data = dict(
         preproc_mode='rgb',
         mean=(123.68, 116.78, 103.94),
         std=(58.393, 57.12, 57.375),
-        scale=(800, 1333)),
+        scale=(800, 1333),
+        mask=True),
     val=dict(
         type=dataset_type,
         train=False,
@@ -92,7 +103,8 @@ data = dict(
         preproc_mode='rgb',
         mean=(123.68, 116.78, 103.94),
         std=(58.393, 57.12, 57.375),
-        scale=(800, 1333)),
+        scale=(800, 1333),
+        mask=True),
     test=dict(
         type=dataset_type,
         train=False,
@@ -103,7 +115,8 @@ data = dict(
         preproc_mode='rgb',
         mean=(123.68, 116.78, 103.94),
         std=(58.393, 57.12, 57.375),
-        scale=(800, 1333)),
+        scale=(800, 1333),
+        mask=True),
 )
 # yapf: enable
 evaluation = dict(interval=1)
@@ -131,13 +144,15 @@ log_config = dict(
     interval=50,
     hooks=[
         dict(type='TextLoggerHook'),
-        dict(type='TensorboardLoggerHook', log_dir='/tmp/tensorboard')
+        dict(type='TensorboardLoggerHook', log_dir='/tmp/tensorboard',
+             image_interval=500),
+        dict(type='Visualizer', dataset_cfg=data['val'])
     ])
 # yapf:enable
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'
-work_dir = './work_dirs/faster_rcnn_r50v1_d_fpn_1x_coco_syncbn'
+work_dir = './work_dirs/mask_rcnn_r50v1_d_fpn_1x_coco'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

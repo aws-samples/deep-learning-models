@@ -6,21 +6,7 @@ from tensorflow.python.ops import resource_variable_ops
 from tensorflow.python.training import training_ops
 
 class MomentumOptimizer(tf.keras.optimizers.Optimizer):
-  r"""Gradient descent (with momentum) optimizer.
-  Update rule for parameter `w` with gradient `g` when `momentum` is 0:
-  ```python
-  w = w - learning_rate * g
-  ```
-  Update rule when `momentum` is larger than 0:
-  ```python
-  velocity = momentum * velocity - learning_rate * g
-  w = w * velocity
-  ```
-  When `nesterov=False`, this rule becomes:
-  ```python
-  velocity = momentum * velocity - learning_rate * g
-  w = w + momentum * velocity - learning_rate * g
-  ```
+  r"""Gradient descent (with momentum) optimizer. Does not use keras momentum.
   Args:
     learning_rate: A `Tensor`, floating point value, or a schedule that is a
       `tf.keras.optimizers.schedules.LearningRateSchedule`, or a callable
@@ -38,31 +24,6 @@ class MomentumOptimizer(tf.keras.optimizers.Optimizer):
       `"clipnorm"` or `"clipvalue"`.
       `"clipnorm"` (float) clips gradients by norm; `"clipvalue"` (float) clips
       gradients by value.
-  Usage:
-  >>> opt = tf.keras.optimizers.SGD(learning_rate=0.1)
-  >>> var = tf.Variable(1.0)
-  >>> loss = lambda: (var ** 2)/2.0         # d(loss)/d(var1) = var1
-  >>> step_count = opt.minimize(loss, [var]).numpy()
-  >>> # Step is `- learning_rate * grad`
-  >>> var.numpy()
-  0.9
-  >>> opt = tf.keras.optimizers.SGD(learning_rate=0.1, momentum=0.9)
-  >>> var = tf.Variable(1.0)
-  >>> val0 = var.value()
-  >>> loss = lambda: (var ** 2)/2.0         # d(loss)/d(var1) = var1
-  >>> # First step is `- learning_rate * grad`
-  >>> step_count = opt.minimize(loss, [var]).numpy()
-  >>> val1 = var.value()
-  >>> (val0 - val1).numpy()
-  0.1
-  >>> # On later steps, step-size increases because of momentum
-  >>> step_count = opt.minimize(loss, [var]).numpy()
-  >>> val2 = var.value()
-  >>> (val1 - val2).numpy()
-  0.18
-  Reference:
-      - For `nesterov=True`, See [Sutskever et al., 2013](
-        http://jmlr.org/proceedings/papers/v28/sutskever13.pdf).
   """
 
   _HAS_AGGREGATE_GRAD = True
@@ -154,3 +115,4 @@ class MomentumOptimizer(tf.keras.optimizers.Optimizer):
         "nesterov": self.nesterov,
     })
     return config
+
