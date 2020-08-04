@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
 '''
-FPN model for Keras.
+FPN model used by Faster R-CNN and RetinaNet.
 
 # Reference:
 - [Feature Pyramid Networks for Object Detection](
@@ -64,12 +64,12 @@ class FPN(tf.keras.Model):
             l_conv = layers.Conv2D(out_channels, lat_kernel_size, strides=1, use_bias=use_bias,
                                     name='lateral_{}'.format(channel_name),
                                     kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                                    padding='same', kernel_initializer='lecun_normal')
+                                    padding='same', kernel_initializer='glorot_uniform')
             fpn_kernel_size = 3
             fpn_conv = layers.Conv2D(out_channels, fpn_kernel_size, 1, use_bias=use_bias,
                                        kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                        padding='same', name='fpn_{}'.format(channel_name),
-                                       kernel_initializer='lecun_normal')
+                                       kernel_initializer='glorot_uniform')
             self.lateral_convs.append(l_conv)
             self.fpn_convs.append(fpn_conv)
             if i > self.start_level:
@@ -83,13 +83,13 @@ class FPN(tf.keras.Model):
                                                 use_bias=use_bias,
                                                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                                 name='extra_conv_{}'.format(i),
-                                                kernel_initializer='lecun_normal')
+                                                kernel_initializer='glorot_uniform')
                 self.fpn_convs.append(extra_fpn_conv)
         self._method = interpolation_method
 
 
     @tf.function(experimental_relax_shapes=True)
-    def call(self, inputs, training=None, mask=None):
+    def call(self, inputs, training=None):
         # e.g. inputs = (C2, C3, C4, C5)
         assert len(inputs) == len(self.in_channels)
         

@@ -65,7 +65,7 @@ def set_recall_param(proposal_nums, iou_thrs):
 def eval_recalls(gts,
                  proposals,
                  proposal_nums=None,
-                 iou_thrs=None,
+                 iou_thrs=0.5,
                  print_summary=True):
     """Calculate recalls.
 

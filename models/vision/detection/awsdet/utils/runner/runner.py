@@ -293,7 +293,6 @@ class Runner(object):
                 loss = outputs['loss']
         var_list = self.model.trainable_variables
         tape = get_distributed_tape(tape) if self.world_size > 1 else tape
-        # loss = outputs['loss']
         grads = tape.gradient(loss, var_list)
         if self._amp_enabled:
             grads = self.optimizer.get_unscaled_gradients(grads)
@@ -314,7 +313,7 @@ class Runner(object):
         '''
         if self.rank != 0:
             return
-        imgs, img_metas, gt_boxes, gt_class_ids = data_batch
+        imgs, img_metas, gt_boxes, gt_class_ids, *gt_masks = data_batch
         detections_dict = self.batch_processor(self.model, (tf.expand_dims(imgs[0], axis=0), tf.expand_dims(img_metas[0], axis=0)), train_mode=False)
         for l, b in zip(gt_class_ids,gt_boxes):
             print('GT', l, b)
@@ -332,24 +331,15 @@ class Runner(object):
         self.call_hook('before_train_epoch')
         for i, data_batch in enumerate(tf_dataset[0]):
             self._inner_iter = i
-            prev_lr = self.current_lr()
             self.call_hook('before_train_iter')
-            # momentum correction (V2 SGD absorbs LR into the update term) TODO: write a hook for this
-            curr_lr = self.current_lr()
-            orig_momentum = self.optimizer._optimizer.momentum.numpy()
-            momentum_correction_factor = curr_lr / prev_lr
-            self.optimizer._optimizer.momentum = self.optimizer._optimizer.momentum * momentum_correction_factor
             outputs = self.run_train_step(data_batch)
-            # restore momentum
-            self.optimizer._optimizer.momentum = orig_momentum
             if self.broadcast: # broadcast once
                 broadcast_weights(self)
                 self.broadcast = False
             if not isinstance(outputs, dict):
                 raise TypeError('batch_processor() must return a dict')
             if self.rank == 0 and 'log_vars' in outputs:
-                self.log_buffer.update(outputs['log_vars'],
-                                       outputs['num_samples'])
+                self.log_buffer.update(outputs['log_vars'], outputs['num_samples'])
                 # add current learning rate for tensorboard as well
                 self.log_buffer.update({'learning_rate': self.current_lr()})
             self.outputs = outputs

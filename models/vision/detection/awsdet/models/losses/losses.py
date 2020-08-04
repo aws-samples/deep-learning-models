@@ -73,7 +73,7 @@ def rpn_class_loss(logits, labels, avg_factor=256.0, weight=1.0, label_smoothing
     return tf.cast(batch_loss_sum / avg_factor, tf.float32)
 
 
-def rpn_bbox_loss(rpn_deltas, target_deltas, rpn_inside_weights, rpn_outside_weights):
+def rpn_bbox_loss(rpn_deltas, target_deltas, rpn_inside_weights, rpn_outside_weights, avg_factor=256.0, use_smooth_l1=True):
     '''Return the RPN bounding box loss    
     Args
     ---
@@ -82,12 +82,16 @@ def rpn_bbox_loss(rpn_deltas, target_deltas, rpn_inside_weights, rpn_outside_wei
         rpn_inside_weights: [batch * anchors, 4] weights for inside targets
         rpn_outside_weights: [batch * anchors, 4] weights for outside targets        
     '''
-    loss = smooth_l1_loss(rpn_deltas,
+    if use_smooth_l1:
+        loss = smooth_l1_loss(rpn_deltas,
                               target_deltas,
                               rpn_inside_weights,
                               rpn_outside_weights,
                               sigma=3.0, dim=[0, 1])
-    return loss
+        return loss
+    else:
+        loss = tf.math.abs(rpn_deltas - target_deltas) * rpn_inside_weights
+        return tf.cast(tf.reduce_sum(loss) / avg_factor, tf.float32)
 
 
 def rcnn_class_loss(logits, labels, avg_factor=512.0, weight=1.0, label_smoothing=0.0):
@@ -103,7 +107,7 @@ def rcnn_class_loss(logits, labels, avg_factor=512.0, weight=1.0, label_smoothin
     return tf.cast(batch_loss_sum / avg_factor, tf.float32)
 
 
-def rcnn_bbox_loss(roi_deltas, target_deltas, roi_inside_weights, roi_outside_weights):
+def rcnn_bbox_loss(roi_deltas, target_deltas, roi_inside_weights, roi_outside_weights, avg_factor=512.0, use_smooth_l1=True):
     '''Return the RCNN ROI box loss    
     Args
     ---
@@ -112,11 +116,19 @@ def rcnn_bbox_loss(roi_deltas, target_deltas, roi_inside_weights, roi_outside_we
         roi_inside_weights: [batch * anchors, 4] weights for inside targets
         roi_outside_weights: [batch * anchors, 4] weights for outside targets        
     '''
-    loss = smooth_l1_loss(roi_deltas,
+    if use_smooth_l1:
+        loss = smooth_l1_loss(roi_deltas,
                               target_deltas,
                               roi_inside_weights,
                               roi_outside_weights,
                               sigma=1.0,
                               dim=[0, 1])
-    return loss
+        return loss
+    else:
+        loss = tf.math.abs(roi_deltas - target_deltas) * roi_inside_weights
+        return tf.cast(tf.reduce_sum(loss) / avg_factor, tf.float32)
 
+def rcnn_mask_loss(gt_mask_crops, rcnn_masks, weights):
+    loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=gt_mask_crops, logits=rcnn_masks)
+    loss = tf.reduce_sum(tf.squeeze(tf.reduce_sum(loss, axis=[1,2]))*weights)
+    return loss
