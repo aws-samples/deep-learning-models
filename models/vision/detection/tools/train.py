@@ -57,6 +57,7 @@ def parse_args():
     parser.add_argument("--model_dir", help="Location of model on Sagemaker instance")
     parser.add_argument('--work_dir', help='the dir to save logs and models')
     parser.add_argument('--resume_from', help='restarts training from saved running state in provided directory')
+    parser.add_argument('--resume_dir', help='restarts training from the latest running state in provided directory - useful for spot training')
     parser.add_argument('--amp', type=str2bool, nargs='?', const=True, default=True, help='enable mixed precision training')
     parser.add_argument('--validate', type=str2bool, nargs='?', const=True, default=True, help='whether to evaluate the checkpoint during training')
     parser.add_argument('--seed', type=int, default=17, help='random seed')
@@ -97,6 +98,10 @@ def print_model_info(model, logger):
 
 
 def main_ec2(args, cfg):
+    # start logger
+    timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
+    log_file = osp.join(cfg.work_dir, '{}.log'.format(timestamp))
+    logger = get_root_logger(log_file=log_file, log_level=cfg.log_level)
     """
     Main training entry point for jobs launched directly on EC2 instances
     """
@@ -106,6 +111,20 @@ def main_ec2(args, cfg):
         cfg.work_dir = args.work_dir
     if args.resume_from is not None:
         cfg.resume_from = args.resume_from
+    if args.resume_dir is not None:
+        if os.path.exists(args.resume_dir):
+            logger.info("RESUMING TRAINING")
+            # get the latest checkpoint
+            all_chkpt = [os.path.join(args.resume_dir,d) for d in os.listdir(args.resume_dir) if os.path.isdir(os.path.join(args.resume_dir,d))]
+            if not all_chkpt:
+               cfg.resume_from = None
+            else: 
+               latest_chkpt = max(all_chkpt, key=os.path.getmtime)
+               # set the latest checkpoint to resume_from
+               cfg.resume_from = latest_chkpt
+        else:
+            logger.info("CHECKPOINT NOT FOUND, RESTARTING TRAINING")
+            cfg.resume_from = None
 
     if args.autoscale_lr:
         # apply the linear scaling rule (https://arxiv.org/abs/1706.02677)
@@ -122,10 +141,6 @@ def main_ec2(args, cfg):
 
     # create work_dir
     mkdir_or_exist(osp.abspath(cfg.work_dir))
-    # init the logger before other steps
-    timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
-    log_file = osp.join(cfg.work_dir, '{}.log'.format(timestamp))
-    logger = get_root_logger(log_file=log_file, log_level=cfg.log_level)
     # log some basic info
     logger.info('Distributed training: {}'.format(distributed))
     logger.info('TF MMDetection Version: {}'.format(__version__))
