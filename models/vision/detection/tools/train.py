@@ -56,7 +56,8 @@ def parse_args():
     parser.add_argument('--config', help='train config file path')
     parser.add_argument("--model_dir", help="Location of model on Sagemaker instance")
     parser.add_argument('--work_dir', help='the dir to save logs and models')
-    parser.add_argument('--resume_dir', help='restarts training from saved running state in provided directory')
+    parser.add_argument('--resume_from', help='restarts training from saved running state in provided directory')
+    parser.add_argument('--resume_dir', help='restarts training from the latest running state in provided directory - useful for spot training')
     parser.add_argument('--amp', type=str2bool, nargs='?', const=True, default=True, help='enable mixed precision training')
     parser.add_argument('--validate', type=str2bool, nargs='?', const=True, default=True, help='whether to evaluate the checkpoint during training')
     parser.add_argument('--seed', type=int, default=17, help='random seed')
@@ -108,6 +109,8 @@ def main_ec2(args, cfg):
     # update configs according to CLI args
     if args.work_dir is not None:
         cfg.work_dir = args.work_dir
+    if args.resume_from is not None:
+        cfg.resume_from = args.resume_from
     if args.resume_dir is not None:
         if os.path.exists(args.resume_dir):
             logger.info("RESUMING TRAINING")
