@@ -6,9 +6,9 @@ def colorize(token: str, color: str) -> str:
 
 
 def colorize_gen(tokenizer, true_ids, gen_ids, mask):
-    gen_ids = gen_ids.numpy().flatten()
-    true_ids = true_ids.numpy().flatten()
-    mask = mask.numpy().flatten()
+    gen_ids = gen_ids.numpy()
+    true_ids = true_ids.numpy()
+    mask = mask.numpy()
     tokens = tokenizer.convert_ids_to_tokens(gen_ids)
     styled_tokens = tokens.copy()
     for i in range(len(tokens)):
@@ -22,8 +22,8 @@ def colorize_gen(tokenizer, true_ids, gen_ids, mask):
 
 
 def colorize_dis(tokenizer, gen_ids, dis_preds):
-    gen_ids = gen_ids.numpy().flatten()
-    dis_preds = dis_preds.numpy().flatten()
+    gen_ids = gen_ids.numpy()
+    dis_preds = dis_preds.numpy()
     tokens = tokenizer.convert_ids_to_tokens(gen_ids)
     styled_tokens = tokens.copy()
     for i in range(len(tokens)):

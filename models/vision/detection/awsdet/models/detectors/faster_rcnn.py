@@ -27,6 +27,8 @@ class FasterRCNN(TwoStageDetector):
                  bbox_head,
                  train_cfg,
                  test_cfg,
+                 mask_roi_extractor=None,
+                 mask_head=None,
                  neck=None,
                  shared_head=None,
                  pretrained=None):
@@ -37,10 +39,13 @@ class FasterRCNN(TwoStageDetector):
             rpn_head=rpn_head,
             bbox_roi_extractor=bbox_roi_extractor,
             bbox_head=bbox_head,
+            mask_roi_extractor=mask_roi_extractor,
+            mask_head=mask_head,
             train_cfg=train_cfg,
             test_cfg=test_cfg,
             pretrained=pretrained)
         self.pretrained = pretrained
+        self.mask = mask_head!=None
         #TODO: delegate to assigner and sampler in the future
         self.bbox_target = bbox_target.ProposalTarget(
             target_means=self.bbox_head.target_means,
@@ -48,7 +53,8 @@ class FasterRCNN(TwoStageDetector):
             num_rcnn_deltas=512,
             positive_fraction=0.25,
             pos_iou_thr=0.5,
-            neg_iou_thr=0.1)
+            neg_iou_thr=0.1,
+            fg_assignments=self.mask)
         self.count = 0
 
     def init_weights(self):
@@ -74,7 +80,10 @@ class FasterRCNN(TwoStageDetector):
         if use_dali:
             inputs = dali.dali_adapter(*inputs, training=training)
         if training: # training
-            imgs, img_metas, gt_boxes, gt_class_ids = inputs
+            if self.mask:
+                imgs, img_metas, gt_boxes, gt_class_ids, gt_masks = inputs
+            else:
+                imgs, img_metas, gt_boxes, gt_class_ids = inputs
         else: # inference
             imgs, img_metas = inputs
         s0 = tf.timestamp()
@@ -94,7 +103,12 @@ class FasterRCNN(TwoStageDetector):
             rpn_probs, rpn_deltas, img_metas, training=training)
         s4 = tf.timestamp()
         if training: # get target value for these proposal target label and target delta
-            rois_list, rcnn_target_matchs, rcnn_target_deltas, inside_weights, outside_weights = self.bbox_target.build_targets(proposals_list, gt_boxes, gt_class_ids, img_metas)
+            if self.mask:
+                rois_list, rcnn_target_matchs, rcnn_target_deltas, inside_weights, outside_weights, fg_assignments = \
+                                        self.bbox_target.build_targets(proposals_list, gt_boxes, gt_class_ids, img_metas)
+            else:
+                rois_list, rcnn_target_matchs, rcnn_target_deltas, inside_weights, outside_weights = \
+                                        self.bbox_target.build_targets(proposals_list, gt_boxes, gt_class_ids, img_metas)
         else:
             rois_list = proposals_list
         s5 = tf.timestamp()
@@ -112,6 +126,16 @@ class FasterRCNN(TwoStageDetector):
         # tf.print('roi target', s5-s4)
         # tf.print('pooling', s6-s5)
         # tf.print('roi head', s7-s6)
+        # if training use rpn outputs to compute mask regions
+        if training and self.mask:
+            fg_rois_list = self.mask_head.get_fg_rois_list(rois_list)
+            mask_regions_list = self.mask_roi_extractor((fg_rois_list, rcnn_feature_maps, img_metas), training=training)
+            gt_mask_crops, fg_targets, weights = \
+                        self.mask_head.mask_target.get_mask_targets(gt_masks, fg_assignments, 
+                                                                    rcnn_target_matchs, fg_rois_list, img_metas)
+            rcnn_masks = self.mask_head(mask_regions_list)
+            rcnn_masks = self.mask_head.mask_target.slice_masks(rcnn_masks, fg_targets)
+            mask_loss = self.mask_head.loss(gt_mask_crops, rcnn_masks, weights)
         if training:
             s8 = tf.timestamp()
             rpn_inputs = (rpn_class_logits, rpn_deltas, gt_boxes, gt_class_ids, img_metas)
@@ -129,6 +153,8 @@ class FasterRCNN(TwoStageDetector):
                 'rcnn_class_loss': rcnn_class_loss,
                 'rcnn_bbox_loss': rcnn_bbox_loss
             }
+            if self.mask:
+                losses_dict['rcnn_mask_loss'] = mask_loss
             return losses_dict
         else:
             detections_dict = {}
@@ -140,4 +166,12 @@ class FasterRCNN(TwoStageDetector):
                     'labels': detections_list[0][1],
                     'scores': detections_list[0][2]
             }
+            if self.mask:
+                mask_boxes = [tf.round(detections_dict['bboxes'])]
+                mask_pooled_regions_list = self.mask_roi_extractor(
+                                        (mask_boxes, 
+                                         rcnn_feature_maps, img_metas), training=training)
+                rcnn_masks = self.mask_head(mask_pooled_regions_list)
+                rcnn_masks = self.mask_head.mask_target.slice_masks(rcnn_masks, detections_dict['labels'] - 1)
+                detections_dict['masks'] = self.mask_head.mold_masks(rcnn_masks, mask_boxes[0], img_metas[0])
             return detections_dict

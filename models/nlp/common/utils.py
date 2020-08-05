@@ -1,4 +1,5 @@
 import logging
+import os
 from functools import lru_cache
 from typing import List
 
@@ -25,6 +26,24 @@ from common.arguments import ModelArguments
 
 # See https://github.com/huggingface/transformers/issues/3782; this import must come last
 import horovod.tensorflow as hvd  # isort:skip
+
+try:
+    import wandb
+
+    wandb.ensure_configured()
+    if wandb.api.api_key is None:
+        _has_wandb = False
+        wandb.termwarn(
+            "W&B installed but not logged in.  Run `wandb login` or set the WANDB_API_KEY env variable."
+        )
+    else:
+        _has_wandb = False if os.getenv("WANDB_DISABLED") else True
+except (ImportError, AttributeError):
+    _has_wandb = False
+
+
+def is_wandb_available():
+    return _has_wandb
 
 
 class TqdmLoggingHandler(logging.Handler):
@@ -150,5 +169,7 @@ def create_tokenizer(model_type: str) -> PreTrainedTokenizer:
         return AlbertTokenizer.from_pretrained("albert-base-v2")
     elif model_type == "bert":
         return BertTokenizer.from_pretrained("bert-base-uncased")
+    elif model_type == "electra":
+        return BertTokenizer.from_pretrained("bert-base-uncased")
     else:
-        raise ValueError(f"model_type={model_type} must be one of ['albert', 'bert']")
+        raise ValueError(f"model_type={model_type} must be one of ['albert', 'bert', 'electra']")

@@ -7,6 +7,7 @@ from common.arguments import (
     DataTrainingArguments,
     LoggingArguments,
     ModelArguments,
+    PathArguments,
     SageMakerArguments,
     TrainingArguments,
 )
@@ -20,17 +21,25 @@ if __name__ == "__main__":
             DataTrainingArguments,
             TrainingArguments,
             LoggingArguments,
+            PathArguments,
             SageMakerArguments,
         )
     )
-    model_args, data_args, train_args, log_args, sm_args = parser.parse_args_into_dataclasses()
+    (
+        model_args,
+        data_args,
+        train_args,
+        log_args,
+        path_args,
+        sm_args,
+    ) = parser.parse_args_into_dataclasses()
 
     hyperparameters = dict()
-    for args in [model_args, data_args, train_args, log_args]:
+    for args in [model_args, data_args, train_args, path_args, log_args]:
         for key, value in dataclasses.asdict(args).items():
             if value is not None:
                 hyperparameters[key] = value
-    hyperparameters["fsx_prefix"] = "/opt/ml/input/data/training"
+    hyperparameters["filesystem_prefix"] = "/opt/ml/input/data/training"
 
     instance_abbr = {
         "ml.p3dn.24xlarge": "p3dn",
@@ -49,6 +58,7 @@ if __name__ == "__main__":
         role=sm_args.role,
         image_name=sm_args.image_name,
         fsx_id=sm_args.fsx_id,
+        fsx_mount_name=sm_args.fsx_mount_name,
         subnet_ids=sm_args.subnet_ids,
         security_group_ids=sm_args.security_group_ids,
     )
