@@ -113,9 +113,12 @@ def main_ec2(args, cfg):
             logger.info("RESUMING TRAINING")
             # get the latest checkpoint
             all_chkpt = [os.path.join(args.resume_dir,d) for d in os.listdir(args.resume_dir) if os.path.isdir(os.path.join(args.resume_dir,d))]
-            latest_chkpt = max(all_chkpt, key=os.path.getmtime)
-            # set the latest checkpoint to resume_from
-            cfg.resume_from = latest_chkpt
+            if not all_chkpt:
+               cfg.resume_from = None
+            else: 
+               latest_chkpt = max(all_chkpt, key=os.path.getmtime)
+               # set the latest checkpoint to resume_from
+               cfg.resume_from = latest_chkpt
         else:
             logger.info("CHECKPOINT NOT FOUND, RESTARTING TRAINING")
             cfg.resume_from = None
