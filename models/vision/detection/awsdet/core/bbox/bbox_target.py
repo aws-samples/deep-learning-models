@@ -150,6 +150,7 @@ class ProposalTarget:
                 dups = remaining - num_bg
                 dup_bgs = tf.random.shuffle(bg_inds)[:dups]
                 bg_inds = tf.concat([bg_inds, dup_bgs], axis=0)
+                num_bg = tf.size(bg_inds)
 
         # tf.print('proposal target generated %d fgs and %d bgs.' % (tf.size(fg_inds), tf.size(bg_inds)))
 
