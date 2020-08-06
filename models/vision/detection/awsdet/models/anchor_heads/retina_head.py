@@ -135,11 +135,11 @@ class RetinaHead(AnchorHead):
         reg_feat = feat
         for cls_conv, cls_conv_bn in zip(self.cls_convs, self.cls_conv_bns):
             cls_feat = cls_conv(cls_feat)
-            cls_feat = cls_conv_bn(cls_feat, training=is_training)
+            # cls_feat = cls_conv_bn(cls_feat, training=is_training)
             cls_feat = layers.Activation('relu')(cls_feat)
         for reg_conv, reg_conv_bn in zip(self.reg_convs, self.reg_conv_bns):
             reg_feat = reg_conv(reg_feat)
-            reg_feat = reg_conv_bn(reg_feat, training=is_training)
+            # reg_feat = reg_conv_bn(reg_feat, training=is_training)
             reg_feat = layers.Activation('relu')(reg_feat)
         cls_score = self.retina_cls(cls_feat)
         bbox_pred = self.retina_reg(reg_feat)
