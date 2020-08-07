@@ -15,7 +15,7 @@ from models import resnet, darknet, hrnet
 from schedulers import WarmupScheduler
 from datasets import create_dataset, parse
 from trainer import train_step, validation_step
-
+from optimizers import MomentumOptimizer
 
 def add_cli_args():
     cmdline = argparse.ArgumentParser(
@@ -139,7 +139,8 @@ def main():
     scheduler = WarmupScheduler(optimizer=scheduler, initial_learning_rate=learning_rate / hvd.size(), warmup_steps=steps_per_epoch * 5)
 
     #TODO support optimizers choice via config
-    opt = tf.keras.optimizers.SGD(learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True) # needs momentum correction term
+    # opt = tf.keras.optimizers.SGD(learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True) # needs momentum correction term
+    opt = MomentumOptimizer(learning_rate=scheduler, momentum=FLAGS.momentum, nesterov=True) 
 
     if not FLAGS.fp32:
         opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt, loss_scale=128.)
@@ -179,14 +180,14 @@ def main():
         training_score = 0
         for batch, (images, labels) in enumerate(tqdm(data)):
             # momentum correction (V2 SGD absorbs LR into the update term)
-            prev_lr = opt._optimizer.learning_rate(curr_step-1)
-            curr_lr = opt._optimizer.learning_rate(curr_step)
-            momentum_correction_factor = curr_lr / prev_lr
-            opt._optimizer.momentum = opt._optimizer.momentum * momentum_correction_factor
+            # prev_lr = opt._optimizer.learning_rate(curr_step-1)
+            # curr_lr = opt._optimizer.learning_rate(curr_step)
+            # momentum_correction_factor = curr_lr / prev_lr
+            # opt._optimizer.momentum = opt._optimizer.momentum * momentum_correction_factor
             loss, score = train_step(model, opt, loss_func, images, labels, batch==0 and epoch==0,
                             batch_size=FLAGS.batch_size, mixup_alpha=FLAGS.mixup_alpha, fp32=FLAGS.fp32)
-            # restore momentum
-            opt._optimizer.momentum = FLAGS.momentum
+            # # restore momentum
+            # opt._optimizer.momentum = FLAGS.momentum
             training_score += score.numpy()
             curr_step.assign_add(1)
         training_accuracy = training_score / (FLAGS.batch_size * (batch + 1))
