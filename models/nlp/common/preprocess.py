@@ -296,7 +296,7 @@ def multiprocess_map(dset, num_processes, function, **kwargs):
 dset = multiprocess_map(
     dset=dset,
     num_processes=args.processes,
-    function=lambda batch: tokenizer_batch(batch, tokenizer),
+    function=tokenizer_batch,
     batched=True,
     remove_columns=["examples"],
     cache_file_name=os.path.join(args.cache_dir, EXAMPLE_IDS_CACHE),
