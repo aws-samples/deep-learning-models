@@ -79,7 +79,7 @@ model = dict(
         gamma=2.0,
         label_smoothing=0.0,
         num_pre_nms=1000,
-        min_confidence=0.005,
+        min_confidence=0.05,
         nms_threshold=0.75, # using soft nms
         max_instances=100,
         soft_nms_sigma=0.5,
@@ -133,7 +133,7 @@ data = dict(
         std=(58.393, 57.12, 57.375),
         scale=(800, 1333)),
 )
-# yapf: enable
+
 evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
@@ -142,28 +142,30 @@ optimizer = dict(
     momentum=0.9,
     nesterov=False,
 )
+
 # extra options related to optimizers
 optimizer_config = dict(
     amp_enabled=True,
-    gradient_clip=10.0,
+    gradient_clip=5.0,
 )
 
 # learning policy
 lr_config = dict(
     policy='step',
     warmup='linear',
-    warmup_iters=500,
+    warmup_iters=500 if sagemaker_user['hvd_instance_count'] == 1 else 1500,
     warmup_ratio=0.001,
     step=[8, 11])
 checkpoint_config = dict(interval=1, outdir='checkpoints')
-# yapf:disable
+
 log_config = dict(
     interval=50,
     hooks=[
         dict(type='TextLoggerHook'),
         dict(type='TensorboardLoggerHook', log_dir='/tmp/tensorboard')
-    ])
-# yapf:enable
+    ]
+)
+
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'

@@ -17,7 +17,7 @@ sagemaker_user=dict(
     docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/mzanur-awsdet-ecr:awsdet',
     hvd_processes_per_host=8,
     hvd_instance_type='ml.p3dn.24xlarge', # 'ml.p3.16xlarge',
-    hvd_instance_count=1,
+    hvd_instance_count=4,
 )
 # settings for distributed training on sagemaker
 distributions=dict(
@@ -50,14 +50,14 @@ model = dict(
         type='KerasBackbone',
         model_name='HRNetV2p',
         weights_path='hrnet_w32c',
-        weight_decay=1e-4
+        weight_decay=5e-5
     ),
     neck=dict(
         type='HRFPN',
         in_channels=[('C2', 32), ('C3', 64), ('C4', 128), ('C5', 256)],
         out_channels=256,
         num_outs=5,
-        weight_decay=1e-4,
+        weight_decay=5e-5,
     ),
     rpn_head=dict(
         type='RPNHead',
@@ -75,7 +75,7 @@ model = dict(
         num_post_nms_train=2000,
         num_pre_nms_test=2000,
         num_post_nms_test=1000,
-        weight_decay=1e-4,
+        weight_decay=5e-5,
         use_smooth_l1=False
     ),
     bbox_roi_extractor=dict(
@@ -93,7 +93,7 @@ model = dict(
         min_confidence=0.005,
         nms_threshold=0.75,
         max_instances=100,
-        weight_decay=1e-4,
+        weight_decay=5e-5,
         use_conv=False,
         use_bn=False,
         use_smooth_l1=False,
@@ -104,7 +104,7 @@ model = dict(
 # model training and testing settings
 train_cfg = dict(
     freeze_patterns=['_bn$'],
-    weight_decay=1e-4,
+    weight_decay=5e-5,
     sagemaker=True
 )
 
@@ -162,12 +162,13 @@ optimizer = dict(
 # extra options related to optimizers
 optimizer_config = dict(
     amp_enabled=True,
+    gradient_clip=10.0,
 )
 # learning policy
 lr_config = dict(
     policy='step',
     warmup='linear',
-    warmup_iters=500,
+    warmup_iters=500 if sagemaker_user['hvd_instance_count'] == 1 else 1000,
     warmup_ratio=0.001,
     step=[8, 11])
 checkpoint_config = dict(interval=1, outdir='checkpoints')

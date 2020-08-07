@@ -170,11 +170,7 @@ def main_ec2(args, cfg):
         model.layers[0].layers[0].load_weights(weights_path, by_name=True, skip_mismatch=True)
     else: # SavedModel format assumed - extract weights
         backbone_model = tf.keras.models.load_model(weights_path)
-        # print('Source backbone architecture')
-        backbone_model.summary()
-        # print('Target backbone architecture')
         target_backbone_model = model.layers[0].layers[0]
-        target_backbone_model.summary()
         # load weights if layers match
         for layer in backbone_model.layers:
             # search for target layer
@@ -286,11 +282,7 @@ def main_sagemaker(args, cfg):
         model.layers[0].layers[0].load_weights(weights_path, by_name=True, skip_mismatch=True)
     else: # SavedModel format assumed - extract weights
         backbone_model = tf.keras.models.load_model(weights_path)
-        # print('Source backbone architecture')
-        backbone_model.summary()
-        # print('Target backbone architecture')
         target_backbone_model = model.layers[0].layers[0]
-        target_backbone_model.summary()
         # load weights if layers match
         for layer in backbone_model.layers:
             # search for target layer
