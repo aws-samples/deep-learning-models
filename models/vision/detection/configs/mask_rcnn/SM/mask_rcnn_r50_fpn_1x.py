@@ -11,11 +11,11 @@ date_str = now.strftime("%d-%m-%Y")
 
 # sagemaker settings
 sagemaker_user=dict(
-    user_id='mzanur',
-    s3_bucket='mzanur-sagemaker',
-    docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/mzanur-awsdet-ecr:awsdet',
+    user_id='jbsnyder',
+    s3_bucket='jbsnyder-sagemaker',
+    docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/jbsnyder:dlc22sagemaker',
     hvd_processes_per_host=8,
-    hvd_instance_type='ml.p3dn.24xlarge', # 'ml.p3.16xlarge',
+    hvd_instance_type='ml.p3.16xlarge', # 'ml.p3.16xlarge',
     hvd_instance_count=1,
 )
 # settings for distributed training on sagemaker
@@ -28,13 +28,13 @@ distributions=dict(
 )
 # sagemaker channels
 channels=dict( 
-    coco='s3://{}/awsdet/data/coco/'.format(sagemaker_user['s3_bucket']),
-    weights='s3://{}/awsdet/data/weights/'.format(sagemaker_user['s3_bucket'])
+    coco='s3://{}/faster-rcnn/data/coco/'.format(sagemaker_user['s3_bucket']),
+    weights='s3://{}/faster-rcnn/data/weights/'.format(sagemaker_user['s3_bucket'])
 )
 
 sagemaker_job=dict(
     s3_path='s3://{}/faster-rcnn/outputs/{}'.format(sagemaker_user['s3_bucket'], time_str),
-    job_name='{}-frcnn-{}'.format(sagemaker_user['user_id'], time_str),
+    job_name='{}-mrcnn-{}'.format(sagemaker_user['user_id'], time_str),
     output_path='',
 )
 sagemaker_job['output_path']='{}/output/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
@@ -143,7 +143,8 @@ data=dict(
         preproc_mode='caffe',
         mean=(123.675, 116.28, 103.53),
         std=(1., 1., 1.),
-        scale=(800, 1333)),
+        scale=(800, 1333),
+        mask=True),
     test=dict(
         type=dataset_type,
         train=False,
@@ -154,7 +155,8 @@ data=dict(
         preproc_mode='caffe',
         mean=(123.675, 116.28, 103.53),
         std=(1., 1., 1.),
-        scale=(800, 1333)),
+        scale=(800, 1333),
+        mask=True),
 )
 evaluation=dict(interval=1)
 # optimizer
