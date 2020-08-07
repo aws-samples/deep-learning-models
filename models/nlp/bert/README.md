@@ -12,9 +12,9 @@ Pretraining consists of two phases. We use mixed-batch training.
 
 SQuAD F1 score combines both precision and recall of each word in the predicted answer ranging between 0-100.
 
-| Model | Phase1 | Phase2 | Total Training Time | SQuAD v1.1 F1 | SQuAD v2.0 F1 |
-| --- | --- | --- |  --- | --- | --- |
-| BERT-base | 5 hrs 33 mins | 2 hrs 53 mins | 8 hrs 26 mins | 87.68 | 76.14 |
+| Model | Phase1 | Phase2 | Finetuning | Total Training Time | SQuAD v1.1 F1 | SQuAD v2.0 F1 |
+| --- | --- | --- |  --- | --- | --- | --- |
+| BERT-base | 5 hrs 33 mins | 2 hrs 53 mins | 15 mins | 8 hrs 41 mins | 87.68 | 76.14 |
 
 
 ### How To Launch Training

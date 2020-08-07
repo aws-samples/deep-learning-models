@@ -83,7 +83,7 @@ assert (
     args.skip_tfrecords or args.dataset in args.tfrecords_dir
 ), "Dataset name should be part of the TFRecords directory, don't mix datasets!"
 assert (
-    args.skip_tfrecords or args.max_seq_length in args.tfrecords_dir
+    args.skip_tfrecords or str(args.max_seq_length) in args.tfrecords_dir
 ), "Sequence length should be part of the TFRecords directory"
 
 if not os.path.exists(args.cache_dir):
@@ -260,6 +260,7 @@ def tokenizer_batch(batch, tokenizer):
     # This must be defined in __main__ for serialization
     return tokenizer(
         batch["examples"],
+        add_special_tokens=False,
         is_pretokenized=True,
         padding="max_length",
         truncation=True,
@@ -295,7 +296,6 @@ def multiprocess_map(dset, num_processes, function, **kwargs):
 dset = multiprocess_map(
     dset=dset,
     num_processes=args.processes,
-    # dset = dset.map(
     function=tokenizer_batch,
     batched=True,
     remove_columns=["examples"],
