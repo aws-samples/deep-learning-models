@@ -49,7 +49,8 @@ class DistEvalHook(Hook):
         tf_dataset, num_examples = build_dataloader(self.dataset, 1, 1, num_gpus=runner.local_size, dist=True)
         # num_examples=8
         results = [None for _ in range(num_examples*runner.local_size)] # REVISIT - may require a lot of memory
-        if runner.model.mask:
+        #if runner.model.mask:
+        if self.dataset.mask:
             masks = [None for _ in range(num_examples*runner.local_size)]
         if runner.rank == 0:
             prog_bar = ProgressBar(num_examples)
@@ -65,7 +66,8 @@ class DistEvalHook(Hook):
             labels = outputs['labels']
             scores = outputs['scores']
             result = transforms.bbox2result(bboxes, labels, scores, num_classes=self.dataset.CLASSES+1) # add background class
-            if runner.model.mask:
+            #if runner.model.mask:
+            if self.dataset.mask:
                 mask = mask2result(outputs['masks'], labels, img_meta[0])
                 results[i*runner.local_size+runner.local_rank] = (result, mask)
             else:
@@ -136,7 +138,7 @@ class CocoDistEvalmAPHook(DistEvalHook):
         tmp_file = osp.join(runner.work_dir, 'temp_0')
         result_files = results2json(self.dataset, results, tmp_file)
 
-        res_types = ['bbox', 'segm'] if runner.model.mask else ['bbox']
+        res_types = ['bbox', 'segm'] if self.dataset.mask else ['bbox']
         cocoGt = self.dataset.coco
         imgIds = cocoGt.getImgIds()
         for res_type in res_types:

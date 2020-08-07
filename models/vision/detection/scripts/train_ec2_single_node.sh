@@ -32,5 +32,4 @@ python tools/train.py \
 --validate \
 --autoscale-lr \
 --amp
---resume_dir /deep-learning-models/models/vision/detection/work_dirs/faster_rcnn_r50_fpn_1x_coco
 

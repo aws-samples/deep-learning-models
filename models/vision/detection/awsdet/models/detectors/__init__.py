@@ -6,6 +6,7 @@ from .single_stage import SingleStageDetector
 from .two_stage import TwoStageDetector
 from .faster_rcnn import FasterRCNN
 from .retinanet import RetinaNet
+from .cascade_rcnn import CascadeRCNN
 
-__all__ = ['FasterRCNN', 'BaseDetector', 'TwoStageDetector', 'RetinaNet']
+__all__ = ['FasterRCNN', 'BaseDetector', 'TwoStageDetector', 'RetinaNet', 'CascadeRCNN']
 
