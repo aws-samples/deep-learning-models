@@ -4,4 +4,6 @@ List of models currently supported
 
 [Mask R-CNN](docs/MASK_RCNN.md)
 
+[Cascade R-CNN](docs/CASCADE_RCNN.md)
+
 [RetinaNet](docs/RETINANET.md)

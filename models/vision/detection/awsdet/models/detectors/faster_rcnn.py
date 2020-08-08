@@ -9,6 +9,7 @@ import tensorflow as tf
 
 from awsdet.core.bbox import bbox_target
 #from awsdet.datasets import dali
+import numpy as np
 
 
 @DETECTORS.register_module

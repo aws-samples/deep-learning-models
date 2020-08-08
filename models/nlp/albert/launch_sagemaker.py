@@ -35,7 +35,7 @@ if __name__ == "__main__":
     ) = parser.parse_args_into_dataclasses()
 
     hyperparameters = dict()
-    for args in [model_args, data_args, train_args, log_args]:
+    for args in [model_args, data_args, train_args, path_args, log_args]:
         for key, value in dataclasses.asdict(args).items():
             if value is not None:
                 hyperparameters[key] = value

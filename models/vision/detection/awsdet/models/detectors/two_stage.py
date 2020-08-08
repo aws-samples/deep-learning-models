@@ -41,10 +41,10 @@ class TwoStageDetector(BaseDetector):
         if rpn_head is not None:
             self.rpn_head = builder.build_head(rpn_head)
 
-
         if bbox_head is not None:
-            self.bbox_roi_extractor = builder.build_roi_extractor(
-                bbox_roi_extractor)
+            if bbox_roi_extractor is not None:
+                self.bbox_roi_extractor = builder.build_roi_extractor(
+                    bbox_roi_extractor)
             self.bbox_head = builder.build_head(bbox_head)
 
         if mask_head is not None:

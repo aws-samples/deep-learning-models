@@ -11,11 +11,11 @@ date_str = now.strftime("%d-%m-%Y")
 
 # sagemaker settings
 sagemaker_user=dict(
-    user_id='jbsnyder',
-    s3_bucket='jbsnyder-sagemaker',
-    docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/jbsnyder:dlc22sagemaker',
+    user_id='kevin-cascade',
+    s3_bucket='fastrcnn-sagemaker',
+    docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/fasterrcnntest:frcnn-tutorial',
     hvd_processes_per_host=8,
-    hvd_instance_type='ml.p3.16xlarge', # 'ml.p3.16xlarge',
+    hvd_instance_type='ml.p3dn.24xlarge', # 'ml.p3.16xlarge',
     hvd_instance_count=1,
 )
 # settings for distributed training on sagemaker
@@ -34,19 +34,19 @@ channels=dict(
 
 sagemaker_job=dict(
     s3_path='s3://{}/faster-rcnn/outputs/{}'.format(sagemaker_user['s3_bucket'], time_str),
-    job_name='{}-mrcnn-{}'.format(sagemaker_user['user_id'], time_str),
+    job_name='{}-frcnn-{}'.format(sagemaker_user['user_id'], time_str),
     output_path='',
 )
 sagemaker_job['output_path']='{}/output/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
 
 # model settings
-model=dict(
-    type='FasterRCNN',
+model = dict(
+    type='CascadeRCNN',
     pretrained=None,
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1',
-        weights_path='resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5', # will be fully resolved to path in train script
+        weights_path='resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
         weight_decay=1e-5
     ),
     neck=dict(
@@ -63,63 +63,89 @@ model=dict(
         anchor_ratios=[0.5, 1.0, 2.0],
         anchor_strides=[4, 8, 16, 32, 64],
         target_means=[.0, .0, .0, .0],
-        target_stds=[1.0, 1.0, 1.0, 1.0],
+        target_stds= [1.0, 1.0, 1.0, 1.0],
         feat_channels=512,
         num_samples=256,
         positive_fraction=0.5,
         pos_iou_thr=0.7,
         neg_iou_thr=0.3,
-        num_pre_nms_train=12000,
+        num_pre_nms_train=2000,
         num_post_nms_train=2000,
-        num_pre_nms_test=12000,
-        num_post_nms_test=2000,
+        num_pre_nms_test=1000,
+        num_post_nms_test=1000,
         weight_decay=1e-5,
-    ),
-    bbox_roi_extractor=dict(
-        type='PyramidROIAlign',
-        pool_shape=[7, 7],
-        pool_type='avg',
-        use_tf_crop_and_resize=True,
     ),
     bbox_head=dict(
-    type='BBoxHead',
-    num_classes=81,
-    pool_size=[7, 7],
-    target_means=[0., 0., 0., 0.],
-    target_stds=[0.1, 0.1, 0.2, 0.2],
-    min_confidence=0.001, 
-    nms_threshold=0.5,
-    max_instances=100,
-    weight_decay=1e-5,
-    use_conv=True,
-    use_bn=False,
-    soft_nms_sigma=0.5),
-    mask_head=dict(
-        type='MaskHead',
-        num_classes=81,
-        weight_decay=1e-5,
-        use_bn=False,
-    ),
-    mask_roi_extractor=dict(
-        type='PyramidROIAlign',
-        pool_shape=[14, 14],
-        pool_type='avg',
-        use_tf_crop_and_resize=True,
-    ),
+        type='CascadeHead',
+        num_stages=3,
+        stage_loss_weights=[1, 0.5, 0.25],
+        iou_thresholds=[0.5, 0.6, 0.7],
+        reg_class_agnostic=True,
+        bbox_roi_extractor=dict(
+            type='PyramidROIAlign',
+            pool_shape=[7, 7],
+            pool_type='avg',
+            use_tf_crop_and_resize=True),
+        bbox_head=[
+            dict(
+                type='BBoxHead',
+                num_classes=81,
+                pool_size=[7, 7],
+                target_means=[0., 0., 0., 0.],
+                target_stds=[0.1, 0.1, 0.2, 0.2],
+                min_confidence=0.001, 
+                nms_threshold=0.5,
+                max_instances=512,
+                weight_decay=1e-5,
+                use_conv=True,
+                use_bn=False,
+                soft_nms_sigma=0.5,
+                reg_class_agnostic=True
+            ),
+            dict(
+                type='BBoxHead',
+                num_classes=81,
+                pool_size=[7, 7],
+                target_means=[0., 0., 0., 0.],
+                target_stds=[0.05, 0.05, 0.1, 0.1],
+                min_confidence=0.001, 
+                nms_threshold=0.5,
+                max_instances=512,
+                weight_decay=1e-5,
+                use_conv=True,
+                use_bn=False,
+                soft_nms_sigma=0.5,
+                reg_class_agnostic=True
+            ),
+            dict(
+                type='BBoxHead',
+                num_classes=81,
+                pool_size=[7, 7],
+                target_means=[0., 0., 0., 0.],
+                target_stds=[0.033, 0.033, 0.067, 0.067],
+                min_confidence=0.001, 
+                nms_threshold=0.5,
+                max_instances=512,
+                weight_decay=1e-5,
+                use_conv=True,
+                use_bn=False,
+                soft_nms_sigma=0.5,
+                reg_class_agnostic=True
+            )
+        ]
+    )
 )
-
 # model training and testing settings
-train_cfg=dict(
+train_cfg = dict(
     weight_decay=1e-5,
     sagemaker=True
 )
-test_cfg=dict(
+test_cfg = dict(
 )
-
 # dataset settings
-dataset_type='CocoDataset'
-data_root='/data/COCO/' # will be resolved to SM specific path in train.py
-data=dict(
+dataset_type = 'CocoDataset'
+data_root = '/deep-learning-models/models/vision/detection/data/'
+data = dict(
     imgs_per_gpu=4,
     train=dict(
         type=dataset_type,
@@ -131,8 +157,7 @@ data=dict(
         preproc_mode='caffe',
         mean=(123.675, 116.28, 103.53),
         std=(1., 1., 1.),
-        scale=(800, 1333),
-        mask=True),
+        scale=(800, 1333)),
     val=dict(
         type=dataset_type,
         train=False,
@@ -143,8 +168,7 @@ data=dict(
         preproc_mode='caffe',
         mean=(123.675, 116.28, 103.53),
         std=(1., 1., 1.),
-        scale=(800, 1333),
-        mask=True),
+        scale=(800, 1333)),
     test=dict(
         type=dataset_type,
         train=False,
@@ -155,34 +179,31 @@ data=dict(
         preproc_mode='caffe',
         mean=(123.675, 116.28, 103.53),
         std=(1., 1., 1.),
-        scale=(800, 1333),
-        mask=True),
+        scale=(800, 1333)),
 )
-evaluation=dict(interval=1)
+# yapf: enable
+evaluation = dict(interval=1)
 # optimizer
-optimizer=dict(
+optimizer = dict(
     type='SGD',
     learning_rate=1e-2,
     momentum=0.9,
     nesterov=False,
 )
 # extra options related to optimizers
-optimizer_config=dict(
+optimizer_config = dict(
     amp_enabled=True,
 )
 # learning policy
-lr_config=dict(
+lr_config = dict(
     policy='step',
     warmup='linear',
     warmup_iters=500,
     warmup_ratio=1.0 / 3,
     step=[8, 11])
-#TODO: add support for S3 checkpointing
-checkpoint_config=dict(
-    interval=1,
-    outdir='checkpoints')
-# log, tensorboard configuration
-log_config=dict(
+checkpoint_config = dict(interval=1, outdir='checkpoints')
+# yapf:disable
+log_config = dict(
     interval=50,
     hooks=[
         dict(
@@ -200,13 +221,13 @@ log_config=dict(
             interval=100,
             top_k=10,
             run_on_sagemaker=True,
-        ),
-    ]
-)
+        )
+    ])
+# yapf:enable
 # runtime settings
-total_epochs=12
-log_level='INFO'
-work_dir='./work_dirs/faster_rcnn_r50_fpn_1x_coco'
-load_from=None
-resume_from=None
-workflow=[('train', 1)]
+total_epochs = 12
+log_level = 'INFO'
+work_dir = './work_dirs/cascade_rcnn_r50_fpn_1x_coco'
+load_from = None
+resume_from = None
+workflow = [('train', 1)]

@@ -32,5 +32,4 @@ python tools/train.py \
 --validate \
 --autoscale-lr \
 --amp
-# --resume_from /deep-learning-models/models/vision/detection/work_dirs/retinanet_r50_fpn_1x_amp_bn/000
 
