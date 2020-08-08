@@ -71,7 +71,7 @@ class BBoxHead(tf.keras.Model):
                                                   kernel_initializer='glorot_uniform',
                                                   kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                                   name='rcnn_class_logits')
-            self.rcnn_delta_fc = layers.Dense(num_reg_outputs, 
+            self.rcnn_delta_fc = layers.Dense(self.num_reg_outputs, 
                                               kernel_initializer='glorot_uniform',
                                               kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                               name='rcnn_bbox_fc')
@@ -93,7 +93,7 @@ class BBoxHead(tf.keras.Model):
                                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                         activation='linear',
                                         name='rcnn_class_logit')
-            self.rcnn_delta_cv = layers.Conv2D(num_reg_outputs, (1, 1),
+            self.rcnn_delta_cv = layers.Conv2D(self.num_reg_outputs, (1, 1),
                                             kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
                                             kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                             activation='linear',
@@ -209,12 +209,13 @@ class BBoxHead(tf.keras.Model):
         for cls_id in range(1, self.num_classes):
             inds = tf.where(rcnn_probs[:, cls_id] > self.min_confidence)[:, 0]
             cls_score = tf.gather(rcnn_probs[:, cls_id], inds)
-            rcnn_deltas = tf.reshape(rcnn_deltas, [-1, self.num_reg_outputs])
             if not self.reg_class_agnostic:
+                rcnn_deltas = tf.reshape(rcnn_deltas, [-1, self.num_classes, 4])
                 final_bboxes = transforms.delta2bbox(tf.gather(rois, inds),
                                                     tf.gather(rcnn_deltas[:, cls_id, :], inds),
                                                     self.target_means, self.target_stds)
             else:
+                rcnn_deltas = tf.reshape(rcnn_deltas, [-1, 1, 4])
                 final_bboxes = transforms.delta2bbox(tf.gather(rois, inds),
                                                     tf.gather(rcnn_deltas[:, 0, :], inds),
                                                     self.target_means, self.target_stds)
