@@ -46,7 +46,7 @@ class BBoxHead(tf.keras.Model):
         self.label_smoothing = label_smoothing
         self.soft_nms_sigma = soft_nms_sigma
         self.reg_class_agnostic = reg_class_agnostic
-        
+        self.num_reg_outputs = num_classes * 4 if not reg_class_agnostic else 4
         roi_feature_size=(7, 7, 256)
         if not use_conv:
             self._flatten_layer = layers.Flatten()
@@ -71,17 +71,10 @@ class BBoxHead(tf.keras.Model):
                                                   kernel_initializer='glorot_uniform',
                                                   kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                                   name='rcnn_class_logits')
-
-            if not self.reg_class_agnostic:
-                self.rcnn_delta_fc = layers.Dense(num_classes * 4, 
-                                                kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.001),
-                                                kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                                                name='rcnn_bbox_fc')
-            else:
-                self.rcnn_delta_fc = layers.Dense(4, 
-                                                kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.001),
-                                                kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                                                name='rcnn_bbox_fc')
+            self.rcnn_delta_fc = layers.Dense(self.num_reg_outputs, 
+                                              kernel_initializer='glorot_uniform',
+                                              kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
+                                              name='rcnn_bbox_fc')
         else:
             self._conv1 = layers.Conv2D(1024, (3, 3), padding='same',
                                         kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
@@ -100,14 +93,7 @@ class BBoxHead(tf.keras.Model):
                                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                         activation='linear',
                                         name='rcnn_class_logit')
-            if not self.reg_class_agnostic:
-                self.rcnn_delta_cv = layers.Conv2D(num_classes * 4, (1, 1),
-                                            kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
-                                            kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                                            activation='linear',
-                                            name='rcnn_delta_cv')
-            else:
-                self.rcnn_delta_cv = layers.Conv2D(4, (1, 1),
+            self.rcnn_delta_cv = layers.Conv2D(self.num_reg_outputs, (1, 1),
                                             kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
                                             kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                             activation='linear',
