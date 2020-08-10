@@ -4,6 +4,7 @@
 import logging
 import random
 import re
+import os
 from collections import OrderedDict
 import tensorflow_addons as tfa
 import numpy as np
@@ -26,6 +27,9 @@ def get_root_logger(log_file=None, log_level=logging.INFO):
     if rank != 0:
         logger.setLevel('ERROR')
     elif log_file is not None:
+        # create dir if it doesn't exist - first run
+        if not os.path.exists(log_file):
+            os.makedirs(os.path.dirname(log_file), exist_ok=True)
         file_handler = logging.FileHandler(log_file, 'w')
         file_handler.setFormatter(
             logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))

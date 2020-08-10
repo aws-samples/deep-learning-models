@@ -3,19 +3,19 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 
-from awsdet.datasets.utils import (imrescale, imnormalize, img_flip, 
+from awsdet.datasets.utils import (imrescale, img_flip, 
                                   impad_to_multiple, impad_to_square,
                                   impad_mask_to_square,
                                   impad_mask_to_multiple,
                                   bbox_flip)
 
+
 class ImageTransform(object):
     '''Preprocess the image.
     
         1. rescale the image to expected size
-        2. normalize the image
-        3. flip the image (if needed)
-        4. pad the image (if needed)
+        2. flip the image (if needed)
+        3. pad the image (if needed)
     '''
     def __init__(self,
                  scale=(800, 1333),
@@ -31,8 +31,7 @@ class ImageTransform(object):
     def __call__(self, img, flip=False):
         img, scale_factor = imrescale(img, self.scale)
         img_shape = img.shape
-        img = imnormalize(img, self.mean, self.std)
-          
+
         if flip:
             img = img_flip(img)
         if self.pad_mode == 'fixed':
@@ -42,6 +41,7 @@ class ImageTransform(object):
             img = impad_to_multiple(img, self.impad_size)
         
         return img, img_shape, scale_factor
+
 
 class BboxTransform(object):
     '''Preprocess ground truth bboxes.
@@ -63,6 +63,7 @@ class BboxTransform(object):
         bboxes[:, 1::2] = np.clip(bboxes[:, 1::2], 0, img_shape[1])
             
         return bboxes, labels
+
 
 class MaskTransform(object):
     '''
@@ -88,3 +89,4 @@ class MaskTransform(object):
         else:
             mask = impad_mask_to_multiple(mask, self.impad_size)
         return mask
+
