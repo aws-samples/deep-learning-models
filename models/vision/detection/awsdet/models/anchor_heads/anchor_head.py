@@ -71,7 +71,8 @@ class AnchorHead(tf.keras.Model):
             anchor_list (list): anchors for each image in batch
             valid_flag_list (list): valid flags for each image
         """
-        num_imgs = len(img_metas)
+        #num_imgs = len(img_metas)
+        num_imgs = img_metas.shape[0]
         # compute anchors only once per batch since backbone outputs on padded are of same dimensions
         multi_level_anchors = self.anchor_generator.grid_anchors(featmap_sizes)
         anchor_list = [multi_level_anchors for _ in range(num_imgs)]
@@ -132,7 +133,8 @@ class AnchorHead(tf.keras.Model):
         proposals_list = []
         img_shapes = calc_pad_shapes(img_metas)
         # for each image in batch generate proposals
-        num_imgs = len(img_metas)
+        #num_imgs = len(img_metas)
+        num_imgs = img_metas.shape[0]
         for img_idx in range(num_imgs):
             img_probs = [tf.stop_gradient(probs[i][img_idx]) for i in range(num_levels)]
             img_deltas = [tf.stop_gradient(deltas[i][img_idx]) for i in range(num_levels)]

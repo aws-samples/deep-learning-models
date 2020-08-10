@@ -59,7 +59,8 @@ class AnchorTarget:
                 total_pos_anchors (int): these are used later in loss calculation
                 total_neg_anchors (int)
         """
-        num_imgs = len(img_metas)
+        #num_imgs = len(img_metas)
+        num_imgs = img_metas.shape[0]
         num_level_anchors = [tf.shape(anchors)[0] for anchors in anchor_list[0]]
         concat_anchor_list = []
         concat_valid_flag_list = []
@@ -104,7 +105,6 @@ class AnchorTarget:
         cond2 = tf.math.logical_and((flat_anchors[:, 2] < img_h),(flat_anchors[:, 3] < img_w))
         cond = tf.math.logical_and(cond1, cond2)
         return tf.math.logical_and(valid_flags, cond)
-
 
     def _get_targets_single(self,
                             flat_anchors,
