@@ -5,12 +5,12 @@
 # model settings
 model = dict(
     type='CascadeRCNN',
-    pretrained=None,
+    norm_type='BN',
     backbone=dict(
         type='KerasBackbone',
-        model_name='ResNet50V1',
-        weights_path='weights/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5',
-        weight_decay=1e-5
+        model_name='ResNet50V1_d',
+        weights_path='weights/resnet50v1_d',
+        weight_decay=1e-4
     ),
     neck=dict(
         type='FPN',
@@ -18,7 +18,7 @@ model = dict(
         out_channels=256,
         num_outs=5,
         interpolation_method='bilinear',
-        weight_decay=1e-5,
+        weight_decay=1e-4,
     ),
     rpn_head=dict(
         type='RPNHead',
@@ -36,7 +36,7 @@ model = dict(
         num_post_nms_train=2000,
         num_pre_nms_test=1000,
         num_post_nms_test=1000,
-        weight_decay=1e-5,
+        weight_decay=1e-4,
     ),
     bbox_head=dict(
         type='CascadeHead',
@@ -56,12 +56,13 @@ model = dict(
                 pool_size=[7, 7],
                 target_means=[0., 0., 0., 0.],
                 target_stds=[0.1, 0.1, 0.2, 0.2],
-                min_confidence=0.001, 
+                min_confidence=0.005, 
                 nms_threshold=0.5,
                 max_instances=512,
-                weight_decay=1e-5,
-                use_conv=True,
+                weight_decay=1e-4,
+                use_conv=False,
                 use_bn=False,
+                use_smooth_l1=False,
                 soft_nms_sigma=0.5,
                 reg_class_agnostic=True
             ),
@@ -71,12 +72,13 @@ model = dict(
                 pool_size=[7, 7],
                 target_means=[0., 0., 0., 0.],
                 target_stds=[0.05, 0.05, 0.1, 0.1],
-                min_confidence=0.001, 
+                min_confidence=0.005, 
                 nms_threshold=0.5,
                 max_instances=512,
-                weight_decay=1e-5,
-                use_conv=True,
+                weight_decay=1e-4,
+                use_conv=False,
                 use_bn=False,
+                use_smooth_l1=False,
                 soft_nms_sigma=0.5,
                 reg_class_agnostic=True
             ),
@@ -86,12 +88,13 @@ model = dict(
                 pool_size=[7, 7],
                 target_means=[0., 0., 0., 0.],
                 target_stds=[0.033, 0.033, 0.067, 0.067],
-                min_confidence=0.001, 
+                min_confidence=0.005, 
                 nms_threshold=0.5,
-                max_instances=512,
-                weight_decay=1e-5,
-                use_conv=True,
+                max_instances=100,
+                weight_decay=1e-4,
+                use_conv=False,
                 use_bn=False,
+                use_smooth_l1=False,
                 soft_nms_sigma=0.5,
                 reg_class_agnostic=True
             )
@@ -100,7 +103,8 @@ model = dict(
 )
 # model training and testing settings
 train_cfg = dict(
-    weight_decay=1e-5,
+    freeze_patterns=['^conv[12]_*', '_bn$'],
+    weight_decay=1e-4,
 )
 test_cfg = dict(
 )
@@ -116,9 +120,9 @@ data = dict(
         subset='train',
         flip_ratio=0.5,
         pad_mode='fixed',
-        preproc_mode='caffe',
-        mean=(123.675, 116.28, 103.53),
-        std=(1., 1., 1.),
+        preproc_mode='rgb',
+        mean=(123.68, 116.78, 103.94),
+        std=(58.393, 57.12, 57.375),
         scale=(800, 1333)),
     val=dict(
         type=dataset_type,
@@ -127,9 +131,9 @@ data = dict(
         subset='val',
         flip_ratio=0,
         pad_mode='fixed',
-        preproc_mode='caffe',
-        mean=(123.675, 116.28, 103.53),
-        std=(1., 1., 1.),
+        preproc_mode='rgb',
+        mean=(123.68, 116.78, 103.94),
+        std=(58.393, 57.12, 57.375),
         scale=(800, 1333)),
     test=dict(
         type=dataset_type,
@@ -138,16 +142,16 @@ data = dict(
         subset='val',
         flip_ratio=0,
         pad_mode='fixed',
-        preproc_mode='caffe',
-        mean=(123.675, 116.28, 103.53),
-        std=(1., 1., 1.),
+        preproc_mode='rgb',
+        mean=(123.68, 116.78, 103.94),
+        std=(58.393, 57.12, 57.375),
         scale=(800, 1333)),
 )
 # yapf: enable
 evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
-    type='SGD',
+    type='MomentumOptimizer',
     learning_rate=1e-2,
     momentum=0.9,
     nesterov=False,
@@ -161,7 +165,7 @@ lr_config = dict(
     policy='step',
     warmup='linear',
     warmup_iters=500,
-    warmup_ratio=1.0 / 3,
+    warmup_ratio=0.001,
     step=[8, 11])
 checkpoint_config = dict(interval=1, outdir='checkpoints')
 # yapf:disable
@@ -175,7 +179,7 @@ log_config = dict(
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'
-work_dir = './work_dirs/cascade_rcnn_r50_fpn_1x_coco'
+work_dir = './work_dirs/cascade_rcnn_r50v1_d_fpn_1x_coco'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
