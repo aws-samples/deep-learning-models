@@ -18,6 +18,7 @@ class CascadeRCNN(TwoStageDetector):
                  neck=None,
                  bbox_roi_extractor=None,
                  shared_head=None,
+                 norm_type='BN',
                  pretrained=None):
         super(CascadeRCNN, self).__init__(
             backbone=backbone,
@@ -28,6 +29,7 @@ class CascadeRCNN(TwoStageDetector):
             bbox_head=bbox_head,
             train_cfg=train_cfg,
             test_cfg=test_cfg,
+            norm_type=norm_type,
             pretrained=pretrained)
         self.pretrained = pretrained
     
