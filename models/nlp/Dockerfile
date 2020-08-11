@@ -97,7 +97,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
         wandb==0.9.1 \
         tensorflow-addons==0.9.1 \
         colorama==0.4.3 \
-        pandas
+        pandas \
+        apache_beam
 
 ENV HDF5_USE_FILE_LOCKING "FALSE"
 
