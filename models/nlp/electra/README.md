@@ -55,9 +55,9 @@ export RUN_NAME=myelectrapretraining
 export TOTAL_STEPS=125000
 # The data should be in TFRecords inside $TRAIN_DIR on the FSx volume
 export TRAIN_DIR=electra_data/train
-export VAL_DIr=electra_data/val
+export VAL_DIR=electra_data/val
 export LOG_DIR=logs/electra
-export CHECKPOINT_DIr=checkpoints/electra
+export CHECKPOINT_DIR=checkpoints/electra
 ```
 6. Launch the SageMaker Electra pretraining.
 
