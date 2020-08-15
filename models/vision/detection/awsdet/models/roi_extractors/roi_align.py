@@ -39,7 +39,7 @@ def transform_fpcoor_for_tf(boxes, image_shape, crop_shape):
     return tf.concat([ny0, nx0, ny0 + nh, nx0 + nw], axis=1)
 
 @tf.function(experimental_relax_shapes=True)
-def crop_and_resize(image, boxes, box_ind, image_shape, crop_size, pad_border=True):
+def crop_and_resize(image, boxes, box_ind, crop_size, pad_border=True):
     """
     Aligned version of tf.image.crop_and_resize, following our definition of floating point boxes.
     Args:
@@ -58,7 +58,7 @@ def crop_and_resize(image, boxes, box_ind, image_shape, crop_size, pad_border=Tr
         # this can be quite slow
         image = tf.pad(image, [[0, 0], [1, 1], [1, 1], [0, 0]], mode='SYMMETRIC')
         boxes = boxes + 1
-
+    image_shape = tf.shape(image)[1:3]
     boxes = transform_fpcoor_for_tf(boxes, image_shape, [crop_size, crop_size])
     ret = tf.image.crop_and_resize(image, boxes, tf.cast(box_ind, tf.int32),
                                    crop_size=[crop_size, crop_size],
@@ -68,7 +68,7 @@ def crop_and_resize(image, boxes, box_ind, image_shape, crop_size, pad_border=Tr
 
 @ROI_EXTRACTORS.register_module
 class PyramidROIAlign(tf.keras.Model):
-    def __init__(self, pool_shape, pool_type='max', use_tf_crop_and_resize=True, **kwargs):
+    def __init__(self, pool_shape, pool_type='max', **kwargs):
         '''
         Implements ROI Pooling on multiple levels of the feature pyramid.
 
@@ -83,7 +83,6 @@ class PyramidROIAlign(tf.keras.Model):
             self._pool = layers.MaxPool2D(padding='same')
         elif pool_type == 'avg':
             self._pool = layers.AveragePooling2D(padding='same')
-        self.use_tf_crop_and_resize = use_tf_crop_and_resize
 
     @tf.function(experimental_relax_shapes=True)
     def call(self, inputs, training=True):
@@ -118,9 +117,9 @@ class PyramidROIAlign(tf.keras.Model):
 
         # Equation 1 in the Feature Pyramid Networks paper.
         # e.g. a 224x224 ROI (in pixels) maps to P4
-        areas = tf.sqrt(w * h + 1e-8)
+        areas = tf.sqrt(w * h)
         log_2 = tf.cast(tf.math.log(2.), dtype=areas.dtype)
-        roi_levels = tf.floor(4. + tf.math.log(areas / tf.constant(224.0, dtype=areas.dtype)) / log_2)
+        roi_levels = tf.floor(4. + tf.math.log((areas/224.0) + 1e-6) / log_2)
         roi_levels = tf.maximum(roi_levels, tf.ones_like(roi_levels, dtype=roi_levels.dtype) * 2) # min level 2
         roi_levels = tf.minimum(roi_levels, tf.ones_like(roi_levels, dtype=roi_levels.dtype) * 5) # max level 5
         roi_levels = tf.stop_gradient(tf.reshape(roi_levels, [-1]))
@@ -141,29 +140,15 @@ class PyramidROIAlign(tf.keras.Model):
             # Stop gradient propagation to ROI proposals
             level_rois = tf.stop_gradient(level_rois)
             level_roi_indices = tf.stop_gradient(level_roi_indices)
-
-            # Crop and Resize
-            # From Mask R-CNN paper: "We sample four regular locations, so
-            # that we can evaluate either max or average pooling. In fact,
-            # interpolating only a single value at each bin center (without
-            # pooling) is nearly as effective."
-            #
-            # Here we use the simplified approach of a single value per bin,
-            # which is how it's done in tf.crop_and_resize()
-            # Result: [batch * num_rois, pool_height, pool_width, channels]
-            if self.use_tf_crop_and_resize:
-                # normalize rois
-                norm_level_rois = tf.cast(level_rois, tf.float32) / tf.stack([H, W, H, W])
-                crops = tf.image.crop_and_resize(feature_map_list[i], norm_level_rois,
-                                             box_indices=level_roi_indices,
-                                             crop_size=self.pre_pool_shape,
-                                             method='bilinear')
-            else:
-                crops = crop_and_resize(feature_map_list[i],
-                                    level_rois,
+            featmap_shape = tf.shape(feature_map_list[i])[1:3]
+            feat_h = tf.cast(featmap_shape[0], tf.float32)
+            feat_w = tf.cast(featmap_shape[1], tf.float32)
+            norm_level_rois = tf.cast(level_rois, tf.float32) / tf.stack([H, W, H, W]) * tf.stack([feat_h, feat_w, feat_h, feat_w])
+            crops = crop_and_resize(feature_map_list[i],
+                                    norm_level_rois,
                                     level_roi_indices,
-                                    [H, W],
                                     self.pre_pool_shape[0])
+
             crops = self._pool(crops)
             pooled_rois.append(crops)
 

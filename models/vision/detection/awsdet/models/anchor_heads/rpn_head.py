@@ -27,6 +27,7 @@ class RPNHead(AnchorHead):
                  positive_fraction=0.5,
                  pos_iou_thr=0.7,
                  neg_iou_thr=0.3,
+                 allow_low_quality_matches=False,
                  weight_decay=1e-4,
                  num_pre_nms_train=12000,
                  num_post_nms_train=2000,
@@ -81,7 +82,8 @@ class RPNHead(AnchorHead):
             num_samples=num_samples,
             positive_fraction=positive_fraction,
             pos_iou_thr=pos_iou_thr,
-            neg_iou_thr=neg_iou_thr)
+            neg_iou_thr=neg_iou_thr,
+            allow_low_quality_matches=allow_low_quality_matches)
 
         self.rpn_class_loss = losses.rpn_class_loss
         self.rpn_bbox_loss = functools.partial(losses.rpn_bbox_loss, use_smooth_l1=use_smooth_l1)

@@ -2,6 +2,7 @@ from .. import builder
 from ..registry import HEADS
 from awsdet.core.bbox import bbox_target, transforms
 from awsdet.models.losses import losses
+from ..utils.misc import calc_img_shapes
 import tensorflow as tf
 
 
@@ -40,7 +41,7 @@ class CascadeHead(tf.keras.Model):
                     num_rcnn_deltas=512,
                     positive_fraction=0.25,
                     pos_iou_thr=iou,
-                    neg_iou_thr=0.1,
+                    neg_iou_thr=0.0,
                     reg_class_agnostic=self.reg_class_agnostic,
                     num_classes=1 if reg_class_agnostic else self.num_classes)
                 self.bbox_targets.append(target)
@@ -64,33 +65,39 @@ class CascadeHead(tf.keras.Model):
         else:
             proposals_list, rcnn_feature_maps, img_metas = inputs
         batch_size = img_metas.shape[0]
+        img_shapes = calc_img_shapes(img_metas)
         loss_dict = {}
         for i in range(self.num_stages):
+            stage_loss_weight = self.stage_loss_weights[i]
             if i == 0:
                 rois_list = proposals_list
             if training:
                 rois_list, rcnn_target_matches, rcnn_target_deltas, inside_weights, \
-                    outside_weights = self.bbox_targets[i].build_targets( \
+                    outside_weights = self.bbox_targets[i].build_targets( 
                     rois_list, gt_boxes, gt_class_ids, img_metas)    
             pooled_regions_list = self.bbox_roi_extractor(
                 (rois_list, rcnn_feature_maps, img_metas), training=training)
             rcnn_class_logits, rcnn_probs, rcnn_deltas = self.bbox_heads[i](pooled_regions_list, training=training)
             if training:
-                loss_dict['rcnn_class_loss_stage_{}'.format(i)] = losses.rcnn_class_loss(rcnn_class_logits, 
-                                                                                         rcnn_target_matches) * self.stage_loss_weights[i]
-        
-                loss_dict['rcnn_box_loss_stage_{}'.format(i)] = losses.rcnn_bbox_loss(rcnn_deltas,
+                loss_dict['s{}_cls_loss'.format(i)] = losses.rcnn_class_loss(rcnn_class_logits,
+                                                                                         rcnn_target_matches) * stage_loss_weight
+                loss_dict['s{}_box_loss'.format(i)] = losses.rcnn_bbox_loss(rcnn_deltas,
                                                                                       rcnn_target_deltas, 
-                                                                                      inside_weights, 
-                                                                                      outside_weights) * self.stage_loss_weights[i]
+                                                                                      inside_weights,
+                                                                                      outside_weights) * stage_loss_weight
             roi_shapes = [tf.shape(i)[0] for i in rois_list]
             refinements = tf.split(rcnn_deltas, roi_shapes)
             new_rois = []
-            if i<(self.num_stages-1):
+            not_last_stage = i < (self.num_stages-1)
+            # box refinement
+            if not_last_stage:
                 for j in range(batch_size):
-                    new_rois.append(tf.stop_gradient(transforms.delta2bbox(rois_list[j], refinements[j],
-                                                   target_means=self.bbox_heads[i].target_means, \
-                                                   target_stds=self.bbox_heads[i].target_stds)))
+                    refined_boxes = transforms.delta2bbox(rois_list[j], refinements[j], target_means=self.bbox_heads[i].target_means, target_stds=self.bbox_heads[i].target_stds)
+                    # Clip to valid area
+                    img_shape = img_shapes[j]
+                    window = tf.stack([0., 0., img_shape[0], img_shape[1]])
+                    refined_boxes = tf.stop_gradient(transforms.bbox_clip(refined_boxes, window))
+                    new_rois.append(refined_boxes)
                 rois_list = new_rois
         if training:
             return loss_dict

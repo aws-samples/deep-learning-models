@@ -32,6 +32,7 @@ model = dict(
         positive_fraction=0.5,
         pos_iou_thr=0.7,
         neg_iou_thr=0.3,
+        allow_low_quality_matches=True,
         num_pre_nms_train=2000,
         num_post_nms_train=2000,
         num_pre_nms_test=1000,
@@ -41,14 +42,14 @@ model = dict(
     bbox_head=dict(
         type='CascadeHead',
         num_stages=3,
-        stage_loss_weights=[1, 0.5, 0.25],
+        stage_loss_weights=[0.33, 0.33, 0.33],
         iou_thresholds=[0.5, 0.6, 0.7],
         reg_class_agnostic=True,
         bbox_roi_extractor=dict(
             type='PyramidROIAlign',
             pool_shape=[7, 7],
-            pool_type='avg',
-            use_tf_crop_and_resize=True),
+            pool_type='avg'
+        ),
         bbox_head=[
             dict(
                 type='BBoxHead',
@@ -57,12 +58,10 @@ model = dict(
                 target_means=[0., 0., 0., 0.],
                 target_stds=[0.1, 0.1, 0.2, 0.2],
                 min_confidence=0.005, 
-                nms_threshold=0.5,
-                max_instances=512,
+                nms_threshold=0.75,
                 weight_decay=1e-4,
                 use_conv=False,
                 use_bn=False,
-                use_smooth_l1=False,
                 soft_nms_sigma=0.5,
                 reg_class_agnostic=True
             ),
@@ -73,12 +72,10 @@ model = dict(
                 target_means=[0., 0., 0., 0.],
                 target_stds=[0.05, 0.05, 0.1, 0.1],
                 min_confidence=0.005, 
-                nms_threshold=0.5,
-                max_instances=512,
+                nms_threshold=0.75,
                 weight_decay=1e-4,
                 use_conv=False,
                 use_bn=False,
-                use_smooth_l1=False,
                 soft_nms_sigma=0.5,
                 reg_class_agnostic=True
             ),
@@ -89,12 +86,10 @@ model = dict(
                 target_means=[0., 0., 0., 0.],
                 target_stds=[0.033, 0.033, 0.067, 0.067],
                 min_confidence=0.005, 
-                nms_threshold=0.5,
-                max_instances=100,
+                nms_threshold=0.75,
                 weight_decay=1e-4,
                 use_conv=False,
                 use_bn=False,
-                use_smooth_l1=False,
                 soft_nms_sigma=0.5,
                 reg_class_agnostic=True
             )
@@ -110,7 +105,7 @@ test_cfg = dict(
 )
 # dataset settings
 dataset_type = 'CocoDataset'
-data_root = '/data/COCO/'
+data_root='/data/COCO/'
 data = dict(
     imgs_per_gpu=4,
     train=dict(

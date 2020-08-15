@@ -14,7 +14,8 @@ class AnchorTarget:
                  num_samples=-1, # -1 disables sampling of targets
                  positive_fraction=0.5,
                  pos_iou_thr=0.7,
-                 neg_iou_thr=0.3):
+                 neg_iou_thr=0.3,
+                 allow_low_quality_matches=False):
         """
         Compute regression and classification targets for anchors.
         
@@ -32,6 +33,7 @@ class AnchorTarget:
         self.positive_fraction = positive_fraction
         self.pos_iou_thr = pos_iou_thr
         self.neg_iou_thr = neg_iou_thr
+        self.allow_low_quality_matches = allow_low_quality_matches
 
 
     def get_targets(self,
@@ -135,7 +137,6 @@ class AnchorTarget:
             bbox_outside_weights: (num_anchors, 4)
         """
         gt_bboxes, _ = trim_zeros(gt_bboxes)
-
         # 1. Filter anchors to valid area
         inside_flags = self._anchor_inside_flags(flat_anchors, valid_flags, img_shape)
         # TODO: handle scenario where all flags are False
@@ -150,7 +151,7 @@ class AnchorTarget:
         argmax_overlaps = tf.argmax(overlaps, axis=1, output_type=tf.int32)
         max_overlaps = tf.reduce_max(overlaps, axis=1)
         # b. best anchor index for each GT (non deterministic in case of ties)
-        gt_argmax_overlaps = tf.argmax(overlaps, axis=0, output_type=tf.int32) # tf.where(tf.equal(overlaps, gt_max_overlaps))[:, 0]
+        gt_argmax_overlaps = tf.argmax(overlaps, axis=0, output_type=tf.int32)
 
         # 3. Assign labels
         bg_cond = tf.math.less(max_overlaps, self.neg_iou_thr)
@@ -159,12 +160,24 @@ class AnchorTarget:
         gt_indices = tf.expand_dims(gt_argmax_overlaps, axis=1)
         if gt_labels is None: # RPN will have gt labels set to None
             gt_labels = tf.ones(tf.shape(gt_indices)[0], dtype=tf.int32)
-            #TODO check impact of next 2 lines
-            target_matches = tf.tensor_scatter_nd_update(target_matches, gt_indices, gt_labels) # note that in the case of one label matching multiple anchors the last one wins (is this okay???)
+            target_matches = tf.tensor_scatter_nd_update(target_matches, gt_indices, gt_labels) 
             target_matches = tf.where(fg_cond, tf.ones_like(target_matches), target_matches)
         else:
             gt_labels = gt_labels[:tf.shape(gt_indices)[0]] # get rid of padded labels (-1)
             target_matches = tf.where(fg_cond, tf.gather(gt_labels, argmax_overlaps), target_matches)
+
+        if self.allow_low_quality_matches:
+           # we allow lesser overlap anchors, generally in earlier proposal stages
+           # a. find highest overlap value for each GT (note this max may be lower than pos iou thres)
+           gt_max_overlaps = tf.reduce_max(overlaps, axis=0)
+           # b. assign all anchors that are unassigned but have overlap equal to max overlap for that GT
+           low_quality_matches = tf.math.equal(tf.expand_dims(gt_max_overlaps, 0), overlaps)
+           unassigned_anchors = tf.equal(target_matches, -1)
+           unassigned_matches = tf.where(tf.math.logical_and(tf.expand_dims(unassigned_anchors, -1), low_quality_matches))
+           unassigned_indices = tf.expand_dims(tf.cast(unassigned_matches[:,0], tf.int64), -1)
+           unassigned_labels = tf.gather(gt_labels, unassigned_matches[:,1]) 
+           target_matches = tf.tensor_scatter_nd_update(target_matches,unassigned_indices, unassigned_labels)
+
 
         # 4. Sample selected if we have greater number of candidates than needed by 
         #    config (only if num_samples > 0, e.g. in two stage)
