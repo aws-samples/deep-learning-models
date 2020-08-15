@@ -11,7 +11,7 @@ model = dict(
         type='KerasBackbone',
         model_name='ResNet50V1_d',
         weights_path='weights/resnet50v1_d', # SavedModel format
-        weight_decay=5e-5
+        weight_decay=1e-4
     ),
     neck=dict(
         type='FPN',
@@ -21,7 +21,7 @@ model = dict(
         add_extra_convs=True,
         num_outs=5,
         interpolation_method='bilinear',
-        weight_decay=5e-5,
+        weight_decay=1e-4,
     ),
     bbox_head=dict(
         type='RetinaHead',
@@ -36,6 +36,7 @@ model = dict(
         target_stds=[1., 1., 1., 1.],
         pos_iou_thr=0.5,
         neg_iou_thr=0.4,
+        allow_low_quality_matches=True,
         alpha=0.25,
         gamma=2.0,
         label_smoothing=0.0,
@@ -44,13 +45,13 @@ model = dict(
         nms_threshold=0.75, # using soft nms
         max_instances=100,
         soft_nms_sigma=0.5,
-        weight_decay=5e-5
+        weight_decay=1e-4
     ),
 )
 # model training and testing settings
 train_cfg = dict(
     freeze_patterns=['^conv[12]_*', '_bn$'],
-    weight_decay=5e-5,
+    weight_decay=1e-4,
 )
 test_cfg = dict(
 )
@@ -114,7 +115,7 @@ lr_config = dict(
     policy='step',
     warmup='linear',
     warmup_iters=500, 
-    warmup_ratio=1.0 / 10,
+    warmup_ratio=0.001,
     step=[8, 11])
 checkpoint_config = dict(interval=1, outdir='checkpoints')
 # yapf:disable
@@ -128,7 +129,7 @@ log_config = dict(
 # runtime settings
 total_epochs = 12
 log_level = 'INFO'
-work_dir = './work_dirs/retinanet_r50_fpn_1x_amp_bn'
+work_dir = './work_dirs/retinanet_r50v1_d_fpn_1x_coco'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

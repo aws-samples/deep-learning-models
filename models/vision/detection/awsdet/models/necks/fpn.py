@@ -11,6 +11,7 @@ FPN model used by Faster R-CNN and RetinaNet.
 '''
 import tensorflow as tf
 from tensorflow.keras import layers
+from tensorflow.keras.initializers import VarianceScaling
 from ..registry import NECKS
 
 @NECKS.register_module
@@ -64,12 +65,12 @@ class FPN(tf.keras.Model):
             l_conv = layers.Conv2D(out_channels, lat_kernel_size, strides=1, use_bias=use_bias,
                                     name='lateral_{}'.format(channel_name),
                                     kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                                    padding='same', kernel_initializer='glorot_uniform')
+                                    padding='same', kernel_initializer=VarianceScaling(distribution='uniform'))
             fpn_kernel_size = 3
             fpn_conv = layers.Conv2D(out_channels, fpn_kernel_size, 1, use_bias=use_bias,
                                        kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                        padding='same', name='fpn_{}'.format(channel_name),
-                                       kernel_initializer='glorot_uniform')
+                                       kernel_initializer=VarianceScaling(distribution='uniform'))
             self.lateral_convs.append(l_conv)
             self.fpn_convs.append(fpn_conv)
             if i > self.start_level:
@@ -83,7 +84,7 @@ class FPN(tf.keras.Model):
                                                 use_bias=use_bias,
                                                 kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                                 name='extra_conv_{}'.format(i),
-                                                kernel_initializer='glorot_uniform')
+                                                kernel_initializer=VarianceScaling(distribution='uniform'))
                 self.fpn_convs.append(extra_fpn_conv)
         self._method = interpolation_method
 
@@ -106,9 +107,7 @@ class FPN(tf.keras.Model):
             laterals[i-1] = layers.Add()([laterals[i-1], upsampled])
 
         # outputs
-        outs = [
-            self.fpn_convs[i](laterals[i]) for i in range(used_backbone_levels)
-        ]        
+        outs = [self.fpn_convs[i](laterals[i]) for i in range(used_backbone_levels)]        
 
         # extra levels
         if self.num_outs > len(outs):

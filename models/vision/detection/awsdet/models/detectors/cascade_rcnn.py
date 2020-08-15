@@ -43,8 +43,8 @@ class CascadeRCNN(TwoStageDetector):
                     # check if backbone has weights
                     self.backbone.init_weights()
         else:
-            #_, extension = os.path.splitext(self.pretrained)
-            self.load_weights(self.pretrained) # , by_name=True)
+            self.load_weights(self.pretrained)
+
 
     @tf.function(experimental_relax_shapes=True)
     def call(self, inputs, training=True, use_dali=False):
@@ -88,3 +88,4 @@ class CascadeRCNN(TwoStageDetector):
             cascade_inputs = (proposals_list, rcnn_feature_maps, img_metas)
             cascade_predictions = self.bbox_head(cascade_inputs, training=training)
             return cascade_predictions
+

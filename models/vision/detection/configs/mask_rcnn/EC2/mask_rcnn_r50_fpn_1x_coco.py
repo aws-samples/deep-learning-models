@@ -41,7 +41,6 @@ model = dict(
         type='PyramidROIAlign',
         pool_shape=[7, 7],
         pool_type='avg',
-        use_tf_crop_and_resize=True,
     ),
     bbox_head=dict(
         type='BBoxHead',
@@ -67,7 +66,6 @@ model = dict(
         type='PyramidROIAlign',
         pool_shape=[14, 14],
         pool_type='avg',
-        use_tf_crop_and_resize=True,
     ),
 )
 # model training and testing settings

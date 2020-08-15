@@ -27,6 +27,7 @@ class RetinaHead(AnchorHead):
                  target_stds=[1.0, 1.0, 1.0, 1.0],
                  pos_iou_thr=0.5,
                  neg_iou_thr=0.4,
+                 allow_low_quality_matches=False,
                  alpha=0.25,
                  gamma=2.0,
                  label_smoothing=0.0,
@@ -76,7 +77,8 @@ class RetinaHead(AnchorHead):
             target_stds=self.target_stds,
             positive_fraction=1.0, # no sampling TODO: pass sampler as arg into anchor target generator
             pos_iou_thr=pos_iou_thr,
-            neg_iou_thr=neg_iou_thr)
+            neg_iou_thr=neg_iou_thr,
+            allow_low_quality_matches=allow_low_quality_matches)
         #TODO make losses package common to all models
         self.class_loss = functools.partial(losses.focal_loss, alpha=alpha, gamma=gamma, label_smoothing=label_smoothing)
         self.bbox_loss = losses.retinanet_bbox_loss
