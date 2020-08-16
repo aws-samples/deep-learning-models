@@ -30,6 +30,7 @@ model = dict(
         positive_fraction=0.5,
         pos_iou_thr=0.7,
         neg_iou_thr=0.3,
+        allow_low_quality_matches=True,
         num_pre_nms_train=6000,
         num_post_nms_train=2000,
         num_pre_nms_test=2000,
@@ -111,7 +112,7 @@ evaluation = dict(interval=1)
 # optimizer
 optimizer = dict(
     type='MomentumOptimizer',
-    learning_rate=1e-2,
+    learning_rate=5e-3,
     momentum=0.9,
     nesterov=False,
 )
