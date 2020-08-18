@@ -73,12 +73,12 @@ class MaskTarget:
         W = tf.shape(gt_masks)[3]
         gt_masks = tf.reshape(gt_masks, [-1, H, W, 1])
         fg_rois = tf.concat(fg_rois_list, axis=0)
-        norm_fg_rois = fg_rois / tf.cast(tf.stack([H, W, H, W]), fg_rois.dtype)
+        norm_fg_rois = fg_rois / tf.cast(tf.stack([H-1, W-1, H-1, W-1]), fg_rois.dtype)
         crops = tf.image.crop_and_resize(image=gt_masks,
                                          boxes=norm_fg_rois,
                                          box_indices=fg_offsets,
                                          crop_size=self.mask_size,
-                                         method='nearest')
+                                         method='bilinear')
         return crops
 
     def get_mask_targets(self, gt_masks, fg_assignments, rcnn_target_matchs, fg_rois_list, img_metas):
@@ -86,4 +86,5 @@ class MaskTarget:
         fg_offset = self.compute_offset(fg_reduced, gt_masks)
         mask_crops = self.crop_masks(gt_masks, fg_rois_list, fg_offset)
         weights = self.get_weights(valid_flgs, img_metas)
-        return mask_crops, fg_targets, weights 
+        return mask_crops, fg_targets, weights
+
