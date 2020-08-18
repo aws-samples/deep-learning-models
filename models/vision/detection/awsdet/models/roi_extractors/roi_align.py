@@ -29,7 +29,7 @@ def transform_fpcoor_for_tf(boxes, image_shape, crop_shape):
     spacing_w = (x1 - x0) / tf.cast(crop_shape[1], tf.float32)
     spacing_h = (y1 - y0) / tf.cast(crop_shape[0], tf.float32)
 
-    imshape = [tf.cast(image_shape[0] - 1, tf.float32), tf.cast(image_shape[1] - 1, tf.float32)]
+    imshape = [tf.cast(image_shape[0]-1, tf.float32), tf.cast(image_shape[1]-1, tf.float32)]
     nx0 = (x0 + spacing_w / 2 - 0.5) / imshape[1]
     ny0 = (y0 + spacing_h / 2 - 0.5) / imshape[0]
 
@@ -141,9 +141,9 @@ class PyramidROIAlign(tf.keras.Model):
             level_rois = tf.stop_gradient(level_rois)
             level_roi_indices = tf.stop_gradient(level_roi_indices)
             featmap_shape = tf.shape(feature_map_list[i])[1:3]
-            feat_h = tf.cast(featmap_shape[0], tf.float32)
-            feat_w = tf.cast(featmap_shape[1], tf.float32)
-            norm_level_rois = tf.cast(level_rois, tf.float32) / tf.stack([H, W, H, W]) * tf.stack([feat_h, feat_w, feat_h, feat_w])
+            feat_h = tf.cast(featmap_shape[0]-1, tf.float32)
+            feat_w = tf.cast(featmap_shape[1]-1, tf.float32)
+            norm_level_rois = tf.cast(level_rois, tf.float32) / tf.stack([H-1, W-1, H-1, W-1]) * tf.stack([feat_h, feat_w, feat_h, feat_w])
             crops = crop_and_resize(feature_map_list[i],
                                     norm_level_rois,
                                     level_roi_indices,
@@ -168,8 +168,7 @@ class PyramidROIAlign(tf.keras.Model):
         sorting_tensor = roi_to_level[:, 0] * 100000 + roi_to_level[:, 1]
         # arrange in reverse the order
         ix = tf.nn.top_k(sorting_tensor, k=tf.shape(roi_to_level)[0], sorted=True).indices[::-1]
-        ix = tf.gather(roi_to_level[:, 1], ix) # [2000]
-        pooled_rois = tf.gather(pooled_rois, ix) # [2000, 7, 7, 256]
-        # 2000 of [7, 7, 256]
+        ix = tf.gather(roi_to_level[:, 1], ix) 
+        pooled_rois = tf.gather(pooled_rois, ix) 
         pooled_rois_list = tf.split(pooled_rois, num_rois_list, axis=0)
         return pooled_rois_list
