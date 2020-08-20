@@ -8,6 +8,7 @@ import os.path as osp
 import time
 import pathlib
 import tarfile
+import multiprocessing
 import numpy as np
 import tensorflow as tf
 from awsdet.utils.misc import Config, mkdir_or_exist
@@ -34,9 +35,11 @@ os.environ['HOROVOD_FUSION_THRESHOLD']=str(0)
 # init distributed env first
 init_dist()
 
+tf.config.set_soft_device_placement(True)
+
 # avoid large pool of Eigen threads
-tf.config.threading.set_intra_op_parallelism_threads(5)
-tf.config.threading.set_inter_op_parallelism_threads(max(2, 40 // get_dist_info()[2]))
+tf.config.threading.set_intra_op_parallelism_threads(1)
+tf.config.threading.set_inter_op_parallelism_threads(max(2, multiprocessing.cpu_count() // get_dist_info()[2]))
 # reduce TF warning verbosity
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = str(2)
 import logging
