@@ -31,5 +31,5 @@ python tools/train.py \
 --config ${TRAIN_CFG} \
 --validate \
 --autoscale-lr \
---amp
-
+--amp 
+#--resume_from work_dirs/faster_rcnn_hrnetv2p_w32_1x_coco/007
