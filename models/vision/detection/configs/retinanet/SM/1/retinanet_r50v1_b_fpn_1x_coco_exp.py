@@ -11,7 +11,7 @@ model = dict(
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1_b',
-        weights_path='weights/resnet50v1_b', # SavedModel format
+        weights_path='resnet50v1_b', # SavedModel format
         weight_decay=1e-4
     ),
     neck=dict(

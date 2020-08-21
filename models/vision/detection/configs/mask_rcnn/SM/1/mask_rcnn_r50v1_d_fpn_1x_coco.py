@@ -9,7 +9,7 @@ model = dict(
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1_d',
-        weights_path='weights/resnet50v1_d',
+        weights_path='resnet50v1_d',
         weight_decay=1e-4
     ),
     neck=dict(
@@ -116,6 +116,14 @@ data = dict(
         std=image_std,
         scale=(800, 1333),
         mask=True),
+)
+
+# overwrite train cfg to indicate sagemaker training
+train_cfg = dict(
+    _overwrite_=True,
+    freeze_patterns=['^conv[12]_*', '_bn$'],
+    weight_decay=1e-4,
+    sagemaker=True,
 )
 
 # log, tensorboard configuration with s3 path for logs
