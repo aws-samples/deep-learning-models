@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-base_files = ['../../../common/sagemaker_1x8.py',
-              '../../../common/datasets/coco.py',
+base_files = ['../../../common/datasets/coco.py',
               '../../../common/lr_policy.py',
               '../../../common/runtime.py',]
 # model settings
@@ -116,6 +115,7 @@ data = dict(
         std=image_std,
         scale=(800, 1333),
         mask=True),
+<<<<<<< HEAD:models/vision/detection/configs/mask_rcnn/SM/1/mask_rcnn_r50v1_d_fpn_1x_coco.py
 )
 
 # overwrite train cfg to indicate sagemaker training
@@ -124,6 +124,8 @@ train_cfg = dict(
     freeze_patterns=['^conv[12]_*', '_bn$'],
     weight_decay=1e-4,
     sagemaker=True,
+=======
+>>>>>>> be31f87742b5335a16ccdda95d892ceb743b7abd:models/vision/detection/configs/mask_rcnn/SM/1/mask_rcnn_r50v1_d_fpn_1x_coco.py
 )
 
 # log, tensorboard configuration with s3 path for logs

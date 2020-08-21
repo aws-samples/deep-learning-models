@@ -78,13 +78,13 @@ load_from_cache_file = not args.skip_load_from_cache_file
 
 assert (
     args.dataset in args.cache_dir
-), "Dataset name should be part of the directory name, don't mix datasets!"
+), f"Dataset name '{args.dataset}' should be part of the directory name '{args.cache_dir}', don't mix datasets!"
 assert (
     args.skip_tfrecords or args.dataset in args.tfrecords_dir
-), "Dataset name should be part of the TFRecords directory, don't mix datasets!"
+), f"Dataset name '{args.dataset}' should be part of the TFRecords directory name '{args.tfrecords_dir}', don't mix datasets!"
 assert (
     args.skip_tfrecords or str(args.max_seq_length) in args.tfrecords_dir
-), "Sequence length should be part of the TFRecords directory"
+), f"Sequence length '{args.max_seq_length}' should be part of the TFRecords directory name '{args.tfrecords_dir}', don't mix datasets!"
 
 if not os.path.exists(args.cache_dir):
     os.makedirs(args.cache_dir, exist_ok=True)
@@ -101,6 +101,7 @@ if args.dataset.startswith("wikitext"):
 elif args.dataset == "wikipedia":
     dset = nlp.load_dataset("wikipedia", "20200501.en", split="train", cache_dir=args.cache_dir)
     dset.drop(columns=["title"])
+    dset.features.pop("title")
 elif args.dataset == "bookcorpus":
     dset = nlp.load_dataset("bookcorpus", split="train", cache_dir=args.cache_dir)
 elif args.dataset == "wikibooks":
@@ -108,9 +109,10 @@ elif args.dataset == "wikibooks":
         "wikipedia", "20200501.en", split="train", cache_dir=args.cache_dir
     )
     dset_wikipedia.drop(columns=["title"])
+    dset_wikipedia.features.pop("title")
     dset_books = nlp.load_dataset("bookcorpus", split="train", cache_dir=args.cache_dir)
     # Cast schemas, since one is nullable and one is not
-    dset_wikipedia._data = dset_wikipedia.data.cast(dset_books.schema)
+    dset_wikipedia._data = dset_wikipedia.data.cast(dset_books._data.schema)
     dset = nlp.concatenate_datasets([dset_wikipedia, dset_books])
 elif args.dataset == "c4":
     dset = nlp.load_dataset("c4", "en", cache_dir=args.cache_dir)

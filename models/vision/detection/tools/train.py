@@ -254,7 +254,7 @@ def main_sagemaker(args, cfg, s3_path, job_name):
     logger = get_root_logger(log_file=log_file, log_level=cfg.log_level)
     # log some basic info
     logger.info('Distributed training: {}'.format(distributed))
-    logger.info('TF MMDetection Version: {}'.format(__version__))
+    logger.info('AWSDet Version: {}'.format(__version__))
     logger.info('Config:\n{}'.format(cfg.text))
     logger.info('Tensorflow version: {}'.format(tf.version.VERSION))
 
