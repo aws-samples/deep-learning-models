@@ -1,18 +1,18 @@
 # Copyright (c) Open-MMLab. All rights reserved.
 import os.path as osp
+import ast
 import sys
+import tempfile
+import shutil
+from collections import abc
 from argparse import ArgumentParser
 from importlib import import_module
 from awsdet.utils.fileio import dump, load
 from addict import Dict
-
-try:
-    import collections.abc as collections_abc
-except ImportError:
-    import collections as collections_abc
-
 from .path import check_file_exist
 
+BASE_KEY = 'base_files'
+OVERWRITE_KEY = '_overwrite_'
 
 class ConfigDict(Dict):
 
@@ -44,7 +44,7 @@ def add_args(parser, cfg, prefix=''):
             parser.add_argument('--' + prefix + k, action='store_true')
         elif isinstance(v, dict):
             add_args(parser, v, k + '.')
-        elif isinstance(v, collections_abc.Iterable):
+        elif isinstance(v, abc.Iterable):
             parser.add_argument('--' + prefix + k, type=type(v[0]), nargs='+')
         else:
             print('connot parse key {} of type {}'.format(prefix + k, type(v)))
@@ -78,27 +78,98 @@ class Config(object):
     """
 
     @staticmethod
-    def fromfile(filename):
+    def _validate_py_syntax(filename):
+        with open(filename) as f:
+            content = f.read()
+        try:
+            ast.parse(content)
+        except SyntaxError:
+            raise SyntaxError('There are syntax errors in config '
+                              f'file {filename}')
+
+    @staticmethod
+    def _file2dict(filename):
         filename = osp.abspath(osp.expanduser(filename))
         check_file_exist(filename)
         if filename.endswith('.py'):
-            module_name = osp.basename(filename)[:-3]
-            if '.' in module_name:
-                raise ValueError('Dots are not allowed in config file path.')
-            config_dir = osp.dirname(filename)
-            sys.path.insert(0, config_dir)
-            mod = import_module(module_name)
-            sys.path.pop(0)
-            cfg_dict = {
-                name: value
-                for name, value in mod.__dict__.items()
-                if not name.startswith('__')
-            }
-        elif filename.endswith(('.yml', '.yaml', '.json')):
-            cfg_dict = load(filename)
+            with tempfile.TemporaryDirectory() as temp_config_dir:
+                temp_config_file = tempfile.NamedTemporaryFile(
+                    dir=temp_config_dir, suffix='.py')
+                temp_config_name = osp.basename(temp_config_file.name)
+                shutil.copyfile(filename,
+                                osp.join(temp_config_dir, temp_config_name))
+                temp_module_name = osp.splitext(temp_config_name)[0]
+                sys.path.insert(0, temp_config_dir)
+                Config._validate_py_syntax(filename)
+                mod = import_module(temp_module_name)
+                sys.path.pop(0)
+                cfg_dict = {
+                    name: value
+                    for name, value in mod.__dict__.items()
+                    if not name.startswith('__')
+                }
+                # delete imported module
+                del sys.modules[temp_module_name]
+                # close temp file
+                temp_config_file.close()
         else:
-            raise IOError('Only py/yml/yaml/json type are supported now!')
-        return Config(cfg_dict, filename=filename)
+            raise IOError('Only py type config is supported now!')
+
+        cfg_text = filename + '\n'
+        with open(filename, 'r') as f:
+            cfg_text += f.read()
+        # check if configuration inherits attributes from base/common configurations
+        if BASE_KEY in cfg_dict:
+            cfg_dir = osp.dirname(filename)
+            base_filename = cfg_dict.pop(BASE_KEY)
+            base_filename = base_filename if isinstance(
+                base_filename, list) else [base_filename]
+
+            cfg_dict_list = list()
+            cfg_text_list = list()
+            for f in base_filename:
+                _cfg_dict, _cfg_text = Config._file2dict(osp.join(cfg_dir, f))
+                cfg_dict_list.append(_cfg_dict)
+                cfg_text_list.append(_cfg_text)
+
+            base_cfg_dict = dict()
+            for c in cfg_dict_list:
+                if len(base_cfg_dict.keys() & c.keys()) > 0:
+                    raise KeyError('Duplicate key is not allowed among bases')
+                base_cfg_dict.update(c)
+
+            base_cfg_dict = Config._merge_a_into_b(cfg_dict, base_cfg_dict)
+            cfg_dict = base_cfg_dict
+
+            # merge cfg_text
+            cfg_text_list.append(cfg_text)
+            cfg_text = '\n'.join(cfg_text_list)
+
+        return cfg_dict, cfg_text
+
+    @staticmethod
+    def _merge_a_into_b(a, b):
+        # merge dict `a` into dict `b` (non-inplace). values in `a` will
+        # overwrite `b`.
+        # copy first to avoid inplace modification
+        b = b.copy()
+        for k, v in a.items():
+            if isinstance(v, dict) and k in b and not v.pop(OVERWRITE_KEY, False):
+                if not isinstance(b[k], dict):
+                    raise TypeError(
+                        f'{k}={v} in child config cannot inherit from base '
+                        f'because {k} is a dict in the child config but is of '
+                        f'type {type(b[k])} in base config. You may set '
+                        f'`{OVERWRITE_KEY}=True` to ignore the base config')
+                b[k] = Config._merge_a_into_b(v, b[k])
+            else:
+                b[k] = v
+        return b
+
+    @staticmethod
+    def fromfile(filename):
+        cfg_dict, cfg_text = Config._file2dict(filename)
+        return Config(cfg_dict, cfg_text=cfg_text, filename=filename)
 
     @staticmethod
     def auto_argparser(description=None):
@@ -113,20 +184,29 @@ class Config(object):
         add_args(parser, cfg)
         return parser, cfg
 
-    def __init__(self, cfg_dict=None, filename=None):
+
+    def __init__(self, cfg_dict=None, cfg_text=None, filename=None):
         if cfg_dict is None:
             cfg_dict = dict()
         elif not isinstance(cfg_dict, dict):
-            raise TypeError('cfg_dict must be a dict, but got {}'.format(
-                type(cfg_dict)))
+            raise TypeError('cfg_dict must be a dict, but '
+                            f'got {type(cfg_dict)}')
+        RESERVED_KEYS = []
+        for key in cfg_dict:
+            if key in RESERVED_KEYS:
+                raise KeyError(f'{key} is reserved for config file')
 
         super(Config, self).__setattr__('_cfg_dict', ConfigDict(cfg_dict))
         super(Config, self).__setattr__('_filename', filename)
-        if filename:
+        if cfg_text:
+            text = cfg_text
+        elif filename:
             with open(filename, 'r') as f:
-                super(Config, self).__setattr__('_text', f.read())
+                text = f.read()
         else:
-            super(Config, self).__setattr__('_text', '')
+            text = ''
+        super(Config, self).__setattr__('_text', text)
+
 
     @property
     def filename(self):
@@ -161,3 +241,4 @@ class Config(object):
 
     def __iter__(self):
         return iter(self._cfg_dict)
+

@@ -60,6 +60,8 @@ def parse_args():
     parser.add_argument('--config', help='train config file path')
     parser.add_argument("--model_dir", help="Location of model on Sagemaker instance")
     parser.add_argument('--work_dir', help='the dir to save logs and models')
+    parser.add_argument("--s3_path", help="S3 path where SageMaker will save logs")
+    parser.add_argument('--job_name', help='SageMaker job name')
     parser.add_argument('--resume_from', help='restarts training from saved running state in provided directory')
     parser.add_argument('--resume_dir', help='restarts training from the latest running state in provided directory - useful for spot training')
     parser.add_argument('--amp', type=str2bool, nargs='?', const=True, default=True, help='enable mixed precision training')
@@ -209,13 +211,19 @@ def main_ec2(args, cfg):
                    timestamp=timestamp)
 
     
-def main_sagemaker(args, cfg):
+def main_sagemaker(args, cfg, s3_path, job_name):
     """
     Main training entry point for jobs launched via SageMaker
     """
-    instance_name = cfg.sagemaker_job['job_name']
-    s3_path = cfg.sagemaker_job['s3_path']
-    
+    instance_name = job_name
+    s3_path = s3_path
+
+    for hook_cfg in cfg.log_config.hooks:
+        if 's3_dir' in hook_cfg:
+            hook_cfg['s3_dir'] = '{}/tensorboard/{}'.format(s3_path, job_name)
+        if 'dataset_cfg' in hook_cfg:
+            hook_cfg['dataset_cfg'] = cfg.data['val']
+
     decompress_data() # setup data dirs based on SM CHANNELS
 
     num_gpus = len(gpus)
@@ -326,6 +334,7 @@ if __name__ == '__main__':
     cfg = Config.fromfile(args.config)
     train_on_sagemaker = cfg.train_cfg.get('sagemaker', False)
     if train_on_sagemaker:
-        main_sagemaker(args, cfg)
+        main_sagemaker(args, cfg, args.s3_path, args.job_name)
     else:
         main_ec2(args, cfg)
+
