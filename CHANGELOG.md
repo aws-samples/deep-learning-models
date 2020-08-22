@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - Changelog (this file).
+- Backbone models (ResNet variants, HRNEt, DarkNet53) under classification directory
+- Backbone training modules with support for mixup augmentation
+- V2 MomentumOptimizer for object detection framework
+- Support for Sync Batchnorm
+- Support for loading backbone models in SavedModel format
+- Support to freeze model variables in object detection framework via configuration
+
+### Changed
+- Bugfix for ROIAlign layer
+- Sampling of anchor targets changed to include low quality matches as well
+- Weight initialization for FPN layer
+- Use L1 loss instead of Smooth L1 for FRCNN family of models
+- Cascade loss calculation update
+- Mask RCNN segmentation crop/resize fix
+- Switched to use crop and resize modification from TensorPack instead of tf.crop_and_resize
+- Object detection configuration system changed from flat definitions to heirarchical structure where individual sections can be overwritten as per training requirement
+- MPI and NCCL options updated for train scripts and SM job launcher
+- Update README and posted top-1 accuracy for backbone training modules under classification directory
+- Support for CI service via custom configurations
+
+## [Unreleased]
+### Added
+- Changelog (this file).
 - BERT model.
 - Weights & Biases integration.
 - ELECTRA model.
