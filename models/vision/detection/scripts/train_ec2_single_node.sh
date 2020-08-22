@@ -15,15 +15,14 @@ export PYTHONPATH=${PYTHONPATH}:${PWD}
 mpirun -np ${NUM_GPU} \
 --H localhost:${NUM_GPU} \
 --allow-run-as-root \
---mca plm_rsh_no_tree_spawn 1 -bind-to none -map-by slot -mca pml ob1 -mca btl ^openib \
--mca btl_tcp_if_exclude lo,docker0 \
+--mca plm_rsh_no_tree_spawn 1 -bind-to none -map-by slot -mca pml ob1 \
 -mca btl_vader_single_copy_mechanism none \
--x LD_LIBRARY_PATH \
--x PATH \
--x NCCL_SOCKET_IFNAME=^docker0,lo \
--x NCCL_MIN_NRINGS=8 \
--x NCCL_DEBUG=INFO \
+--mca btl tcp,self \
+--mca btl_tcp_if_exclude lo,docker0 \
 -x TF_CUDNN_USE_AUTOTUNE=0 \
+-x NCCL_TREE_THRESHOLD=4294967296 \
+-x NCCL_SOCKET_IFNAME=^docker0,lo \
+-x NCCL_DEBUG=INFO \
 -x HOROVOD_CYCLE_TIME=0.5 \
 -x HOROVOD_FUSION_THRESHOLD=67108864 \
 --output-filename /logs/mpirun_logs \
