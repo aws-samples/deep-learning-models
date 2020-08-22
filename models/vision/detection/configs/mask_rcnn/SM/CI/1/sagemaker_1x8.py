@@ -32,7 +32,7 @@ channels=dict(
 
 job_str='{}x{}-{}'.format(sagemaker_user['hvd_instance_count'], sagemaker_user['hvd_processes_per_host'], time_str)
 sagemaker_job=dict(
-    s3_path='s3://{}/faster-rcnn/outputs/{}'.format(sagemaker_user['s3_bucket'], time_str),
+    s3_path='s3://{}/mask-rcnn/outputs/{}'.format(sagemaker_user['s3_bucket'], time_str),
     job_name='{}-mrcnn-{}'.format(sagemaker_user['user_id'], job_str),
     output_path='',
 )

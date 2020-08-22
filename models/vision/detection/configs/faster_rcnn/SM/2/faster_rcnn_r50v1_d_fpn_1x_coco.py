@@ -1,5 +1,4 @@
-base_files = ['../../../common/sagemaker_2x8.py',
-              '../../../common/datasets/coco.py',
+base_files = ['../../../common/datasets/coco.py',
               '../../../common/lr_policy.py',
               '../../../common/runtime.py',]
 
@@ -62,6 +61,21 @@ model = dict(
     ),
 )
 
+# overwrite train cfg to indicate sagemaker training
+train_cfg = dict(
+    _overwrite_=True,
+    freeze_patterns=['^conv[12]_*', '_bn$'],
+    weight_decay=1e-4,
+    sagemaker=True,
+)
+
+# extra options related to optimizers
+optimizer_config = dict(
+    _overwrite_=True,
+    amp_enabled=True,
+    gradient_clip=5.0,
+)
+
 # log, tensorboard configuration with s3 path for logs
 log_config=dict(
     _overwrite_=True,
@@ -72,13 +86,13 @@ log_config=dict(
         ),
         dict(
             type='TensorboardLoggerHook',
-            log_dir=none,
+            log_dir=None,
             image_interval=100,
-            s3_dir='{}/tensorboard/{}'.format(sagemaker_job['s3_path'], sagemaker_job['job_name'])
+            s3_dir='', # set dynamically
         ),
         dict(
             type='Visualizer',
-            dataset_cfg=data['val'],
+            dataset_cfg=None, # set dynamically
             interval=100,
             top_k=10,
             run_on_sagemaker=True,

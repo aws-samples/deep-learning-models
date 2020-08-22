@@ -17,11 +17,19 @@ sagemaker_user=dict(
     hvd_instance_count=8,
 )
 # settings for distributed training on sagemaker
+mpi_options="\
+-x OMPI_MCA_plm_rsh_no_tree_spawn=1 -bind-to none -map-by slot -x OMPI_MCA_pml=ob1 \
+-x OMPI_MCA_btl_vader_single_copy_mechanism=none \
+-x OMPI_MCA_btl=tcp,self \
+-x NCCL_TREE_THRESHOLD=4294967296 \
+-x HOROVOD_CYCLE_TIME=0.5 \
+-x HOROVOD_FUSION_THRESHOLD=67108864"
+
 distributions=dict(
     mpi=dict(
         enabled=True,
         processes_per_host=sagemaker_user['hvd_processes_per_host'],
-        custom_mpi_options="-x OMPI_MCA_btl_vader_single_copy_mechanism=none -x TF_CUDNN_USE_AUTOTUNE=0",
+        custom_mpi_options=mpi_options,
     )
 )
 # sagemaker channels
