@@ -52,6 +52,14 @@ data = dict(
         mask=True),
 )
 
+# overwrite train cfg to indicate sagemaker training
+train_cfg = dict(
+    _overwrite_=True,
+    freeze_patterns=['^conv[12]_*', '_bn$'],
+    weight_decay=1e-4,
+    sagemaker=True,
+)
+
 # overwrite default optimizer
 optimizer = dict(
     _overwrite_=True,

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-base_files = ['../../../common/sagemaker_1x8.py',
-              '../../../common/datasets/coco.py',
+base_files = ['../../../common/datasets/coco.py',
               '../../../common/lr_policy.py',
               '../../../common/runtime.py',]
 
@@ -12,7 +11,7 @@ model = dict(
     backbone=dict(
         type='KerasBackbone',
         model_name='ResNet50V1_d',
-        weights_path='weights/resnet50v1_d', # SavedModel format
+        weights_path='resnet50v1_d', # SavedModel format
         weight_decay=1e-4
     ),
     neck=dict(

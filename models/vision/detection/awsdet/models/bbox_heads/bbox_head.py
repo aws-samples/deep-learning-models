@@ -146,10 +146,7 @@ class BBoxHead(tf.keras.Model):
             probs = layers.Activation('softmax', dtype='float32', name='rcnn_probs')(logits)
             deltas = self.rcnn_delta_cv(x)
             deltas = layers.Activation('linear', dtype='float32')(deltas)
-            if not self.reg_class_agnostic:
-                deltas = tf.reshape(deltas, [-1, self.num_classes * 4])
-            else:
-                deltas = tf.reshape(deltas, [-1, 4])
+            deltas = tf.reshape(deltas, [-1, self.num_reg_outputs])
             return logits, probs, deltas
 
 
