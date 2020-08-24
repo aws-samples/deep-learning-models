@@ -28,6 +28,7 @@ class DistEvalHook(Hook):
                 'dataset must be a dict from config, not {}'.format(
                     type(dataset)))
         self.interval = interval
+        self.start_time = None
 
     @master_only
     def _accumulate_results(self, runner, results, num_examples):
@@ -41,10 +42,12 @@ class DistEvalHook(Hook):
             print('cleaning up', worker_file)
             os.remove(worker_file) # cleanup
         self.evaluate(runner, results)
+        runner.log_buffer.output['eval_time'] = '{:.3f}'.format(time.time() - self.start_time)
 
     def after_train_epoch(self, runner):
         if not self.every_n_epochs(runner, self.interval):
             return
+        self.start_time = time.time()
         # create a loader for this runner
         tf_dataset, num_examples = build_dataloader(self.dataset, 1, 1, num_gpus=runner.local_size, dist=True)
         # num_examples=8
@@ -82,6 +85,7 @@ class DistEvalHook(Hook):
         # MPI barrier through horovod
         _ = get_barrier()
         self._accumulate_results(runner, results, num_examples)
+        del tf_dataset
 
 
     def evaluate(self, runner, results):

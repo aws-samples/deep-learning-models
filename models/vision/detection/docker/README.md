@@ -2,7 +2,7 @@
 
 This document covers the process of building and deploying a custom Docker container on the Sagemaker platform.
 
-In order to train faster-rcnn on Sagemaker, we need several packages not included in the standard Sagemaker docker container. The process differs from a standard Docker build in only two ways. First, the image must include the Sagemaker Container utilities, and, second, the image must be stored in AWS ECR for so that Sagemaker is able to access the image during training.
+In order to train detection models on Sagemaker, we need several packages not included in the standard Sagemaker docker container. The process differs from a standard Docker build in only two ways. First, the image must include the Sagemaker Container utilities, and, second, the image must be stored in AWS ECR for so that Sagemaker is able to access the image during training.
 
 Note that we recommend working through this tutorial inside a Sagemaker notebook instance. This will ensure proper access to your AWS account for the purpose of writing to ECR.
 
@@ -43,7 +43,7 @@ Let's say I want to build this image, push one copy to Dockerhub and another to 
 # Build docker image
 ########################################################################
 
-cd /home/ec2-user/SageMaker/mmdetection_tf/docker
+cd /home/ec2-user/SageMaker/deep-learning-models/models/vision/detection/docker
 DOCKERHUB_USER=johnbensnyder
 IMAGE_NAME=sagemaker-tf-frcnn:2.1.0
 docker build -t ${DOCKERHUB_USER}/${IMAGE_NAME} -f Dockerfile.frcnn .

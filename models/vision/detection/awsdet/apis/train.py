@@ -4,15 +4,15 @@
 import logging
 import random
 import re
+import os
 from collections import OrderedDict
 import tensorflow_addons as tfa
 import numpy as np
 import tensorflow as tf
 from ..utils.runner import (Runner, get_dist_info, obj_from_dict)
+import awsdet
 from awsdet.core import CocoDistEvalmAPHook, CocoDistEvalRecallHook
-#                        DistEvalmAPHook, DistOptimizerHook, Fp16OptimizerHook)
 from awsdet.datasets import DATASETS, build_dataloader
-#from awsdet.models import RPN
 
 
 def get_root_logger(log_file=None, log_level=logging.INFO):
@@ -27,6 +27,9 @@ def get_root_logger(log_file=None, log_level=logging.INFO):
     if rank != 0:
         logger.setLevel('ERROR')
     elif log_file is not None:
+        # create dir if it doesn't exist - first run
+        if not os.path.exists(log_file):
+            os.makedirs(os.path.dirname(log_file), exist_ok=True)
         file_handler = logging.FileHandler(log_file, 'w')
         file_handler.setFormatter(
             logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
@@ -65,7 +68,9 @@ def parse_losses(losses, local_batch_size):
             if 'reg_loss' not in _key:
                 # https://github.com/horovod/horovod/issues/843
                 # horovod averages (not sums) gradients by default over workers
-                loss_list.append(_value/local_batch_size)
+                worker_loss = _value/local_batch_size
+                loss_list.append(worker_loss)
+                log_vars[_key] = worker_loss
             else:
                 loss_list.append(_value)
     total_loss = sum(loss_list) 
@@ -93,8 +98,8 @@ def batch_processor(model, data, train_mode, loss_weights=None):
     """
     if train_mode:
         losses = model(data, training=train_mode)
-        # add regularization losses
-        reg_losses = tf.add_n(model.losses)
+        # add regularization losses TODO: change multiplier based on type of regularizer (currently L2)
+        reg_losses = 0.5 * tf.add_n(model.losses)
         local_batch_size = data[0].shape[0]
         losses['reg_loss'] = reg_losses
         if not loss_weights is None:
@@ -158,7 +163,10 @@ def build_optimizer(optimizer_cfg):
 
     """
     optimizer_cfg = optimizer_cfg.copy()
-    return obj_from_dict(optimizer_cfg, tf.keras.optimizers)
+    if optimizer_cfg['type'] != 'MomentumOptimizer':
+        return obj_from_dict(optimizer_cfg, tf.keras.optimizers)
+    else:
+        return obj_from_dict(optimizer_cfg, awsdet.utils.keras.optimizers)
 
 
 def _dist_train(model,

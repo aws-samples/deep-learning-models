@@ -3,4 +3,5 @@
 # -*- coding: utf-8 -*-
 from .backbone import get_base_model, get_outputs
 from .freeze import *
-__all__ = ['get_base_model', 'get_outputs', 'freeze_model_layers']
+from . import optimizers
+__all__ = ['get_base_model', 'get_outputs', 'freeze_model_layers', 'optimizers']

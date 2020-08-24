@@ -146,39 +146,6 @@ def imrescale(img, scale):
     
     return rescaled_img, scale_factor
 
-def imnormalize(img, mean, std):
-    '''Normalize the image.
-    
-    Args
-    ---
-        img: [height, width, channel]
-        mean: Tuple or np.ndarray. [3]
-        std: Tuple or np.ndarray. [3]
-    
-    Returns
-    ---
-        np.ndarray: the normalized image.
-    '''
-    #img = (img - mean) / std  
-    #img = (img / 127.5) - 1.0
-    return img.astype(np.float32)
-
-def imdenormalize(norm_img, mean, std):
-    '''Denormalize the image.
-    
-    Args
-    ---
-        norm_img: [height, width, channel]
-        mean: Tuple or np.ndarray. [3]
-        std: Tuple or np.ndarray. [3]
-    
-    Returns
-    ---
-        np.ndarray: the denormalized image.
-    '''
-    # img = 127.5 * (norm_img + 1.0)
-    # img = norm_img * std + mean
-    return norm_img.astype(np.float32)
 
 #######################################
 #
@@ -186,17 +153,14 @@ def imdenormalize(norm_img, mean, std):
 #
 #######################################
 
-def get_original_image(img, img_meta, 
-                       mean=(0, 0, 0), std=(1, 1, 1)):
-    '''Recover the origanal image.
+def get_original_image(img, img_meta):
+    '''Recover the original image.
     
     Args
     ---
         img: np.ndarray. [height, width, channel]. 
             The transformed image.
         img_meta: np.ndarray. [11]
-        mean: Tuple or np.ndarray. [3]
-        std: Tuple or np.ndarray. [3]
     
     Returns
     ---
@@ -212,8 +176,8 @@ def get_original_image(img, img_meta,
         img = img_flip(img)
     img = cv2.resize(img, (ori_shape[1], ori_shape[0]), 
                      interpolation=cv2.INTER_LINEAR)
-    img = imdenormalize(img, mean, std)
     return img
+
 
 def compose_image_meta(img_meta_dict):
     '''Takes attributes of an image and puts them in one 1D array.
@@ -240,6 +204,7 @@ def compose_image_meta(img_meta_dict):
     ).astype(np.float32)
 
     return img_meta
+
 
 def parse_image_meta(img_meta):
     '''Parses an array that contains image attributes to its components.
