@@ -10,4 +10,4 @@
 
 `eval_time`: time taken to run evaluation
 
-Throughput (imgs/sec) can be calculated as: `(imgs_per_gpu * total gpus) / time`
+Throughput (imgs/sec) can be calculated as: `(imgs_per_gpu * total gpus) / time` averaged over multiple entries

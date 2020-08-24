@@ -296,7 +296,15 @@ class Runner(object):
         grads = tape.gradient(loss, var_list)
         if self._amp_enabled:
             grads = self.optimizer.get_unscaled_gradients(grads)
-        grads = [grad if grad is not None else tf.zeros_like(var) for var, grad in zip(var_list, grads)]
+        updated_grads = []
+        #[grad if grad is not None else tf.zeros_like(var) for var, grad in zip(var_list, grads)]
+        for var, grad in zip(var_list, grads):
+            if grad is None:
+                grad = tf.zeros_like(var)
+            if 'bias' in var.name:
+                grad = 2.0 * grad # from detectron
+            updated_grads.append(grad)
+        grads = updated_grads
         # all_are_finite = tf.reduce_all([tf.reduce_all(tf.math.is_finite(g)) for g in grads])
         if self.gradient_clip > 0.0:
             clipped_grads, global_norm = tf.clip_by_global_norm(grads, self.gradient_clip)

@@ -16,14 +16,6 @@ sagemaker_user=dict(
     hvd_instance_type='ml.p3.16xlarge', #'ml.p3dn.24xlarge',
     hvd_instance_count=8,
 )
-# settings for distributed training on sagemaker
-#distributions=dict(
-#    mpi=dict(
-#        enabled=True,
-#        processes_per_host=sagemaker_user['hvd_processes_per_host'],
-#        custom_mpi_options="-x OMPI_MCA_btl_vader_single_copy_mechanism=none -x TF_CUDNN_USE_AUTOTUNE=0",
-#    )
-#)
 
 mpi_options="\
 -x OMPI_MCA_plm_rsh_no_tree_spawn=1 -bind-to none -map-by slot -x OMPI_MCA_pml=ob1 \

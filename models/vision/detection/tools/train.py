@@ -28,10 +28,15 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 
 # tf.config.experimental_run_functions_eagerly(True)
 os.environ['TF_CUDNN_USE_AUTOTUNE']= str(0)
-os.environ['TF_DETERMINISTIC_OPS'] = str(1)
+# os.environ['TF_DETERMINISTIC_OPS'] = str(1)
 os.environ['PYTHONHASHSEED']=str(17)
-os.environ['HOROVOD_FUSION_THRESHOLD']=str(0)
-
+os.environ['CUDA_CACHE_DISABLE'] = str(0)
+os.environ['TF_USE_CUDNN_BATCHNORM_SPATIAL_PERSISTENT'] = str(1)
+# os.environ['TF_ADJUST_HUE_FUSED'] = '1'
+# os.environ['TF_ADJUST_SATURATION_FUSED'] = '1'
+os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = str(1)
+os.environ['TF_AUTOTUNE_THRESHOLD'] = str(2)
+    
 # init distributed env first
 init_dist()
 

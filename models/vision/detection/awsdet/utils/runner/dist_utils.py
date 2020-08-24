@@ -35,7 +35,12 @@ def broadcast_weights(runner):
     print('Variable broadcast done.')
 
 def get_distributed_tape(tape):
-    return hvd.DistributedGradientTape(tape)
+    return hvd.DistributedGradientTape(tape,
+                device_dense='/gpu:0',
+                device_sparse='',
+                # compression=hvd.Compression.fp16, # hurts convergence in 8x8 case
+                compression=hvd.Compression.none,
+                sparse_as_dense=False)
 
 def get_barrier():
     return hvd.allreduce(tf.constant(0, dtype=tf.float32))
