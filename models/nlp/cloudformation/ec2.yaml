@@ -9,9 +9,13 @@ Parameters:
   VPCId:
     Default: vpc-123
     Type: String
-  FileSystem:
+  FileSystemId:
     # from fsx.yaml
     Default: fs-123
+    Type: String
+  FileSystemMountName:
+    # from FSx console
+    Default: fsx
     Type: String
 
   # These parameters can be kept
@@ -57,7 +61,7 @@ Resources:
             sudo apt install -y lustre-client-modules-$(uname -r)
             # Mount lustre filesystem
             sudo mkdir /fsx
-            sudo mount -t lustre -o flock ${FileSystem}.fsx.us-east-1.amazonaws.com@tcp:/fsx /fsx
+            sudo mount -t lustre -o flock ${FileSystemId}.fsx.us-east-1.amazonaws.com@tcp:/${FileSystemMountName} /fsx
             # Create tmux session to automatically ssh into, then detach
             tmux new -s workspace -d
   EC2Instance:
@@ -96,4 +100,4 @@ Outputs:
     Value: !GetAtt EC2Instance.PublicIp
   FileSystemId:
     Description: The Lustre FSx id
-    Value: !Ref FileSystem
+    Value: !Ref FileSystemId

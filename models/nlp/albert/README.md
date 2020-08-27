@@ -29,7 +29,20 @@ All commands should be run from the `models/nlp` directory.
 
 1. Create an FSx volume.
 
-2. Download the datasets onto FSx. The simplest way to start is with English Wikipedia.
+2. Download the datasets onto FSx. The simplest way to start is with English Wikipedia. The structure should be as follows:
+
+```
+/fsx
+    /deep-learning-models
+    /logs
+        /albert
+    /tensorboard
+    /checkpoints
+        /albert
+    /albert_data
+        /train
+        /val
+```
 
 3. Create an Amazon Elastic Container Registry (ECR) repository. Then build a Docker image from `models/nlp/Dockerfile` and push it to ECR.
 
@@ -60,7 +73,7 @@ export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
 
 ```bash
 export TRAIN_DIR=albert_data/train
-export VAL_DIR=albert_data/train
+export VAL_DIR=albert_data/validation
 export LOG_DIR=logs/albert
 export CHECKPOINT_DIR=checkpoints/electra
 ```
