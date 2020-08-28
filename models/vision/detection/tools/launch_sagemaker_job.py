@@ -7,7 +7,7 @@ import importlib
 
 
 def main(args):
-    loader = importlib.machinery.SourceFileLoader('', args.configuration)
+    loader = importlib.machinery.SourceFileLoader('', args.job_config)
     cfg = loader.load_module()
     role = get_execution_role()
     main_script = 'tools/train.py'
@@ -17,13 +17,16 @@ def main(args):
     distributions = cfg.distributions
     output_path = cfg.sagemaker_job['output_path']
     job_name = cfg.sagemaker_job['job_name']
+    s3_path = cfg.sagemaker_job['s3_path']
     channels = cfg.channels
 
     configuration = {
-        'config': args.configuration,
+        'config': args.model_config,
         'amp': 'True',
         'autoscale-lr': 'True',
-        'validate': 'True'
+        'validate': 'True',
+        's3_path': s3_path,
+        'job_name': job_name
     }
 
     estimator = TensorFlow(
@@ -31,15 +34,15 @@ def main(args):
                     source_dir='.',
                     image_name=docker_image, 
                     role=role,
-                    framework_version="2.1.0",
-                    py_version="py3",
+                    framework_version='2.1.0',
+                    py_version='py3',
                     train_instance_count=hvd_instance_count,
                     train_instance_type=hvd_instance_type,
                     distributions=distributions,
                     output_path=output_path,
                     train_volume_size=200,
                     hyperparameters=configuration)
-    estimator.fit(channels, wait=False, job_name=job_name)
+    estimator.fit(channels, wait=args.wait_for_job, job_name=job_name)
     print("Launched SageMaker job:", job_name)
 
 def parse():
@@ -47,7 +50,9 @@ def parse():
     Parse path to configuration file
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--configuration", help="SM Job configuration file")
+    parser.add_argument("--job_config", help="sagemaker configuration file")
+    parser.add_argument("--model_config", help="model configuration file")
+    parser.add_argument("--wait_for_job", action='store_true', default=False)
     args = parser.parse_args()
     return args
 
@@ -55,3 +60,4 @@ def parse():
 if __name__=='__main__':
     args = parse()
     main(args)
+

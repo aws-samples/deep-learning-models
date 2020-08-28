@@ -3,7 +3,7 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
 from tensorflow.keras import layers
-
+import functools
 from awsdet.core.bbox import transforms
 from awsdet.models.losses import losses
 from ..utils.misc import (calc_batch_padded_shape, calc_img_shapes, calc_pad_shapes)
@@ -24,6 +24,7 @@ class BBoxHead(tf.keras.Model):
                  weight_decay=1e-4,
                  use_conv=False,
                  use_bn=False,
+                 use_smooth_l1=True,
                  label_smoothing=0.0,
                  soft_nms_sigma=0.0,
                  reg_class_agnostic=False,
@@ -39,48 +40,41 @@ class BBoxHead(tf.keras.Model):
         self.max_instances = max_instances
         self.num_rcnn_deltas=num_rcnn_deltas
         self.rcnn_class_loss = losses.rcnn_class_loss
-        self.rcnn_bbox_loss = losses.rcnn_bbox_loss
+        self.rcnn_bbox_loss = functools.partial(losses.rcnn_bbox_loss, use_smooth_l1=use_smooth_l1)
         self.use_conv = use_conv
         self.use_bn = (use_bn and not use_conv)
         self.label_smoothing = label_smoothing
         self.soft_nms_sigma = soft_nms_sigma
         self.reg_class_agnostic = reg_class_agnostic
-        
+        self.num_reg_outputs = num_classes * 4 if not reg_class_agnostic else 4
         roi_feature_size=(7, 7, 256)
         if not use_conv:
             self._flatten_layer = layers.Flatten()
             
             self._flatten_bn = layers.BatchNormalization(scale=True, epsilon=1e-5, name='flatten_bn')
             
-            self._fc1 = layers.Dense(1024, name='fc1', activation=None,
-                                     kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+            self._fc1 = layers.Dense(1024, name='fc1', activation=None, use_bias=False,
+                                     kernel_initializer='glorot_uniform',
                                      kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                      input_shape=[roi_feature_size]
                                      )
             self._fc1_bn = layers.BatchNormalization(name='fc1_bn')
             
-            self._fc2 = layers.Dense(1024, name='fc2', activation=None,
-                                     kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+            self._fc2 = layers.Dense(1024, name='fc2', activation=None, use_bias=False,
+                                     kernel_initializer='glorot_uniform',
                                      kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                      )
             
             self._fc2_bn = layers.BatchNormalization(name='fc2_bn')
 
             self.rcnn_class_logits = layers.Dense(num_classes,
-                                                  kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
+                                                  kernel_initializer='glorot_uniform',
                                                   kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                                   name='rcnn_class_logits')
-
-            if not self.reg_class_agnostic:
-                self.rcnn_delta_fc = layers.Dense(num_classes * 4, 
-                                                kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.001),
-                                                kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                                                name='rcnn_bbox_fc')
-            else:
-                self.rcnn_delta_fc = layers.Dense(4, 
-                                                kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.001),
-                                                kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                                                name='rcnn_bbox_fc')
+            self.rcnn_delta_fc = layers.Dense(self.num_reg_outputs, 
+                                              kernel_initializer='glorot_uniform',
+                                              kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
+                                              name='rcnn_bbox_fc')
         else:
             self._conv1 = layers.Conv2D(1024, (3, 3), padding='same',
                                         kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
@@ -99,14 +93,7 @@ class BBoxHead(tf.keras.Model):
                                         kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                         activation='linear',
                                         name='rcnn_class_logit')
-            if not self.reg_class_agnostic:
-                self.rcnn_delta_cv = layers.Conv2D(num_classes * 4, (1, 1),
-                                            kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
-                                            kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
-                                            activation='linear',
-                                            name='rcnn_delta_cv')
-            else:
-                self.rcnn_delta_cv = layers.Conv2D(4, (1, 1),
+            self.rcnn_delta_cv = layers.Conv2D(self.num_reg_outputs, (1, 1),
                                             kernel_initializer=tf.keras.initializers.TruncatedNormal(mean=0.0, stddev=0.01),
                                             kernel_regularizer=tf.keras.regularizers.l2(weight_decay),
                                             activation='linear',
@@ -159,10 +146,7 @@ class BBoxHead(tf.keras.Model):
             probs = layers.Activation('softmax', dtype='float32', name='rcnn_probs')(logits)
             deltas = self.rcnn_delta_cv(x)
             deltas = layers.Activation('linear', dtype='float32')(deltas)
-            if not self.reg_class_agnostic:
-                deltas = tf.reshape(deltas, [-1, self.num_classes * 4])
-            else:
-                deltas = tf.reshape(deltas, [-1, 4])
+            deltas = tf.reshape(deltas, [-1, self.num_reg_outputs])
             return logits, probs, deltas
 
 

@@ -5,7 +5,6 @@ import tensorflow as tf
 from .. import builder
 from ..registry import DETECTORS
 from .base import BaseDetector
-from .test_mixins import BBoxTestMixin, RPNTestMixin 
 
 
 @DETECTORS.register_module()
@@ -22,14 +21,18 @@ class SingleStageDetector(BaseDetector):
                  bbox_head=None,
                  train_cfg=None,
                  test_cfg=None,
+                 norm_type='BN',
                  pretrained=None):
         super(SingleStageDetector, self).__init__()
+        sync_bn = False if norm_type == 'BN' else True
+        backbone.sync_bn = sync_bn
         self.backbone = builder.build_backbone(backbone)
         if neck is not None:
             self.neck = builder.build_neck(neck)
         self.bbox_head = builder.build_head(bbox_head)
         self.cfg = train_cfg
         self.test_cfg = test_cfg
+
 
     def init_weights(self, pretrained=None):
         super(SingleStageDetector, self).init_weights(pretrained)

@@ -252,11 +252,11 @@ def get_cls_results(det_results, annotations, class_id):
     cls_gts = []
     cls_gts_ignore = []
     for ann in annotations:
-        gt_inds = ann['labels'] == (class_id + 1)
+        gt_inds = ann['labels'] == class_id+1
         cls_gts.append(ann['bboxes'][gt_inds, :])
 
         if ann.get('labels_ignore', None) is not None:
-            ignore_inds = ann['labels_ignore'] == (class_id + 1)
+            ignore_inds = ann['labels_ignore'] == class_id+1
             cls_gts_ignore.append(ann['bboxes_ignore'][ignore_inds, :])
         else:
             cls_gts_ignore.append(np.array((0, 4), dtype=np.float32))

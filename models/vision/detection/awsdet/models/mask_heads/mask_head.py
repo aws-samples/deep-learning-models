@@ -55,6 +55,7 @@ class MaskHead(tf.keras.Model):
             x = tf.keras.activations.relu(x)
         x = self._deconv(x)
         x = self._masks(x)
+        x = tf.cast(x, tf.float32) # for AMP
         return x
 
     def get_fg_rois_list(self, rois_list):

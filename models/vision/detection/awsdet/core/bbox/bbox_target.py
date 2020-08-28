@@ -19,16 +19,15 @@ class ProposalTarget:
                  num_classes=81,
                  reg_class_agnostic=False,
                  fg_assignments=False):
-        '''
+        """
         Compute regression and classification targets for proposals.
         
-        Attributes
-        ---
+        Attributes:
             target_means: [4]. Bounding box refinement mean for RCNN.
             target_stds: [4]. Bounding box refinement standard deviation for RCNN.
             num_rcnn_deltas: int. Maximal number of RoIs per image to feed to bbox heads.
 
-        '''
+        """
         self.target_means = target_means
         self.target_stds = target_stds
         self.num_rcnn_deltas = num_rcnn_deltas
@@ -41,28 +40,26 @@ class ProposalTarget:
         self.fg_assignments = fg_assignments
             
     def build_targets(self, proposals_list, gt_boxes, gt_class_ids, img_metas):
-        '''
-        Generates detection targets for images. Subsamples proposals and
-        generates target class IDs, bounding box deltas for each.
+        """
+        Generate detection targets for images.
+        Subsample proposals and generate target class IDs, bounding box deltas for each.
         
-        Args
-        ---
+        Args:
             proposals_list: list of [num_proposals, (y1, x1, y2, x2)] in regular coordinates.
             gt_boxes: [batch_size, num_gt_boxes, (y1, x1, y2, x2)] in image coordinates.
             gt_class_ids: [batch_size, num_gt_boxes] Integer class IDs.
             img_metas: [batch_size, 11]
             
-        Returns
-        ---
+        Returns:
             rois_list: list of [num_rois, (y1, x1, y2, x2)] in normalized coordinates
             rcnn_target_matchs_list: list of [num_rois]. Integer class IDs.
             rcnn_target_deltas_list: list of [num_positive_rois, (dy, dx, log(dh), log(dw))].
             
         Note that self.num_rcnn_deltas >= num_rois > num_positive_rois. And different 
            images in one batch may have different num_rois and num_positive_rois.
-        '''
+        """
  
-        pad_shapes = calc_pad_shapes(img_metas) # [[1216, 1216]]
+        pad_shapes = calc_pad_shapes(img_metas) 
         batch_size = img_metas.shape[0]
         
         rois_list = []
@@ -97,7 +94,8 @@ class ProposalTarget:
         return (rois_list, rcnn_target_matchs, rcnn_target_deltas, 
                 inside_weights, outside_weights)
 
-    @tf.function(experimental_relax_shapes=True) # relax shapes to reduce function retracing TODO: revisit implementation
+
+    @tf.function(experimental_relax_shapes=True)
     def _build_single_target(self, proposals, gt_boxes, gt_class_ids, img_shape):
         '''
         Args
@@ -118,22 +116,17 @@ class ProposalTarget:
         gt_boxes, non_zeros = trim_zeros(gt_boxes)
         gt_boxes = tf.cast(gt_boxes, proposals.dtype)
         gt_labels = tf.boolean_mask(gt_class_ids, non_zeros)
-        noise_mean = 5.0
-        noisy_gt_boxes = tf.add(gt_boxes, 
-                                tf.random.truncated_normal(tf.shape(gt_boxes), noise_mean, 0.1, dtype=proposals.dtype))
-        proposals_gt = tf.concat([proposals, noisy_gt_boxes], axis=0)
+        proposals_gt = tf.concat([proposals, gt_boxes], axis=0)
 
-
-        iou = geometry.compute_overlaps(proposals_gt, gt_boxes)  # [rois_size, gt_bboxes_size]
-        max_overlaps = tf.reduce_max(iou, axis=1)  # [rois_size, ]
-        gt_assignment = tf.argmax(iou, axis=1)  # [rois_size, ]
-        labels = tf.gather(gt_labels, gt_assignment)  # [rois_size, ]
+        iou = geometry.compute_overlaps(proposals_gt, gt_boxes)
+        max_overlaps = tf.reduce_max(iou, axis=1)
+        gt_assignment = tf.argmax(iou, axis=1)
+        labels = tf.gather(gt_labels, gt_assignment)
 
         # get FG and BG
         fg_inds = tf.where(max_overlaps >= self.pos_iou_thr)[:, 0]
         bg_inds = tf.where(tf.logical_and(max_overlaps < self.pos_iou_thr,
                                           max_overlaps >= self.neg_iou_thr))[:, 0]
-
         # filter FG/BG
         if tf.size(fg_inds) > self._max_pos_samples:
             fg_inds = tf.random.shuffle(fg_inds)[:self._max_pos_samples]
@@ -175,7 +168,6 @@ class ProposalTarget:
 
         final_bbox_targets = tf.zeros((tf.size(keep_inds), self.num_classes, 4), dtype=tf.float32)
         if tf.size(fg_inds) > 0:
-
             bbox_targets = transforms.bbox2delta(
                 tf.gather(final_rois, tf.range(tf.size(fg_inds))),
                 tf.gather(gt_boxes, tf.gather(gt_assignment, fg_inds)),

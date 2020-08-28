@@ -8,9 +8,9 @@ import os.path as osp
 import time
 import pathlib
 import tarfile
+import multiprocessing
 import numpy as np
 import tensorflow as tf
-
 from awsdet.utils.misc import Config, mkdir_or_exist
 from awsdet.utils.runner import init_dist, master_only, get_dist_info, get_barrier
 from awsdet.utils.keras import freeze_model_layers
@@ -28,16 +28,23 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 
 # tf.config.experimental_run_functions_eagerly(True)
 os.environ['TF_CUDNN_USE_AUTOTUNE']= str(0)
-os.environ['TF_DETERMINISTIC_OPS'] = str(1)
+# os.environ['TF_DETERMINISTIC_OPS'] = str(1)
 os.environ['PYTHONHASHSEED']=str(17)
-os.environ['HOROVOD_FUSION_THRESHOLD']=str(0)
-
+os.environ['CUDA_CACHE_DISABLE'] = str(0)
+os.environ['TF_USE_CUDNN_BATCHNORM_SPATIAL_PERSISTENT'] = str(1)
+# os.environ['TF_ADJUST_HUE_FUSED'] = '1'
+# os.environ['TF_ADJUST_SATURATION_FUSED'] = '1'
+os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = str(1)
+os.environ['TF_AUTOTUNE_THRESHOLD'] = str(2)
+    
 # init distributed env first
 init_dist()
 
+tf.config.set_soft_device_placement(True)
+
 # avoid large pool of Eigen threads
-tf.config.threading.set_intra_op_parallelism_threads(5)
-tf.config.threading.set_inter_op_parallelism_threads(max(2, 40 // get_dist_info()[2]))
+tf.config.threading.set_intra_op_parallelism_threads(1)
+tf.config.threading.set_inter_op_parallelism_threads(max(2, multiprocessing.cpu_count() // get_dist_info()[2]))
 # reduce TF warning verbosity
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = str(2)
 import logging
@@ -58,6 +65,8 @@ def parse_args():
     parser.add_argument('--config', help='train config file path')
     parser.add_argument("--model_dir", help="Location of model on Sagemaker instance")
     parser.add_argument('--work_dir', help='the dir to save logs and models')
+    parser.add_argument("--s3_path", help="S3 path where SageMaker will save logs")
+    parser.add_argument('--job_name', help='SageMaker job name')
     parser.add_argument('--resume_from', help='restarts training from saved running state in provided directory')
     parser.add_argument('--resume_dir', help='restarts training from the latest running state in provided directory - useful for spot training')
     parser.add_argument('--amp', type=str2bool, nargs='?', const=True, default=True, help='enable mixed precision training')
@@ -133,9 +142,6 @@ def main_ec2(args, cfg):
         total_bs = get_dist_info()[2] * cfg.data.imgs_per_gpu
         cfg.optimizer['learning_rate'] = cfg.optimizer['learning_rate'] * total_bs / 8
 
-     # init distributed env first, since logger depends on the dist info.
-     # init_dist()
-
     if not gpus:
         distributed = False  # single node single gpu
     else:
@@ -145,7 +151,7 @@ def main_ec2(args, cfg):
     mkdir_or_exist(osp.abspath(cfg.work_dir))
     # log some basic info
     logger.info('Distributed training: {}'.format(distributed))
-    logger.info('TF MMDetection Version: {}'.format(__version__))
+    logger.info('AWSDet Version: {}'.format(__version__))
     logger.info('Config:\n{}'.format(cfg.text))
     logger.info('Tensorflow version: {}'.format(tf.version.VERSION))
 
@@ -165,11 +171,8 @@ def main_ec2(args, cfg):
     img_meta = tf.constant(
         [465., 640., 3., 800., 1101., 3., float(padded_img_side), float(padded_img_side), 3., 1.7204301, 0.],
         dtype=tf.float32)
-    # bboxes = tf.constant([[1.0, 1.0, 10.0, 10.0]], dtype=tf.float32)
-    # labels = tf.constant([1], dtype=tf.int32)
-    _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)),
-              training=False)
-    #model.save('my_model')
+    _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)), training=False)
+
     # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
     weights_path = cfg.model['backbone']['weights_path']
     logger.info('Loading weights from: {}'.format(weights_path))
@@ -177,13 +180,20 @@ def main_ec2(args, cfg):
         model.layers[0].layers[0].load_weights(weights_path, by_name=True, skip_mismatch=True)
     else: # SavedModel format assumed - extract weights
         backbone_model = tf.keras.models.load_model(weights_path)
+        target_backbone_model = model.layers[0].layers[0]
         # load weights if layers match
-        for layer_idx, layer in enumerate(backbone_model.layers):
-            if layer_idx < len(model.layers[0].layers[0].layers):
-                model.layers[0].layers[0].layers[layer_idx].set_weights(layer.get_weights())
-                print('Loaded weights for:', layer.name)
+        for layer in backbone_model.layers:
+            # search for target layer
+            for target_layer in target_backbone_model.layers:
+                if layer.name == target_layer.name:
+                    target_layer.set_weights(layer.get_weights())
+                    # print('Loaded weights for:', layer.name)
         del backbone_model
     # print('AFTER:',model.layers[0].layers[0].get_weights()[0][0,0,0,:])
+
+    patterns = cfg.train_cfg.get('freeze_patterns', None)
+    if patterns:
+        freeze_model_layers(model, patterns)
 
     print_model_info(model, logger)
 
@@ -206,13 +216,19 @@ def main_ec2(args, cfg):
                    timestamp=timestamp)
 
     
-def main_sagemaker(args, cfg):
+def main_sagemaker(args, cfg, s3_path, job_name):
     """
     Main training entry point for jobs launched via SageMaker
     """
-    instance_name = cfg.sagemaker_job['job_name']
-    s3_path = cfg.sagemaker_job['s3_path']
-    
+    instance_name = job_name
+    s3_path = s3_path
+
+    for hook_cfg in cfg.log_config.hooks:
+        if 's3_dir' in hook_cfg:
+            hook_cfg['s3_dir'] = '{}/tensorboard/{}'.format(s3_path, job_name)
+        if 'dataset_cfg' in hook_cfg:
+            hook_cfg['dataset_cfg'] = cfg.data['val']
+
     decompress_data() # setup data dirs based on SM CHANNELS
 
     num_gpus = len(gpus)
@@ -243,7 +259,7 @@ def main_sagemaker(args, cfg):
     logger = get_root_logger(log_file=log_file, log_level=cfg.log_level)
     # log some basic info
     logger.info('Distributed training: {}'.format(distributed))
-    logger.info('TF MMDetection Version: {}'.format(__version__))
+    logger.info('AWSDet Version: {}'.format(__version__))
     logger.info('Config:\n{}'.format(cfg.text))
     logger.info('Tensorflow version: {}'.format(tf.version.VERSION))
 
@@ -267,8 +283,8 @@ def main_sagemaker(args, cfg):
     # labels = tf.constant([1], dtype=tf.int32)
     _ = model((tf.expand_dims(img, axis=0), tf.expand_dims(img_meta, axis=0)),
               training=False)
-    # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
 
+    # print('BEFORE:', model.layers[0].layers[0].get_weights()[0][0,0,0,:])
     # sagemaker specific path resolution
     import os, pathlib
     data_root = pathlib.Path(os.getenv('SM_CHANNEL_COCO')).joinpath('coco').as_posix()
@@ -277,17 +293,25 @@ def main_sagemaker(args, cfg):
     weights_file = cfg.model['backbone']['weights_path']
     weights_path = pathlib.Path(os.getenv('SM_CHANNEL_WEIGHTS')).joinpath(weights_file).as_posix()
     logger.info('Loading weights from: {}'.format(weights_path))
-    if osp.splitext(weights_file)[1] == '.h5': # older keras format from Keras model zoo
+
+    if osp.splitext(weights_path)[1] == '.h5': # older keras format from Keras model zoo
         model.layers[0].layers[0].load_weights(weights_path, by_name=True, skip_mismatch=True)
     else: # SavedModel format assumed - extract weights
         backbone_model = tf.keras.models.load_model(weights_path)
+        target_backbone_model = model.layers[0].layers[0]
         # load weights if layers match
-        for layer_idx, layer in enumerate(backbone_model.layers):
-            if layer_idx < len(model.layers[0].layers[0].layers):
-                model.layers[0].layers[0].layers[layer_idx].set_weights(layer.get_weights())
-                print('Loaded weights for:', layer.name)
+        for layer in backbone_model.layers:
+            # search for target layer
+            for target_layer in target_backbone_model.layers:
+                if layer.name == target_layer.name:
+                    target_layer.set_weights(layer.get_weights())
+                    # print('Loaded weights for:', layer.name)
         del backbone_model
     # print('AFTER:',model.layers[0].layers[0].get_weights()[0][0,0,0,:])
+
+    patterns = cfg.train_cfg.get('freeze_patterns', None)
+    if patterns:
+        freeze_model_layers(model, patterns)
 
     print_model_info(model, logger)
 
@@ -315,6 +339,7 @@ if __name__ == '__main__':
     cfg = Config.fromfile(args.config)
     train_on_sagemaker = cfg.train_cfg.get('sagemaker', False)
     if train_on_sagemaker:
-        main_sagemaker(args, cfg)
+        main_sagemaker(args, cfg, args.s3_path, args.job_name)
     else:
         main_ec2(args, cfg)
+

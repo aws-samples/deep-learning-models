@@ -6,11 +6,6 @@ from ..registry import DETECTORS
 from .two_stage import TwoStageDetector
 import os
 import tensorflow as tf
-from awsdet.models.necks import fpn
-from awsdet.models.anchor_heads import rpn_head
-from awsdet.models.bbox_heads import bbox_head
-from awsdet.models.roi_extractors import roi_align
-from awsdet.models.detectors.test_mixins import RPNTestMixin, BBoxTestMixin
 
 from awsdet.core.bbox import bbox_target
 #from awsdet.datasets import dali
@@ -31,6 +26,7 @@ class FasterRCNN(TwoStageDetector):
                  mask_head=None,
                  neck=None,
                  shared_head=None,
+                 norm_type='BN',
                  pretrained=None):
         super(FasterRCNN, self).__init__(
             backbone=backbone,
@@ -43,6 +39,7 @@ class FasterRCNN(TwoStageDetector):
             mask_head=mask_head,
             train_cfg=train_cfg,
             test_cfg=test_cfg,
+            norm_type=norm_type,
             pretrained=pretrained)
         self.pretrained = pretrained
         self.mask = mask_head!=None
@@ -53,7 +50,7 @@ class FasterRCNN(TwoStageDetector):
             num_rcnn_deltas=512,
             positive_fraction=0.25,
             pos_iou_thr=0.5,
-            neg_iou_thr=0.1,
+            neg_iou_thr=0.0,
             fg_assignments=self.mask)
         self.count = 0
 
@@ -87,18 +84,14 @@ class FasterRCNN(TwoStageDetector):
         else: # inference
             imgs, img_metas = inputs
         s0 = tf.timestamp()
-        # [1, 304, 304, 256] => [1, 152, 152, 512]=>[1,76,76,1024]=>[1,38,38,2048]
         C2, C3, C4, C5 = self.backbone(imgs, training=training)
         s1 = tf.timestamp() 
-        # [1, 304, 304, 256] <= [1, 152, 152, 256]<=[1,76,76,256]<=[1,38,38,256]=>[1,19,19,256]
         P2, P3, P4, P5, P6 = self.neck([C2, C3, C4, C5], training=training)
         s2 = tf.timestamp()
         rpn_feature_maps = [P2, P3, P4, P5, P6]
         rcnn_feature_maps = [P2, P3, P4, P5]
-        # [1, 369303, 2] [1, 369303, 2], [1, 369303, 4], includes all anchors on pyramid level of features
         rpn_class_logits, rpn_probs, rpn_deltas = self.rpn_head(rpn_feature_maps, training=training)
         s3 = tf.timestamp()
-        # [369303, 4] => [215169, 4], valid => [6000, 4], performance =>[2000, 4],  NMS
         proposals_list = self.rpn_head.get_proposals(
             rpn_probs, rpn_deltas, img_metas, training=training)
         s4 = tf.timestamp()
@@ -116,7 +109,6 @@ class FasterRCNN(TwoStageDetector):
         pooled_regions_list = self.bbox_roi_extractor(
             (rois_list, rcnn_feature_maps, img_metas), training=training)
         s6 = tf.timestamp()
-        # [192, 81], [192, 81], [192, 81, 4]
         rcnn_class_logits, rcnn_probs, rcnn_deltas = self.bbox_head(pooled_regions_list, training=training)
         s7 = tf.timestamp()
         # tf.print('backbone', s1-s0)

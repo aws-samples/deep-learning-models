@@ -91,6 +91,7 @@ def launch_sagemaker_job(
         subnets=subnet_ids,
         security_group_ids=security_group_ids,
         enable_sagemaker_metrics=True,
+        train_max_run=2419200,
     )
     # Launch the job
     estimator_hvd.fit(fsx_input)

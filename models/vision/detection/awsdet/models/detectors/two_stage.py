@@ -5,11 +5,10 @@ import tensorflow as tf
 from .. import builder
 from ..registry import DETECTORS
 from .base import BaseDetector
-from .test_mixins import BBoxTestMixin, RPNTestMixin 
 
 
 @DETECTORS.register_module
-class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin): # MaskTestMixin):
+class TwoStageDetector(BaseDetector):
     """Base class for two-stage detectors.
 
     Two-stage detectors typically consisting of a region proposal network and a
@@ -27,8 +26,11 @@ class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin): # MaskTestMix
                  mask_head=None,
                  train_cfg=None,
                  test_cfg=None,
+                 norm_type='BN',
                  pretrained=None):
         super(TwoStageDetector, self).__init__()
+        sync_bn = False if norm_type == 'BN' else True
+        backbone.sync_bn = sync_bn
         self.backbone = builder.build_backbone(backbone)
         if neck is not None:
             self.neck = builder.build_neck(neck)
