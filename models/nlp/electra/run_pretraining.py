@@ -78,8 +78,20 @@ def generate_corruption_mask(ids, attention_mask):
 def mask_ids(ids, corruption_mask, mask_id):
     return tf.where(tf.cast(corruption_mask, tf.bool), tf.cast(mask_id, dtype=ids.dtype), ids)
 
+# TODO: Make temperature a hyperparameter
+def temperature_sampling(logits, output_type, per_gpu_batch_size, max_seq_length, temperature):
+    if temperature is None or temperature == 0.0:
+        return tf.argmax(logits, axis=-1, output_type=output_type)
 
-def forward(gen, dis, ids, masked_ids, attention_mask, corruption_mask, return_preds=False):
+    logger.info(f"temperature {temperature}")
+
+    log_prob = tf.nn.log_softmax(logits / temperature)
+    log_prob = tf.reshape(log_prob, [per_gpu_batch_size * max_seq_length, -1], name=None) #[bsz, seq_len]
+    preds = tf.cast(tf.random.categorical(log_prob, 1), tf.int64)
+    preds = tf.reshape(preds, [per_gpu_batch_size, max_seq_length], name=None) #[bsz, seq_len]
+    return preds
+
+def forward(gen, dis, ids, masked_ids, attention_mask, corruption_mask, per_gpu_batch_size, max_seq_length, return_preds=False):
     ids = tf.cast(ids, tf.int64)
     corruption_mask = tf.cast(corruption_mask, tf.int64)
 
@@ -96,7 +108,8 @@ def forward(gen, dis, ids, masked_ids, attention_mask, corruption_mask, return_p
 
     # Generator accuracy
     # argmax returns tf.int64 by default
-    adv_ids = tf.argmax(gen_logits, axis=-1, output_type=ids.dtype)  # [bsz, seq_len]
+    #adv_ids = tf.argmax(gen_logits, axis=-1, output_type=ids.dtype)  # [bsz, seq_len]
+    adv_ids = temperature_sampling(logits=gen_logits, output_type=ids.dtype, per_gpu_batch_size=per_gpu_batch_size, max_seq_length= max_seq_length, temperature=1.0)
     ids_equal = tf.cast(adv_ids == ids, dtype=tf.int64)  # [bsz, seq_len]
     gen_correct = tf.boolean_mask(ids_equal, corruption_mask)  # [bsz * n_masks]
     gen_acc = tf.reduce_mean(tf.cast(gen_correct, dtype=tf.float32))  # [1]
@@ -133,7 +146,7 @@ def forward(gen, dis, ids, masked_ids, attention_mask, corruption_mask, return_p
 
 
 @tf.function
-def val_step(gen, dis, ids, attention_mask, mask_token_id: int):
+def val_step(gen, dis, ids, attention_mask, per_gpu_batch_size, max_seq_length, mask_token_id: int):
     corruption_mask = generate_corruption_mask(ids=ids, attention_mask=attention_mask)
     masked_ids = mask_ids(ids=ids, corruption_mask=corruption_mask, mask_id=mask_token_id)
     loss, gen_loss, dis_loss, gen_acc, dis_acc, gen_ids, dis_preds = forward(
@@ -173,7 +186,7 @@ def val_step(gen, dis, ids, attention_mask, mask_token_id: int):
 
 
 @tf.function
-def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int):
+def train_step(optimizer, gen, dis, ids, attention_mask, per_gpu_batch_size, max_seq_length, mask_token_id: int):
     """
     Attention mask refers to padding tokens.
         1 is a real token, 0 is a padding token.
@@ -193,6 +206,8 @@ def train_step(optimizer, gen, dis, ids, attention_mask, mask_token_id: int):
             ids=ids,
             masked_ids=masked_ids,
             attention_mask=attention_mask,
+            per_gpu_batch_size=per_gpu_batch_size,
+            max_seq_length=max_seq_length,           
             corruption_mask=corruption_mask,
         )
 
@@ -346,6 +361,8 @@ def main():
             dis=dis,
             ids=ids,
             attention_mask=attention_mask,
+            per_gpu_batch_size=train_args.per_gpu_batch_size,
+            max_seq_length=data_args.max_seq_length,
             mask_token_id=tokenizer.mask_token_id,
         )
 
@@ -382,6 +399,8 @@ def main():
                         dis=dis,
                         ids=val_ids,
                         attention_mask=val_attention_mask,
+                        per_gpu_batch_size=train_args.per_gpu_batch_size,
+                        max_seq_length=data_args.max_seq_length,
                         mask_token_id=tokenizer.mask_token_id,
                     )
                     log_example(
