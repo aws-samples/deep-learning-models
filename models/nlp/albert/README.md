@@ -11,13 +11,38 @@ Language models help AWS customers to improve search results, text classificatio
 ![SageMaker -> EC2 -> FSx infrastructure diagram](https://user-images.githubusercontent.com/4564897/81020280-b207a100-8e25-11ea-8b57-38f0a09a7fb2.png
 )
 
+
+### Results
+All training is done with sequence length 512.
+
+| Model | Nodes | Global Batch Size | Batch size per GPU | Gradient accumulation steps | iterations/sec | Steps | Time-to-train | SQuADv2 F1/EM |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| albert-base | 1 | 4096 | 32 | 16 | 0.24 | 125000 | 144 hours | same |
+| albert-base | 2 | 4096 | 32 | 8 | 0.46 | 125000 | 75 hours | same |
+| albert-base | 4 | 4096 | 32 | 4 | 0.90 | 125000 | 38 hours | same |
+| albert-base | 8 | 4096 | 32 | 2 | 1.73 | 125000 | 20 hours | 78.4/75.2 |
+
+
 ### How To Launch Training
 
 All commands should be run from the `models/nlp` directory.
 
 1. Create an FSx volume.
 
-2. Download the datasets onto FSx. The simplest way to start is with English Wikipedia.
+2. Download the datasets onto FSx. The simplest way to start is with English Wikipedia. The structure should be as follows:
+
+```
+/fsx
+    /deep-learning-models
+    /logs
+        /albert
+    /tensorboard
+    /checkpoints
+        /albert
+    /albert_data
+        /train
+        /val
+```
 
 3. Create an Amazon Elastic Container Registry (ECR) repository. Then build a Docker image from `models/nlp/Dockerfile` and push it to ECR.
 
@@ -44,7 +69,16 @@ export SAGEMAKER_SUBNET_IDS=subnet-123
 export SAGEMAKER_SECURITY_GROUP_IDS=sg-123,sg-456
 ```
 
-5. Launch the SageMaker job.
+5. Define environment variables for directories. If your data was in /fsx/albert_data/train, you would use:
+
+```bash
+export TRAIN_DIR=albert_data/train
+export VAL_DIR=albert_data/validation
+export LOG_DIR=logs/albert
+export CHECKPOINT_DIR=checkpoints/electra
+```
+
+6. Launch the SageMaker job.
 
 ```bash
 python -m albert.launch_sagemaker \
@@ -53,6 +87,10 @@ python -m albert.launch_sagemaker \
     --sm_job_name=albert-pretrain \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=1 \
+    --train_dir=${TRAIN_DIR} \
+    --val_dir=${VAL_DIR} \
+    --log_dir=${LOG_DIR} \
+    --checkpoint_dir=${CHECKPOINT_DIR} \
     --load_from=scratch \
     --model_type=albert \
     --model_size=base \
@@ -66,7 +104,7 @@ python -m albert.launch_sagemaker \
     --name=myfirstjob
 ```
 
-6. Launch a SageMaker finetuning job.
+7. Launch a SageMaker finetuning job.
 
 ```bash
 python -m albert.launch_sagemaker \
@@ -75,6 +113,10 @@ python -m albert.launch_sagemaker \
     --sm_job_name=albert-squad \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=1 \
+    --train_dir=${TRAIN_DIR} \
+    --val_dir=${VAL_DIR} \
+    --log_dir=${LOG_DIR} \
+    --checkpoint_dir=${CHECKPOINT_DIR} \
     --load_from=scratch \
     --model_type=albert \
     --model_size=base \
@@ -85,7 +127,7 @@ python -m albert.launch_sagemaker \
     --squad_version=squadv2
 ```
 
-7. Enter the Docker container to debug and edit code.
+8. Enter the Docker container to debug and edit code.
 
 ```bash
 docker run -it --privileged -v=/fsx:/fsx --gpus=all --shm-size=1g --ulimit memlock=-1 --ulimit stack=67108864 --rm ${IMAGE} /bin/bash

@@ -161,7 +161,7 @@ class LoggingArguments:
     )
 
     # TODO: Remove these since they're a little too specific
-    squad_frequency: int = field(default=40000)
+    squad_frequency: int = field(default=0)
     fast_squad: str = field(default=None, metadata={"choices": ["true"]})
     dummy_eval: str = field(default=None, metadata={"choices": ["true"]})
 

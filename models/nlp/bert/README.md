@@ -10,11 +10,14 @@ Pretraining consists of two phases. We use mixed-batch training.
 * Phase2: We pretrain 6248 steps with a total batch size of 8K for maximum sequence length of 512 across 8 p3dn.24xlarge nodes.
 * Lastly, we finetune SQuAD v1.1 3649 steps with a total batch size of 48 on a single p3dn.24xlarge node.
 
-SQuAD F1 score combines both precision and recall of each word in the predicted answer ranging between 0-100.
+SQuAD F1 score combines both precision and recall of each word in the predicted answer ranging between 0-100. For fewer nodes, we apply gradient accumulation to reach the same global batch size per step.
 
-| Model | Phase1 | Phase2 | Finetuning | Total Training Time | SQuAD v1.1 F1 | SQuAD v2.0 F1 |
-| --- | --- | --- |  --- | --- | --- | --- |
-| BERT-base | 5 hrs 33 mins | 2 hrs 53 mins | 15 mins | 8 hrs 41 mins | 87.68 | 76.14 |
+| Model | p3dn Nodes | Phase1 | Phase2 | Finetuning | Total Training Time | SQuAD v1.1 F1 | SQuAD v2.0 F1 |
+| --- | --- | --- | --- |  --- | --- | --- | --- |
+| BERT-base | 1 | 32 hours | 15 hours | 15 mins | 47 hours | same | same |
+| BERT-base | 2 | 17 hours | 8 hours | 15 mins | 25 hours | same | same |
+| BERT-base | 4 | 10 hours | 4 hours | 15 mins | 14 hours | same | same |
+| BERT-base | 8 | 5 hrs 33 mins | 2 hrs 53 mins | 15 mins | 8 hrs 41 mins | 87.68 | 76.14 |
 
 
 ### How To Launch Training
@@ -53,6 +56,11 @@ export PHASE1_RUN_NAME=bertphase1
 export PHASE2_RUN_NAME=bertphase2
 export PHASE1_STEPS=14064
 export PHASE2_STEPS=6248
+# The data should be in TFRecords inside /fsx/${TRAIN_DIR}
+export TRAIN_DIR=bert_data/train
+export VAL_DIR=bert_data/val
+export LOG_DIR=logs/bert
+export CHECKPOINT_DIR=checkpoints/bert
 ```
 
 6. Launch the SageMaker Phase1 training.
@@ -64,6 +72,10 @@ python -m albert.launch_sagemaker \
     --sm_job_name=bert-pretrain-phase1 \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=8 \
+    --train_dir=${TRAIN_DIR} \
+    --val_dir=${VAL_DIR} \
+    --log_dir=${LOG_DIR} \
+    --checkpoint_dir=${CHECKPOINT_DIR} \
     --load_from=scratch \
     --model_type=bert \
     --model_size=base \
@@ -94,6 +106,10 @@ python -m albert.launch_sagemaker \
     --sm_job_name=bert-pretrain-phase2 \
     --instance_type=ml.p3dn.24xlarge \
     --instance_count=8 \
+    --train_dir=${TRAIN_DIR} \
+    --val_dir=${VAL_DIR} \
+    --log_dir=${LOG_DIR} \
+    --checkpoint_dir=${CHECKPOINT_DIR} \
     --load_from=checkpoint \
     --load_optimizer_state=false \
     --model_type=bert \
