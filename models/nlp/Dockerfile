@@ -1,14 +1,15 @@
 FROM nvidia/cuda:10.1-devel-ubuntu18.04
 
 # TensorFlow version is tightly coupled to CUDA and cuDNN so it should be selected carefully
-ENV HOROVOD_VERSION=0.19.4
+ENV HOROVOD_VERSION=0.19.5
 ENV TENSORFLOW_PIP=tensorflow
-ENV TENSORFLOW_VERSION=2.1.1
-ENV PYTORCH_VERSION=1.4.0
-ENV TORCHVISION_VERSION=0.5.0
+ENV TENSORFLOW_VERSION=2.3.0
+ENV TENSORFLOW_ADDONS_VERSION=0.11.1
+ENV PYTORCH_VERSION=1.6.0
+ENV TORCHVISION_VERSION=0.7.0
 ENV CUDNN_VERSION=7.6.5.32-1+cuda10.1
 ENV NCCL_VERSION=2.4.8-1+cuda10.1
-ENV MXNET_VERSION=1.6.0
+ENV MXNET_VERSION=1.6.0.post0
 
 # Python 3.6 is supported by Ubuntu Bionic out of the box
 ARG python=3.7
@@ -51,8 +52,7 @@ RUN pip install numpy \
         keras \
         h5py
 
-RUN pip install https://download.pytorch.org/whl/cu101/torch-${PYTORCH_VERSION}-$(python -c "import wheel.pep425tags as w; print('-'.join(w.get_supported(None)[0][:-1]))")-linux_x86_64.whl \
-        https://download.pytorch.org/whl/cu101/torchvision-${TORCHVISION_VERSION}-$(python -c "import wheel.pep425tags as w; print('-'.join(w.get_supported(None)[0][:-1]))")-linux_x86_64.whl
+RUN pip install torch==${PYTORCH_VERSION} torchvision==${TORCHVISION_VERSION}
 RUN pip install mxnet-cu101==${MXNET_VERSION}
 
 # Install Open MPI
@@ -95,7 +95,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
         scikit-learn==0.23.1 \
         wandb==0.9.1 \
-        tensorflow-addons==0.9.1 \
+        tensorboard_plugin_profile \
+        tensorflow-addons==${TENSORFLOW_ADDONS_VERSION} \
         colorama==0.4.3 \
         pandas \
         apache_beam
