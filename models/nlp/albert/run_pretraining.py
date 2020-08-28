@@ -524,8 +524,6 @@ def main():
             hvd.broadcast_variables(model.variables, root_rank=0)
             hvd.broadcast_variables(optimizer.variables(), root_rank=0)
             i = optimizer.get_weights()[0]
-            if hvd.rank() == 0:
-                tf.profiler.experimental.start("/fsx/tfprofile")
 
         is_final_step = i >= train_args.total_steps
         do_squad = (log_args.squad_frequency != 0) and (
@@ -655,7 +653,6 @@ def main():
     if hvd.rank() == 0:
         pbar.close()
         logger.info(f"Finished pretraining, job name {run_name}")
-        tf.profiler.experimental.stop()
 
 
 if __name__ == "__main__":
