@@ -550,8 +550,12 @@ def main():
 
         if hvd.rank() == 0:
             do_log = i % log_args.log_frequency == 0
-            do_checkpoint = (i % log_args.checkpoint_frequency == 0) or is_final_step
-            do_validation = (i % log_args.validation_frequency == 0) or is_final_step
+            do_checkpoint = (log_args.checkpoint_frequency != 0) and (
+                (i % log_args.checkpoint_frequency == 0) or is_final_step
+            )
+            do_validation = (log_args.validation_frequency != 0) and (
+                (i % log_args.validation_frequency == 0) or is_final_step
+            )
 
             pbar.update(1)
             description = f"Loss: {loss:.3f}, MLM: {mlm_loss:.3f}, SOP: {sop_loss:.3f}, MLM_acc: {mlm_acc:.3f}, SOP_acc: {sop_acc:.3f}"
