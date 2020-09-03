@@ -53,7 +53,7 @@ def main():
         optimizer.apply_gradients(zip(grads, model.trainable_variables))
         if i % log_frequency == 0:
             elapsed_time = time.perf_counter() - start_time
-            it_s = elapsed_time / log_frequency
+            it_s = log_frequency / elapsed_time
             start_time = time.perf_counter()
             print(f"Step {i}, Loss: {loss.numpy():.3f}, It/s: {it_s:.3f}")
 
