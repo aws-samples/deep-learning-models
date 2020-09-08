@@ -7,13 +7,14 @@ import argparse
 import time
 
 import numpy as np
-import tensorflow as tf
-from transformers import TFT5ForConditionalGeneration
+import torch
+import torch.optim as optim
+from transformers import T5ForConditionalGeneration
 
 
 def gen_synthetic_batch(batch_size: int, sequence_length: int):
     data = np.zeros((batch_size, sequence_length))
-    tensor = tf.convert_to_tensor(data, dtype=tf.int64)
+    tensor = torch.tensor(data, dtype=torch.int64)
     return tensor
 
 
@@ -35,9 +36,9 @@ def main():
         f"Training {args.model_name} for {args.steps} steps with batch size {args.batch_size} and sequence length {args.sequence_length}"
     )
 
-    model = TFT5ForConditionalGeneration.from_pretrained(args.model_name)
+    model = T5ForConditionalGeneration.from_pretrained(args.model_name)
 
-    optimizer = tf.keras.optimizers.Adam(0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     log_frequency = 10
     start_time = time.perf_counter()
@@ -45,17 +46,20 @@ def main():
         inputs = gen_synthetic_batch(
             batch_size=args.batch_size, sequence_length=args.sequence_length
         )
-        with tf.GradientTape() as tape:
-            outputs = model(inputs, decoder_input_ids=inputs)
-            last_hidden_states = outputs[0]  # [batch_size, sequence_length, vocab_size]
-            loss = tf.reduce_mean(last_hidden_states ** 2)
-        grads = tape.gradient(loss, model.trainable_variables)
-        optimizer.apply_gradients(zip(grads, model.trainable_variables))
+
+        optimizer.zero_grad()
+
+        outputs = model(inputs, decoder_input_ids=inputs)
+        last_hidden_states = outputs[0]  # [batch_size, sequence_length, vocab_size]
+        loss = torch.mean(last_hidden_states ** 2)
+        loss.backward()
+        optimizer.step()
+
         if i % log_frequency == 0:
             elapsed_time = time.perf_counter() - start_time
             it_s = log_frequency / elapsed_time
             start_time = time.perf_counter()
-            print(f"Step {i}, Loss: {loss.numpy():.3f}, It/s: {it_s:.3f}")
+            print(f"Step {i}, Loss: {loss.item():.3f}, It/s: {it_s:.3f}")
 
 
 if __name__ == "__main__":
