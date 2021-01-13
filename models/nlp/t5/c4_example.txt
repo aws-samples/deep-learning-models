@@ -1,0 +1,42 @@
+features {
+  feature {
+    key: "content-length"
+    value {
+      bytes_list {
+        value: "10217"
+      }
+    }
+  }
+  feature {
+    key: "content-type"
+    value {
+      bytes_list {
+        value: "text/plain"
+      }
+    }
+  }
+  feature {
+    key: "text"
+    value {
+      bytes_list {
+        value: "The woman who died after falling from a bridge over the A21 has been identified as a Sevenoaks mum.\nMarta Kendle, 37, fell from the Gracious Lane bridge on the morning of February 19.\nPolice were called to the carriageway around 6.10am and the road was promptly closed in both directions.\nDespite paramedics best efforts, Marta, who was originally from Poland, was pronounced dead at the scene.\nKent and Medway Coroners office have confirmed an inquest into her death will open on Wednesday (February 27).\nTributes to the mum were left at the scene and on social media.\nFriend, Jodi Cahill posted on Facebook: \"I will certainly remember you. I am sorry we did not see how lost and alone you felt.\n\"Be at peace dear Marta.\"\nA floral tribute left at the scene said goodbye to the \"beautiful and kind soul\".\nIt read: \"To a beautiful and kind soul, we are sorry we didn&apos;t see your pain. We will miss you always.\n\"Rest in peace Marta, Love from Lorraine, Colin and family.\"\nThe inquest will take place at the Archbishop&apos;s Palace in Maidstone and will examine the circumstances surrounding Mrs Kendle&apos;s death.\nAre you struggling or know someone who is? Watch our video below to find out how the Samaritans could help.\nMrs Kendle&apos;s death prompted the setting up of a petition calling for higher railings along the Gracious Lane bridge by Sevenoaks Common - to prevent people falling and to protect drivers from below.\nBy today (February 25) 4,500 people had signed.\nThe same site was the scene of another death in July last year when Southborough woman, Angela Skinner, 54, also died after falling on to the A21."
+      }
+    }
+  }
+  feature {
+    key: "timestamp"
+    value {
+      bytes_list {
+        value: "2019-04-21T18:54:04Z"
+      }
+    }
+  }
+  feature {
+    key: "url"
+    value {
+      bytes_list {
+        value: "https://www.kentlive.news/news/sevenoaks-mum-who-died-after-2582402"
+      }
+    }
+  }
+}

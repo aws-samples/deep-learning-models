@@ -1,17 +1,15 @@
-FROM nvidia/cuda:10.1-devel-ubuntu18.04
+FROM nvidia/cuda:11.1-devel-ubuntu18.04
 
 # TensorFlow version is tightly coupled to CUDA and cuDNN so it should be selected carefully
-ENV HOROVOD_VERSION=0.19.5
+ENV HOROVOD_VERSION=0.21.1
 ENV TENSORFLOW_PIP=tensorflow
-ENV TENSORFLOW_VERSION=2.3.0
-ENV TENSORFLOW_ADDONS_VERSION=0.11.1
-ENV PYTORCH_VERSION=1.6.0
-ENV TORCHVISION_VERSION=0.7.0
-ENV CUDNN_VERSION=7.6.5.32-1+cuda10.1
-ENV NCCL_VERSION=2.4.8-1+cuda10.1
-ENV MXNET_VERSION=1.6.0.post0
+ENV TENSORFLOW_VERSION=2.4.0
+ENV TENSORFLOW_ADDONS_VERSION=0.12.0
+ENV PYTORCH_VERSION=1.7.1
+ENV TORCHVISION_VERSION=0.8.2
+ENV CUDNN_VERSION=8.0.5.39-1+cuda11.1
+ENV NCCL_VERSION=2.8.3-1+cuda11.1
 
-# Python 3.6 is supported by Ubuntu Bionic out of the box
 ARG python=3.7
 ENV PYTHON_VERSION=${python}
 
@@ -27,7 +25,7 @@ RUN apt-get update && apt-get install -y --allow-downgrades --allow-change-held-
         vim \
         wget \
         ca-certificates \
-        libcudnn7=${CUDNN_VERSION} \
+        libcudnn8=${CUDNN_VERSION} \
         libnccl2=${NCCL_VERSION} \
         libnccl-dev=${NCCL_VERSION} \
         libjpeg-dev \
@@ -39,8 +37,8 @@ RUN apt-get update && apt-get install -y --allow-downgrades --allow-change-held-
         libibverbs1 \
         ibverbs-providers
 
+# Install Python
 RUN ln -s /usr/bin/python${PYTHON_VERSION} /usr/bin/python
-
 RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
     python get-pip.py && \
     rm get-pip.py
@@ -53,7 +51,6 @@ RUN pip install numpy \
         h5py
 
 RUN pip install torch==${PYTORCH_VERSION} torchvision==${TORCHVISION_VERSION}
-RUN pip install mxnet-cu101==${MXNET_VERSION}
 
 # Install Open MPI
 RUN mkdir /tmp/openmpi && \
@@ -69,7 +66,7 @@ RUN mkdir /tmp/openmpi && \
 
 # Install Horovod, temporarily using CUDA stubs
 RUN ldconfig /usr/local/cuda/targets/x86_64-linux/lib/stubs && \
-    HOROVOD_GPU_ALLREDUCE=NCCL HOROVOD_GPU_BROADCAST=NCCL HOROVOD_WITH_TENSORFLOW=1 HOROVOD_WITH_PYTORCH=1 HOROVOD_WITH_MXNET=1 \
+    HOROVOD_GPU_ALLREDUCE=NCCL HOROVOD_GPU_BROADCAST=NCCL HOROVOD_WITH_TENSORFLOW=1 HOROVOD_WITH_PYTORCH=1 \
          pip install --no-cache-dir horovod==${HOROVOD_VERSION} && \
     ldconfig
 
@@ -117,17 +114,23 @@ RUN mkdir -p /root/.ssh/ && \
     printf "Host *\n  StrictHostKeyChecking no\n" >> /root/.ssh/config
 RUN pip install --no-cache-dir \
     mpi4py==3.0.3 \
-    sagemaker-training \
-    git+https://github.com/huggingface/transformers.git@master \
-    git+https://github.com/huggingface/nlp.git@703b761
+    sagemaker-training==3.7.2
+
+ RUN pip install --no-cache-dir \
+    transformers==4.2.0 \
+    datasets==1.2.1 \
+    tokenizers==0.9.4 \
+    sentencepiece==0.1.95
+    # git+https://github.com/huggingface/transformers.git@master \
+    # git+https://github.com/huggingface/nlp.git@703b761
 
 # Install tokenizers from master source
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
-ENV PATH="$HOME/.cargo/bin:$PATH"
-RUN git clone https://github.com/huggingface/tokenizers /root/tokenizers && \
-    cd /root/tokenizers/bindings/python
-RUN PATH="$HOME/.cargo/bin:$PATH" pip install setuptools_rust
-RUN cd /root/tokenizers/bindings/python && PATH="$HOME/.cargo/bin:$PATH" python setup.py install
+# RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+# ENV PATH="$HOME/.cargo/bin:$PATH"
+# RUN git clone https://github.com/huggingface/tokenizers /root/tokenizers && \
+#     cd /root/tokenizers/bindings/python
+# RUN PATH="$HOME/.cargo/bin:$PATH" pip install setuptools_rust
+# RUN cd /root/tokenizers/bindings/python && PATH="$HOME/.cargo/bin:$PATH" python setup.py install
 
 ###### Modifications specifically for EC2 connected to FSx for Lustre are below
 # When you use `docker run`, you'll need to run two commands manually:

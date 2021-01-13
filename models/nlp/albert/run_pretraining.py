@@ -103,9 +103,10 @@ def mlm_loss_fn(
 
 
 def sop_loss_fn(
-    prediction_logits: "[b, 2]", next_sentence_labels: "[b, 1]",
+    prediction_logits: "[b, 2]",
+    next_sentence_labels: "[b, 1]",
 ):
-    """ Note that this works for either NSP or SOP, the difference is in how data is generated.
+    """Note that this works for either NSP or SOP, the difference is in how data is generated.
     We want to use SOP objective.
     """
     label_truth = tf.squeeze(next_sentence_labels)  # [b]
