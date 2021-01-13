@@ -18,7 +18,7 @@ Parameters:
     Default: 9600 # In GiB, must be a multiple of 2400
     Type: Number
   InstanceName:
-    Default: dlmodels-fsx
+    Default: dlmodels-fsx-2
     Type: String
 
 Resources:
