@@ -108,7 +108,9 @@ def main():
 
         with tf.GradientTape() as tape:
             outputs = model(inputs, decoder_input_ids=inputs)
-            last_hidden_states = outputs[0]  # [batch_size, sequence_length, vocab_size]
+            last_hidden_states = (
+                outputs.encoder_last_hidden_state
+            )  # [batch_size, sequence_length, embedding_size]
             loss = tf.reduce_mean(last_hidden_states ** 2)
         grads = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(grads, model.trainable_variables))

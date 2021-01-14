@@ -50,7 +50,9 @@ def main():
         optimizer.zero_grad()
 
         outputs = model(inputs, decoder_input_ids=inputs)
-        last_hidden_states = outputs[0]  # [batch_size, sequence_length, vocab_size]
+        last_hidden_states = (
+            outputs.encoder_last_hidden_state
+        )  # [batch_size, sequence_length, vocab_size]
         loss = torch.mean(last_hidden_states ** 2)
         loss.backward()
         optimizer.step()

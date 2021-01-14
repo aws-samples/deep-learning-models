@@ -136,7 +136,8 @@ def train_batch(
     skip_mlm: bool,
 ):
     with tf.GradientTape() as tape:
-        mlm_logits, sop_logits = model(input_dict, training=True)
+        output = model(input_dict, training=True)
+        mlm_logits, sop_logits = output.prediction_logits, output.sop_logits
 
         # MLM calculation
         if skip_mlm:
@@ -288,7 +289,8 @@ def validation_batch(model, batch, skip_mlm: bool, skip_sop: bool):
         "attention_mask": attention_mask,
         "token_type_ids": token_type_ids,
     }
-    mlm_logits, sop_logits = model(input_dict, training=False)  # ([b,seq,vocab_size], [b,2])
+    output = model(input_dict, training=False)  # ([b,seq,vocab_size], [b,2])
+    mlm_logits, sop_logits = output.prediction_logits, output.sop_logits
 
     # MLM calculation
     if skip_mlm:
