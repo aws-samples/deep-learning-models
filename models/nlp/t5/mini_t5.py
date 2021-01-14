@@ -98,7 +98,6 @@ def main():
         tokenized = tokenizer(text)  # dict with keys "input_ids", "attention_mask"
 
         # dataset = get_dataset()
-        # breakpoint()
         model.generate(
             tokenizer(text, return_tensors="tf")["input_ids"],
             max_length=50,
