@@ -18,6 +18,9 @@ ENV PYTHON_VERSION=${python}
 # LD_LIBRARY_PATH is set incorrectly for legacy compatibility; see https://gitlab.com/nvidia/container-images/cuda/-/issues/47
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib:/usr/local/cuda/lib64:/usr/local/cuda/lib64/stubs
 
+# Solution to "Couldn't open CUDA library libcuda.so" at https://github.com/tensorflow/tensorflow/issues/4078
+
+
 # Set default shell to /bin/bash
 SHELL ["/bin/bash", "-cu"]
 
@@ -69,11 +72,9 @@ RUN mkdir /tmp/openmpi && \
     ldconfig && \
     rm -rf /tmp/openmpi
 
-# Install Horovod, temporarily using CUDA stubs
-RUN ldconfig /usr/local/cuda/targets/x86_64-linux/lib/stubs && \
-    HOROVOD_GPU_ALLREDUCE=NCCL HOROVOD_GPU_BROADCAST=NCCL HOROVOD_WITH_TENSORFLOW=1 HOROVOD_WITH_PYTORCH=1 \
-         pip install --no-cache-dir horovod==${HOROVOD_VERSION} && \
-    ldconfig
+# Install Horovod, no CUDA stubs needed because we set LD_LIBRARY_PATH
+RUN HOROVOD_GPU_ALLREDUCE=NCCL HOROVOD_GPU_BROADCAST=NCCL HOROVOD_WITH_TENSORFLOW=1 HOROVOD_WITH_PYTORCH=1 \
+    pip install --no-cache-dir horovod==${HOROVOD_VERSION}
 
 # Install OpenSSH for MPI to communicate between containers
 RUN apt-get install -y --no-install-recommends openssh-client openssh-server && \
@@ -117,6 +118,7 @@ RUN mkdir -p /root/.ssh/ && \
     ssh-keygen -q -t rsa -N '' -f /root/.ssh/id_rsa && \
     cp /root/.ssh/id_rsa.pub /root/.ssh/authorized_keys && \
     printf "Host *\n  StrictHostKeyChecking no\n" >> /root/.ssh/config
+
 RUN pip install --no-cache-dir \
     mpi4py==3.0.3 \
     sagemaker-training==3.7.2
@@ -126,16 +128,6 @@ RUN pip install --no-cache-dir \
     datasets==1.2.1 \
     tokenizers==0.9.4 \
     sentencepiece==0.1.95
-    # git+https://github.com/huggingface/transformers.git@master \
-    # git+https://github.com/huggingface/nlp.git@703b761
-
-# Install tokenizers from master source
-# RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
-# ENV PATH="$HOME/.cargo/bin:$PATH"
-# RUN git clone https://github.com/huggingface/tokenizers /root/tokenizers && \
-#     cd /root/tokenizers/bindings/python
-# RUN PATH="$HOME/.cargo/bin:$PATH" pip install setuptools_rust
-# RUN cd /root/tokenizers/bindings/python && PATH="$HOME/.cargo/bin:$PATH" python setup.py install
 
 ###### Modifications specifically for EC2 connected to FSx for Lustre are below
 # When you use `docker run`, you'll need to run two commands manually:
