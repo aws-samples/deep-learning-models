@@ -1,4 +1,5 @@
-FROM nvidia/cuda:11.1-devel-ubuntu18.04
+FROM nvidia/cuda:11.0-devel-ubuntu18.04
+# TF 2.4 works with CUDA 11.0, not 11.1 - https://github.com/tensorflow/tensorflow/issues/45848
 
 # TensorFlow version is tightly coupled to CUDA and cuDNN so it should be selected carefully
 ENV HOROVOD_VERSION=0.21.1
@@ -7,11 +8,15 @@ ENV TENSORFLOW_VERSION=2.4.0
 ENV TENSORFLOW_ADDONS_VERSION=0.12.0
 ENV PYTORCH_VERSION=1.7.1
 ENV TORCHVISION_VERSION=0.8.2
-ENV CUDNN_VERSION=8.0.5.39-1+cuda11.1
-ENV NCCL_VERSION=2.8.3-1+cuda11.1
+# cuDNN version listed here: https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html#package-manager-ubuntu-install
+ENV CUDNN_VERSION=8.0.5.39-1+cuda11.0
+ENV NCCL_VERSION=2.8.3-1+cuda11.0
 
 ARG python=3.7
 ENV PYTHON_VERSION=${python}
+
+# LD_LIBRARY_PATH is set incorrectly for legacy compatibility; see https://gitlab.com/nvidia/container-images/cuda/-/issues/47
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib:/usr/local/cuda/lib64:/usr/local/cuda/lib64/stubs
 
 # Set default shell to /bin/bash
 SHELL ["/bin/bash", "-cu"]
@@ -46,10 +51,10 @@ RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
 # Install TensorFlow, Keras, PyTorch and MXNet
 RUN pip install future typing
 RUN pip install numpy \
-        ${TENSORFLOW_PIP}==${TENSORFLOW_VERSION} \
         keras \
         h5py
 
+RUN pip install ${TENSORFLOW_PIP}==${TENSORFLOW_VERSION}
 RUN pip install torch==${PYTORCH_VERSION} torchvision==${TORCHVISION_VERSION}
 
 # Install Open MPI
