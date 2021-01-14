@@ -1,4 +1,5 @@
-FROM nvidia/cuda:11.1-devel-ubuntu18.04
+FROM nvidia/cuda:11.0-devel-ubuntu18.04
+# TF 2.4 works with CUDA 11.0, not 11.1 - https://github.com/tensorflow/tensorflow/issues/45848
 
 # TensorFlow version is tightly coupled to CUDA and cuDNN so it should be selected carefully
 ENV HOROVOD_VERSION=0.21.1
@@ -7,11 +8,18 @@ ENV TENSORFLOW_VERSION=2.4.0
 ENV TENSORFLOW_ADDONS_VERSION=0.12.0
 ENV PYTORCH_VERSION=1.7.1
 ENV TORCHVISION_VERSION=0.8.2
-ENV CUDNN_VERSION=8.0.5.39-1+cuda11.1
-ENV NCCL_VERSION=2.8.3-1+cuda11.1
+# cuDNN version listed here: https://docs.nvidia.com/deeplearning/cudnn/install-guide/index.html#package-manager-ubuntu-install
+ENV CUDNN_VERSION=8.0.5.39-1+cuda11.0
+ENV NCCL_VERSION=2.8.3-1+cuda11.0
 
 ARG python=3.7
 ENV PYTHON_VERSION=${python}
+
+# LD_LIBRARY_PATH is set incorrectly for legacy compatibility; see https://gitlab.com/nvidia/container-images/cuda/-/issues/47
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib:/usr/local/cuda/lib64:/usr/local/cuda/lib64/stubs
+
+# Solution to "Couldn't open CUDA library libcuda.so" at https://github.com/tensorflow/tensorflow/issues/4078
+
 
 # Set default shell to /bin/bash
 SHELL ["/bin/bash", "-cu"]
@@ -46,10 +54,10 @@ RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
 # Install TensorFlow, Keras, PyTorch and MXNet
 RUN pip install future typing
 RUN pip install numpy \
-        ${TENSORFLOW_PIP}==${TENSORFLOW_VERSION} \
         keras \
         h5py
 
+RUN pip install ${TENSORFLOW_PIP}==${TENSORFLOW_VERSION}
 RUN pip install torch==${PYTORCH_VERSION} torchvision==${TORCHVISION_VERSION}
 
 # Install Open MPI
@@ -64,11 +72,9 @@ RUN mkdir /tmp/openmpi && \
     ldconfig && \
     rm -rf /tmp/openmpi
 
-# Install Horovod, temporarily using CUDA stubs
-RUN ldconfig /usr/local/cuda/targets/x86_64-linux/lib/stubs && \
-    HOROVOD_GPU_ALLREDUCE=NCCL HOROVOD_GPU_BROADCAST=NCCL HOROVOD_WITH_TENSORFLOW=1 HOROVOD_WITH_PYTORCH=1 \
-         pip install --no-cache-dir horovod==${HOROVOD_VERSION} && \
-    ldconfig
+# Install Horovod, no CUDA stubs needed because we set LD_LIBRARY_PATH
+RUN HOROVOD_GPU_ALLREDUCE=NCCL HOROVOD_GPU_BROADCAST=NCCL HOROVOD_WITH_TENSORFLOW=1 HOROVOD_WITH_PYTORCH=1 \
+    pip install --no-cache-dir horovod==${HOROVOD_VERSION}
 
 # Install OpenSSH for MPI to communicate between containers
 RUN apt-get install -y --no-install-recommends openssh-client openssh-server && \
@@ -112,6 +118,7 @@ RUN mkdir -p /root/.ssh/ && \
     ssh-keygen -q -t rsa -N '' -f /root/.ssh/id_rsa && \
     cp /root/.ssh/id_rsa.pub /root/.ssh/authorized_keys && \
     printf "Host *\n  StrictHostKeyChecking no\n" >> /root/.ssh/config
+
 RUN pip install --no-cache-dir \
     mpi4py==3.0.3 \
     sagemaker-training==3.7.2
@@ -121,16 +128,6 @@ RUN pip install --no-cache-dir \
     datasets==1.2.1 \
     tokenizers==0.9.4 \
     sentencepiece==0.1.95
-    # git+https://github.com/huggingface/transformers.git@master \
-    # git+https://github.com/huggingface/nlp.git@703b761
-
-# Install tokenizers from master source
-# RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
-# ENV PATH="$HOME/.cargo/bin:$PATH"
-# RUN git clone https://github.com/huggingface/tokenizers /root/tokenizers && \
-#     cd /root/tokenizers/bindings/python
-# RUN PATH="$HOME/.cargo/bin:$PATH" pip install setuptools_rust
-# RUN cd /root/tokenizers/bindings/python && PATH="$HOME/.cargo/bin:$PATH" python setup.py install
 
 ###### Modifications specifically for EC2 connected to FSx for Lustre are below
 # When you use `docker run`, you'll need to run two commands manually:

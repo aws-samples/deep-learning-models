@@ -118,7 +118,7 @@ def train_step(model, optimizer, batch) -> List[tf.Tensor]:
             "token_type_ids": batch[0]["token_type_ids"],
         }
         outputs = model(input_dict, training=True)
-        start_logits, end_logits = outputs[0], outputs[1]
+        start_logits, end_logits = outputs.start_logits, outputs.end_logits
         loss, acc, exact_match, precision, recall = loss_fn(
             start_logits=start_logits,
             end_logits=end_logits,
@@ -158,7 +158,7 @@ def validation_step(model, batch) -> List[tf.Tensor]:
         "token_type_ids": batch[0]["token_type_ids"],
     }
     outputs = model(input_dict, training=False)
-    start_logits, end_logits = outputs[0], outputs[1]
+    start_logits, end_logits = outputs.start_logits, outputs.end_logits
     loss, acc, exact_match, precision, recall = loss_fn(
         start_logits=start_logits,
         end_logits=end_logits,
