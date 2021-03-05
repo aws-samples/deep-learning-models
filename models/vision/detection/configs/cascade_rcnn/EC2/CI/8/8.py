@@ -1,7 +1,7 @@
-base_files = ['../../../common/sagemaker_1x8.py',
-              '../../../common/datasets/coco.py',
-              '../../../common/lr_policy.py',
-              '../../../common/runtime.py',]
+base_files = ['../../../../common/sagemaker_1x8.py',
+              '../../../../common/datasets/coco.py',
+              '../../../../common/lr_policy.py',
+              '../../../../common/runtime.py',]
 
 # model settings
 model = dict(
