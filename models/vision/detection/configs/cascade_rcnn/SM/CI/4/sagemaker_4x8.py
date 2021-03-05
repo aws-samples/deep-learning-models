@@ -11,8 +11,7 @@ date_str = now.strftime("%d-%m-%Y")
 sagemaker_user=dict(
     user_id='CI',
     s3_bucket='mzanur-sagemaker',
-    #docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/mzanur-awsdet-ecr:awsdet',
-    docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/ci-cv:sm23',
+    docker_image='578276202366.dkr.ecr.us-east-1.amazonaws.com/mzanur-awsdet-ecr:awsdet',
     hvd_processes_per_host=8,
     hvd_instance_type='ml.p3.16xlarge', #'ml.p3dn.24xlarge',
     hvd_instance_count=4,
@@ -41,7 +40,7 @@ channels=dict(
 
 job_str='{}x{}-{}'.format(sagemaker_user['hvd_instance_count'], sagemaker_user['hvd_processes_per_host'], time_str)
 sagemaker_job=dict(
-    s3_path='s3://{}/cascade-rcnn/outputs/{}'.format('anubis-playground', time_str),
+    s3_path='s3://{}/cascade-rcnn/outputs/{}'.format(sagemaker_user['s3_bucket'], time_str),
     job_name='{}-crcnn-{}'.format(sagemaker_user['user_id'], job_str),
     output_path='',
 )
