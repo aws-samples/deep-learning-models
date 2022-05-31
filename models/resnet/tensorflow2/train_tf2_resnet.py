@@ -40,6 +40,7 @@ import tensorflow as tf
 import horovod.tensorflow as hvd
 from tensorflow.python.util import nest
 import argparse
+from packaging import version
 from time import time, sleep
 
 @tf.function
@@ -59,6 +60,10 @@ def data_gen():
         image = tf.random.uniform(input_shape)
         label = tf.random.uniform(minval=0, maxval=999, shape=[1], dtype=tf.int32)
         yield image, label
+
+def tf_version_greater_than_or_equal(target_version):
+    current_version = tf.__version__
+    return version.parse(current_version) >= version.parse(target_version)
 
 def create_data(data_dir = None, synthetic=False, batch_size=128):
     if synthetic:
@@ -136,7 +141,11 @@ def main():
     model = tf.keras.applications.ResNet50(weights=None, classes=1000)
     opt = tf.keras.optimizers.SGD(learning_rate=FLAGS.learning_rate * hvd.size(), momentum=0.1)
     if not FLAGS.fp32:
-        opt = tf.keras.mixed_precision.experimental.LossScaleOptimizer(opt, loss_scale="dynamic")
+        if tf_version_greater_than_or_equal('2.9.0'):
+            # TF v2.9 and above drops experimental module from tf.keras.mixed_precision
+            opt = tf.keras.mixed_precision.LossScaleOptimizer(opt)
+        else:
+            opt = tf.keras.mixed_precision.experimental.LossScaleOptimizer(opt, loss_scale="dynamic")
     loss_func = tf.keras.losses.SparseCategoricalCrossentropy()
 
     loop_time = time()
