@@ -42,6 +42,8 @@ import horovod.tensorflow as hvd
 from tensorflow.python.util import nest
 import argparse
 from time import time, sleep
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 
 @tf.function
 def parse(record):
@@ -139,9 +141,11 @@ def main():
     FLAGS, unknown_args = cmdline.parse_known_args()
     ds = create_data(FLAGS.data_dir, FLAGS.synthetic, FLAGS.batch_size)
     model = tf.keras.applications.ResNet50(weights=None, classes=1000)
-    opt = tf.keras.optimizers.SGD(learning_rate=FLAGS.learning_rate * hvd.size(), momentum=0.1)
+    if Version(tf.__version__) in SpecifierSet("<2.11.0"):
+        opt = tf.keras.optimizers.SGD(learning_rate=FLAGS.learning_rate * hvd.size(), momentum=0.1)
+    else:
+        opt = tf.keras.optimizers.legacy.SGD(learning_rate=FLAGS.learning_rate * hvd.size(), momentum=0.1)
     loss_func = tf.keras.losses.SparseCategoricalCrossentropy()
-
     loop_time = time()
     if hvd.local_rank() == 0:
         print("Step \t Throughput \t Loss")
